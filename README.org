@@ -1,0 +1,952 @@
+More performance oriented than scheme, less performance oriented than common lisp
+- Support continuations (hygenic or non-hygenic macros?)
+- Lisp-2 over Lisp-1
+
+#+BEGIN_SRC lisp
+(fun add ([x fun] [y fun])
+  (+ x y))
+;; function calls can types to specify which namespace to lookup from
+;; how would that work for an "any" type? lookup a function vs value?
+;; if the type corresponds to multiple 
+;;
+;; types can specify the namespace they use?
+
+(fn get-type ([x type])
+  )
+(get-type asdf)
+
+;; with -- a let but it can be anything 
+(with ((val a 3)
+       (fn wjef (a b) (+ a b)))
+  )
+
+;; or try to lift definitions up to the top level so you don't have to type "let" or "with"
+((var a 3)
+ (fun oijwef (a b))
+ (oijwef a 1))
+
+(val a 9
+  "woiefjwoeijfwoeifj")
+
+(let ((a 3) ;; adds a to the val namespace because it saw a was a val, not a fun
+      (b (fn x () 3))) ;; adds b to the fun namespace, because let saw that the type of b is fun
+  (+ a (b))) ;; using b without calling it would result in a lookup error "No value exists with name b in 'val' namespace."
+             ;; calling a would result in a lookup error "No value exists with name a in 'fun' namespace"
+
+;; Why not take it to the extreme and have a namespace for each type then?
+;;
+;; only weird part is sub types -- what namespace does "any" have? I guess you would look up in all
+;; namespaces. but which one would you start with? what if there is more than one?
+;;
+;; (flo sdf 3)
+;; (fix oiw 2)
+;; (num asf 9)
+;;
+;; What if you: (set sdf "string") ?? That would be illegal? Or would it just move "sdf" to the str namespace?
+
+(fn add ([x (or flo num)] [y (or flo num)])
+  (+ x y))
+
+(num n0 1)
+(num n1 2)
+(add n0 n1) ; there does not exist a flo n0
+
+(fix n0 1)
+(num n0 2)
+(add n0 n0) ; there are two values for parameter ...
+
+;; this is a mess
+
+;; how about namespaces for different things
+;; like a namespace for numbers, strings, functions
+;; flo/fix can both be put into the num one
+
+(def n0 3)
+(flo n0 3.2) ; error: the namespace "num" already contains an item for n0
+
+(def n1 8)
+(fun n1 (x) x) ; OK. nothing wrong here
+
+(def n3 "owiefowiejf")
+(fix n3 93)
+
+(print n3) ; error: 
+
+(def what (either-string-or-number))
+
+(def n0 3)
+(def n1 9)
+
+(fun asdf ()
+  (let ((a 3.0)
+        (b 4))
+    (+ a b)))
+  
+;; one namespace that allows the same identifier but every call does dynamic dispatch?
+;; function call with paren is implicitly [fun] &rest [any]
+;; values would be unique on their name+concretetype
+;;
+;; e.g. you could have num a=2 and str a="owiejf"
+;; when you call (+ a 3) it would pick 2
+;; what if + is overloaded to accept strings too? 
+;;
+;; (+ id id)
+
+(def a (arr 1 2 3))
+(set (get a 3) 9)
+(vec 1 2 3)
+
+(fun a (a b c d) d)
+(val a (arr 1 2 3 4))
+(val b 39)
+
+#+END_SRC
+
+
+#+BEGIN_SRC lisp
+(type asdf (x))
+(atp array (x))
+
+#+END_SRC
+
+Dynamicly typed LISP that uses multiple dispatch for everything, has continuations, and multiple namespaces. 
+The type system supports abstract types where type parameters can be specified.
+Sub-typing is supported?
+Yup its slow, but the idea is that any fast code would use C FFI.
+
+#+BEGIN_SRC lisp
+(fun one () 1)
+(fun test-1 (x) (+ x 1))
+(fun test-2 ([x num] [y num]) (+ x y))
+(fun test-n (...[xs (list num)]) (apply '+ xs))
+
+#+END_SRC
+
+Modules are a collection of symbols. Files can define any number of modules.
+
+#+BEGIN_SRC 
+(use 'asdf) ;; all functions from 'asdf are now available
+(mod vec2
+  )
+
+#+END_SRC
+Overloading issue.. if "get" works on both modules and values, how does bug know what to do?
+Solution, add a (mod-val) to convert the module into the value field then do (get), and define (get) to only work with values.
+Or remove the module namespace, and have it exist with values
+Or define a new operation just for getting values out of a module (vec2:add (vec2:vec2 3 4) (vec2:vec2 4 5))
+
+(rec vec3 (num num num))
+
+Builtin modules have special name...
+
+Algebraic data types vs Abstract Type & Records 
+#+BEGIN_SRC 
+(use 'asdf) ;; all functions from 'asdf are now available
+(mod trees
+
+  (atp bin-tree (any)) ;; abstract type - you cannot instantiate it
+  (rec bin-node bin-tree
+    ([val t] [left (tree t)] [right (tree t)]))
+  (rec leaf (bin-tree) ())
+  
+  (adt (bin-tree t)
+    (node [val t] [left (bin-tree t)] [right (bin-tree t)])
+    (leaf))
+    
+  (adt day (mon) (tues) (wed) (thurs) (fri) (sat) (sun))
+  
+  (rec vec2 ([x num] [y num]))
+
+  (rec (bin-tree t))
+  (rec (bin-node t) (bin-tree t) ;; t is passed from bin-node to bin-tree?
+    ([val t] []))
+  (rec (leaf) (bin-tree t) ()) ;; if t isn't passed in, just assumes t is satisfied??
+
+  (let ((a node.left))
+    )
+
+
+
+(adt (tree t)
+  ([val t] []))
+  
+  (make <bin-node int> 1 (leaf) (leaf))
+
+   )
+
+#+END_SRC
+
+(rec vec2 () 
+  ([x num] [y num]))
+
+(vec2 3 2)
+
+(fun asdf ([x num] [y num])
+  (+ asdf))
+
+(rec vec2 ([x num] [y num]))
+(rec (pair t v) 
+  ([x t] [y v]))
+
+(rec <tree t> ()
+  ([val t] [items t]))
+
+(new tree 1 2 3) ;; new creates a record (note the second argument must have a record value)
+;; there should be some way of overriding the new behavior
+
+;; sometimes the record stores things in a different format than the record (view model vs model)
+;; also needs some way of overriding setters/getters
+
+;; Generic syntax for functions:
+(fun new <t> ([val t] [left t] [right t])
+  )
+
+(fun new <t> ([val t] [left t] [right t]) 
+  )
+
+(set x vec2 "woefij") ;; Error
+
+
+(fun add )
+
+;; You can use (rec something) to lookup a record value
+;; and (fun something) to lookup the function value
+
+(new tree 1 (arr 1 2))
+
+(fun + ([x (tree add)] [y (tree num)])
+  )
+
+#+BEGIN_SRC lisp
+#+END_SRC
+
+No type parameters.
+
+Skip types on records.
+
+(rec tree (val left right))
+(rec vec2 (x y))
+
+How to implement generic sequences? duck typing (needs a next method)
+
+(ext vec2 ;; ext stands for "extend" it binds & to the given record type 
+  (rec & (x y))
+  (fun + ((v0 &) (v1 &)) ;; & shorthand for "last the last referenced record"
+    (new & (+ v0.x v1.x) (+ v0.y v1.y))
+  (fun + ((v &) (x num))
+    )
+  (fun + ((x num) (v &)) (+ v n)))
+
+(mod tree
+  (rec tree (val left right))
+  (fun find ((t tree) (f fun))
+    ...)
+  (fun + ((t tree) (n num))
+    ...))
+
+;; dispatcher should look for structural equality instead of types 
+;; should allow for builtin to convert one type to be compatible as another
+;; for example, if we have a tree as cons cells, there should be a way to pass
+;; it in where a (rec tree (val left right)) is expected.
+
+;; how does dynamic dispatch work when you want to define some generic operation?
+(fun collect ((s seq))
+  ...)
+(collect (tree 1 nil nil)) ;; this should work
+;; how does the dispatcher know that "tree" is a valid parameter for "seq"?
+;; "seq" has to be defined as something that has a next fun
+
+;; allow for stubs
+(atp seq)
+(fun next ((s seq))) ;; because seq is unbound this is the one we are defining
+;; an iterable is something that has a next method
+
+;; what if there are two funs that match the same type?
+(fun collect ((s seq))
+  ...)
+(fun collect ((s list))
+  ...)
+;; if passed a list which one is called? they are both seq.
+;; we could default to choosing the one that matches exactly. otherwise choose whichever was defined last or error.
+
+;; what if both of them are ducs?
+(fun collect ((s seq1))
+  ...)
+(fun collect ((s seq2))
+  ...)
+;; choose which ever was defined last, or error.
+
+;; always write ducs to be as minimal as possible. provide some way of combining ducs definitions together.
+
+;; how to fit any type as a custom type (like tree)?
+(find (tree 1 (tree 3 nil nil) nil) 
+      (fun (x) (> x 1)))
+(find '(1 '(3))
+      (fun (x) (> x 1)))
+;; the obvious answer is to pass functions in
+;; or you could say cons implements btree
+(imp btree val ((c cons)) (car c))
+(imp btree left ((c cons)) (caar c))
+(imp btree right ((c cons)) (caar c))
+
+;; Then when any fun accepts something as an argument that is a duc or not the exact type, it looks in the "imp" section.
+;; (left '(1 2 3)) should not be valid, but in the context of a btree it should be valid
+
+;; when talking about btrees, you can do these things for cons
+(ctx btree
+  (fun val ((c cons)) (car c))
+  (fun left ((c cons)) (car c))
+  (fun right ((c cons)) (caar c)))
+
+(fun find ((n num) (t btree))
+  ...)
+
+;; duck typing is cool, but causes a lot of pollution. anything you want to add a method you have to add that 
+;; method on the object. it doesn't make sense for cons to have a "val" and "left" method.
+
+(atp btree)
+(fun val ((t btree)))
+(fun left ((t btree)))
+(fun right ((t btree)))
+
+(imp btree val ((c cons)) (car c))
+(imp btree left ((c cons)) (car c))
+(imp btree right ((c cons)) (caar c))
+
+;; what if you want two different formats of cons to be supported by btree?
+
+;; dynamically typed, every function call uses multi-dynamic dispatch
+;; objects and types can implement interfaces which specify functionality for some type
+;; for example, if you have a binary tree called btree, you can pass in a cons representation
+;; like this:
+
+(imp btree '(1 (2 nil nil) nil)
+  (fun val ((c cons)) (car c))
+  (fun left ((c cons)) (car c))
+  (fun right ((c cons)) (caar c)))
+
+;; a btree function might look like this:
+
+(fun find ((t btree) (n num))
+  ...)
+
+;; it can be called like to find the node with the value of 2:
+
+(find 
+  (imp btree '(1 (2 nil nil) nil)
+    (fun val ((c cons)) (car c))
+    (fun left ((c cons)) (car c))
+    (fun right ((c cons)) (caar c)))
+  2)
+
+;; types can have default implementations of interfaces too
+
+(imp btree
+  (fun val ((c cons)) (car c))
+  (fun left ((c cons)) (car c))
+  (fun right ((c cons)) (caar c)))
+
+;; one nice feature to have is to make sure these imps only show up
+;; when the cons is being used as a btree
+;; for example, this should be invalid:
+
+(left '(1 2 3))
+
+;; this would be an improvement from something like python which would pollute the entire cons
+;; type with this new "left" method.
+
+;; You would need to say:
+
+(left (as btree '(1 2 3)))
+
+;; this converts the cons '(1 2 3) to a btree, so the "left" function is available
+;; this can be extended. it is important that "as btree '(1 2 3)" doesn't convert 
+;; the cons cell to a btree object, that it just reads it as normal (i.e. uses constant memory).
+
+(fun + (a b)
+  (+ a b))
+
+(rec vec2 (x y))
+
+;; what does seq look like?
+
+;; blueprints 
+(i seq next (seq))
+
+(fun + ((x num) (y num))
+  )
+
+(rec vec2 (x y))
+(set (get x v) 3)
+
+;; implement iter for vec2
+(fun eq ((v0 vec2) (v1 vec2)) 
+  (and (eq (x v0) (x v1))
+       (eq (y v0) (y v1))))
+
+(fun eq ((c0 cons) (c1 cons))
+  )
+
+;; Option one: explicitly declare a type a member of some class
+;;
+;; all records have a list of gens that it implements
+;; it is up to each implementation to declare that it implements a gen
+;; this is necessary for the multiple dispatch to know that vec2 is one of those gens
+(add (get gens vec2) seq)
+;;               ^---- needs to lookup the record value
+;; this can be simplified by using some builtin like this:
+(dec vec2 seq) ;; declares that vec2 implements seq
+;; does NOT isolate the implementations
+
+;; Option two: after every fun check if the class status of any types involved
+;; * requires defining all the required funs of the class 
+;; has changed. 
+;;
+;; does NOT isolate the implementations
+
+;; Option three: explicitly implement the class (basically option one and option two at the same time)
+;; * requires defining all the required funs of the class 
+;;
+;; can isolate the implementations
+
+(class monoid (iterable)
+  (empty )
+  (append ))
+
+(func )
+
+;; ability to override getters and setters:
+(func (get x) ((v vec2))
+  )
+(fun (set x) ((vec vec2) val)
+  (set x vec val)) ;; is there some more generic way to do this?
+
+;; option one is looking attractive.
+;;
+;; option three is the best, but requires a lot of work.
+
+
+;; option 3:
+;; define generics like this:
+;;
+;; list all generics that this one requires
+(fac eq (ord) ;; facet
+  ((= (eq eq))
+   (...)))
+
+(dat vec2 (x y))
+
+(fun + ())
+
+(fun map ((s seq) (f fun))
+  )
+
+(fun eq = ((v0 vec2) (v1 vec2))
+  )
+
+;; format:
+(fun [fac] name params 
+  body)
+
+;;
+;; What about predicate dispatch?
+;; 
+(fun = (v0 v1)
+    (and (type v0 num)
+         (type v1 num))
+  ())
+(fun = (v0 v1) same-type
+  ())
+
+(fun = (v0:() v1)
+  ())
+
+(fun same-type (v0 v1)
+  (= (type v0) (type v1)))
+
+(fun = (let ((v0 car) (v1 caar)))
+  )
+
+(fn ( (let x (= x vec2)) (let y (= y vec2)))
+  )
+
+(form ('eq x y))
+    )
+
+(form ('eq x y))
+    )
+
+(fn eq (x y) 
+    (and (is vec2 x)
+         (is vec2 y))
+  )
+
+(fn eq (x y) 
+    (and (is vec2 x)
+         (is vec2 y))
+  )
+
+(fn eq (x y) 
+    (and (is seq x)
+         (is seq y))
+  )
+
+(bind x (name blah blah)
+  )
+
+(fn fib (x@num) () (+ (fib (- 2 x)) (fib (- 1 x))))
+(fn fib (x@num) (< x 2) x)
+
+(fn fib ((@ x (is x num)) 
+         (@ y (is y num)))
+  )
+
+(fn some-math 
+      ((@ x (@ (car x) y )) (@ y (and (is y num))))
+    (+ x y))
+
+;; (@ name body) binds the name for all other @s and the function body
+
+(fn add
+      ((@ x (car *))
+       (@ y (caar *)))
+    (+ x y))
+
+;; (@ obj sym ?body) 
+;;
+;; every use of @ can increment something that gets the next "car"
+
+(fn add ((x y)
+          (bind (car x) blah)
+          (and (is x num)
+              (is y num)))
+    (+ x y))
+
+(form (x y)
+  )
+
+(form ((@ x "oiweur") (@ y "owieur") (@ z "oiwjef")
+       (default x )
+       (optional z)
+       ())
+  )
+
+(fn ((pm x)
+     (pm y)
+     (kw)
+    )
+)
+
+(. is ((. x (= x 'seq))
+       y)
+  )
+
+(is seq )
+
+(case x ()
+  )
+
+(form (n x y) 
+    (> x 0)
+  (print "overrun"))
+
+(fun )
+
+(cls eq
+  )
+
+(pred type ())
+
+
+;; functions as records
+
+(dat fn (params body)) ;; params is a fn and body is a fn
+;; params takes the args list, body takes 
+;; there should be a nil fn that stops the chick prob
+(make fn ())
+;; params is either a fn or a sym
+;; chicken and egg problem
+
+;; expose namespaces and choose which to store in
+
+(def fn asdf )
+(def val x 3)
+
+(nam fn)
+(fun wef )
+(var a 2)
+
+(lup fn wef)
+
+(fn asdf ()
+  )
+
+(get )
+
+(. asdf (. @ 
+          ))
+;; bindings
+;; tests
+
+(a 2)
+
+(fn a (fn b (+ a b)))
+
+;; functions are just like cons/car (dat fn (params body))
+;; but one cons cell represents one function
+;; and the last function returns the value
+
+(a b (+ a b))
+
+[a b (+ a b)]
+
+[a 3]
+
+;; square brackets define functions, round paren call functions
+
+([a 3])
+
+([x y (+ x y)] 2 3)
+;; just a syntax difference
+;; works the same as (lambda (x y z) ...)
+
+(fn asdf (bind (src) (x y)
+          (and (is num x) 
+               (is num y))
+  )
+;; src a function that returns the cons list that called this function (to extract args)
+
+(blah (asdf 1 2))
+
+;; idea:
+;; make very general (and slow, and dangerous) dispatch system
+;; that can be made faster and less dangerous later
+;;
+;; define special form called "form" which can generalize functions
+;;
+;; fexpr + predicate dispatch
+(fx 
+  ;; bind/test:
+  ((= (car @) (' fn)) ;; must start with a fn symbol
+   ())
+  ;; body:
+  ())
+
+;; definition of ' form (quote)
+(fx ' (bind sym (caar @)) sym)
+
+;; fx has access to the unevaluated input, it must call eval during binding
+;; how to extend existing "fx"? like setters and getters?
+
+(fx ' (bind sym (caar @)) sym)
+
+;; what if there is a general fx for something
+;; and then a more specific one is added?
+(fx ok () (' meh))
+;; any (ok) evaluates to the symbol: meh
+
+(fx ok () (' meh))
+
+;; (fx <test/bind> <body>) body has an implicit progn
+
+(pro asdf)
+
+;; how to get duck typing to work
+;;
+;; everything above is too complicated
+
+;; multidispatch on types is enough to get the polymorphism that I wanted (iterables)
+
+((a 1)
+ (c d))
+
+;; iteration over arrays/vectors should be the same
+;; 
+;; should they?
+
+((a 1)
+ (b 2)
+ (c 3))
+
+;; strictly follow (sym ...args) 
+
+(var x )
+
+;; datatypes
+;;
+;; All datatypes are also cons so you can do regular car/cdr on them
+(record person ()
+  ((name "Default Name")
+   (age "Default Age")))
+
+(record person (...record to copy from...))
+(field person name (...field to copy from...)
+  ((default "oiwjef")
+   (optional true)))
+(field person )
+(derive person (new str)) ;; adds the default implementations for `new` and `str` for person 
+
+(record person ()
+  ((name "Default Name")
+   (age "Default Age")))
+
+(var ((name "wef")
+      (age "bugri")))
+
+(record 5list () 
+  (a b c d e i))
+
+(interface eq
+  )
+
+(implement eq 5list
+  )
+
+;; how about the prototype idea?
+
+(obj list5 (a b c d e))
+
+;; obj has no prototype?
+;; prototype does more than what I want
+;; prototype does full inheritance of fields
+
+;; I just want some object that can contain the implementation of interfaces
+
+(record my-list (a b c d e f))
+
+;; every my-list that is created comes with an extra hidden property that
+;; links the object back to the my-list record definition
+
+(record person (name age))
+(set eq )
+
+(make person "Adam" 13) ;; => ((record person) 
+                               (fields (name "Adam") (age 13)))
+
+    
+
+;; when eq is called on a person, it would check the type of the object. we know what to do with typical causes
+;; but if it is a record, we will look up the first item in the cons list and see if it has a "eq" implementation
+
+;; the derived "new" just takes in all the record's values 
+;; derived str has some default formatting 
+
+(fun (new person) )
+
+;; this is conceptually what cons would be defined as
+;; (rec cons (car cdr))
+
+(rec person (name age)) ;; without default args
+
+;; values can be gotten out of the records 
+
+;; you can specify it without a name. this is the same as
+;; (quote ((name "owijef")))
+(rec ((name "oiwje")))
+
+;; (new person (1 (age 8)))
+
+
+;; how about every cons cell has a user settable type 
+;; this way the "record" keyword could go away, and everything could be alists
+;;
+;; you would say something like:
+(type person ((name "wef"))) ;; puts the trust in the user to type the right thing
+
+;; or no types and everything is based off structure
+
+(type person (name age)) ;; a person has a name and an age
+
+;; this is a valid person:
+
+((name "woeij")
+ (age 33))
+
+;; what if something else has
+(type dog (name age fur))
+
+;; is ((name "asdf") (age 33)) a dog or person?
+
+(fun iter (a)
+  (if (typep a record) ;; this boilerplate could be extracted to be a function call/macro
+    (if (record-implements iter)
+      ...get the implementation and call it...))) ;; OK what if there are two things to dispatch on?
+
+;; like eat((veggie veggie) (utensil utensil))?
+(fun eat (veggie utensil)
+  )
+
+;; needs this dispatch function:
+(dispatch a eat)
+
+;; no need for any "interface" or "implementation"
+
+(class eq
+  (= (a b)))
+
+;;
+;;
+;;
+
+(get a x)
+(get b x)
+
+(func + (a b)
+  )
+
+(fun do-it (x)
+  (send x eat 1 2 3))
+
+(do-it frog)
+
+(class frog (()))
+(method frog eat ()
+  (spit-it-out))
+
+(class frog (()))
+(method frog eat ()
+  (spit-it-out))
+
+(class dog (()))
+(method dog eat ()
+  )
+
+;; I don't like the class/method way it introduces too much overhead for the programmer
+;; you have to think to do "send" for method calls. this is more performant, but i want
+;; functions to be selected based on which arguments they accept too
+;;
+;; (= 3) and (= 1 2) could choose different functions
+
+;; seems like multidispatch will be good
+
+;; how to ask if something implements a certain feature?
+;;   check if it has the methods
+
+(fun eq (())
+  )
+
+;; every function call is a multidispatch no subtyping
+
+;; how to accept arguments that should have features?
+;; just take them in and call on them. write a comment about it
+;;
+;; overriding getters/setters?
+
+;; precidence is just textual whichever was defined first
+
+;; multidispatch has too many weird cases.
+;;
+;; what if two methods match and are basically the same
+;; 
+;; single dispatch the methods could be stored directly on some prototype-like object
+
+;; how about every call is a single dispatch?
+
+(fun normal (a b ) a)
+
+(class person
+  (()))
+
+(method person eat ()
+  )
+
+;; getter: (get person name)
+(method person get (name)
+  )
+
+;; setter (set person )
+(method person set (name val)
+  )
+
+(set p0 'name "a")
+(set p1 'name "b")
+
+(set arr i 5) ;; i don't think this is how it should work confuses the items in the array with any meta data  (like length -- but length isn't settable anyway)
+
+(idx arr 3)
+
+;;
+
+((x 1) (y 2))
+
+(record cons (car cdr))
+(fun (new cons) (car cdr)
+  )
+(fun (set y) )
+(record vec2 (x y))
+
+;; each record chooses how the representation is
+
+(fun vec2 (x y)
+  (arr x y))
+
+(con alist (xs) ;; constructor -- makes a type and a function
+  xs)
+(fun get ((xs alist) x)
+  )
+(fun set ((xs alist) x y)
+  )
+(ovr (get x) ())
+(fun )
+
+(class vec2 () (x y))
+
+(generic + (x y))
+(method + ((x vec2) (y vec2)))
+(method + ((x vec2) (y num)))
+
+(class cons () (car cdr))
+
+(generic car (c))
+(method car ((c cons))
+  (value car c))
+
+(generic cdr (c))
+(method cdr ((c cons))
+  (value cdr c))
+(getter cons car) ;; creates the boiler plate generic above
+
+(method cdr ((c cons))
+  (value cdr c))
+
+(getter cons cdr) ;; creates the boiler plate generic above
+
+;; setters
+(setter car (c cons) val
+  ...)
+(setter cdr (c cons) (val num)
+  ...)
+
+;; getters
+(getter car (c cons)
+  (slot-value c car))
+(getter cdr (c cons)
+  (slot-value c cdr))
+
+(set (car (cons 1 2)) 4) ;; the right part of the set has to be eval'd
+
+;; (value) evaluates the rhs
+
+(setter car (c cons) val
+  )
+
+;; must call get/set to access getters/setters
+
+
+;; slots can be public or private
+;; public means that a getter is created for them automatically
+;; private means that no getter is created automatically 
+;; 
+;; either way you can get the value via "value", but it is convention to not do so
+;; unless you are the one implementing the class
+;;
+;;
+
+(constructor (c cons) (car cdr)
+  (set (car c) car)
+  (set (cdr c) cdr))
+
+;; c.car = car
+
+;; classes/methods is too hard to implement right away
+;; its best to get something working with basic functions first
