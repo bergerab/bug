@@ -950,3 +950,26 @@ How to implement generic sequences? duck typing (needs a next method)
 
 ;; classes/methods is too hard to implement right away
 ;; its best to get something working with basic functions first
+
+struct marshaled_fixnum {
+  uint32_t type; /** type_fixnum */
+  uint32_t count; /** the number of bytes */
+  uint8_t bytes; /** the number in a binary format */
+};
+
+struct marshaled_flonum {
+  uint32_t type; /** type_flonum */
+  struct marshaled_fixnum lhs; /** the number to the left of the decimal point */
+  struct marshaled_fixnum rhs; /** the number to the right of the decimal point */
+};
+
+struct marshaled_byte_array {
+  uint32_t type; /** type_byte_array */
+  struct marshaled_fixnum length;
+  uint8_t bytes[]; /** the number to the right of the decimal point */
+};
+
+struct marshaled_string {
+  uint32_t type; /** type_string */
+  struct marshaled_byte_array length;
+};

@@ -1,6 +1,35 @@
 typedef int fixnum_t;
 typedef float flonum_t;
 
+#define FIXNUM_VALUE(o)\
+ o->w1.value.fixnum
+
+#define FLONUM_VALUE(o)\
+ o->w1.value.flonum
+
+#define ARRAY_LENGTH(o)\
+  o->w1.value.array->length
+
+#define ARRAY_VALUES(o)\
+  o->w1.value.array->values
+
+#define BYTE_ARRAY_LENGTH(o)\
+  FIXNUM_VALUE(o->w1.value.byte_array->length)
+
+#define BYTE_ARRAY_BYTES(o)\
+  o->w1.value.byte_array->bytes
+
+#define STRING_LENGTH(o)\
+  BYTE_ARRAY_LENGTH(o)
+
+#define STRING_CONTENTS(o)\
+  BYTE_ARRAY_BYTES(o)
+
+#define FILE_FP(o)\
+ o->w1.value.file->fp
+
+#define BC_VERSION 0
+
 enum ops {
   op_drop,
   op_dup,
@@ -30,7 +59,8 @@ enum type {
   type_string = 32,
   type_package = 36,
   type_byte_array = 40,
-  type_bytecode = 44 
+  type_bytecode = 44,
+  type_file = 48
 };
 
 union value {
@@ -41,6 +71,7 @@ union value {
   struct symbol *symbol;
   struct bytecode *bytecode;
   struct package *package;
+  struct file *file;
 };
 
 union w0 { /** The first word of an object. */
@@ -65,7 +96,7 @@ struct array {
 
 struct byte_array {
   struct object *length; /** the number of items in the byte-array (a fixnum) */
-  uint8_t *bytes; /** the contents of the byte-array */
+  char *bytes; /** the contents of the byte-array */
 };
 
 struct symbol {
@@ -81,6 +112,24 @@ struct package {
 struct bytecode {
   struct object *code; /** the code (a byte-array) */
   struct object *constants; /** an array of constants used within the code (an array) */
+};
+
+struct file {
+  struct object *path; /** the path to the file that was opened */
+  struct object *mode; /** the mode the file was opened as */
+  FILE *fp; /** the file pointer */
+};
+
+/* Not an object in the bytecode, just used for documentation */
+struct bytecode_file_header {
+  /* header section - 128 bits */
+  uint8_t magic[4]; /** the ascii string "bug\0" */
+  uint32_t version; /** the version of bytecode this is */
+  uint8_t word_size; /** how many bytes are in a word */
+  uint8_t pad[3 + 4];
+
+  /* bytecode */
+  struct object bytecode;
 };
 
 /**

@@ -1,6 +1,7 @@
 {
   "files.associations": {
     "type_traits": "c",
-    "cmath": "c"
+    "cmath": "c",
+    "limits": "c"
   }
 }
