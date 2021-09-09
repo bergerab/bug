@@ -13,11 +13,16 @@
 
 #define RUN_TIME_CHECKS
 
+#define DEFAULT_INITIAL_CAPACITY 100
+
 #ifdef RUN_TIME_CHECKS
 #define TC(name, argument, o, type) type_check(name, argument, o, type)
+#define TC2(name, argument, o, type0, type1) type_check_or2(name, argument, o, type0, type1)
 #define SC(g, name, n) stack_check(g, name, n)
 #else
 #define TC(name, argument, o, type) \
+  {}
+#define TC2(name, argument, o, type0, type1) \
   {}
 #define SC(g, name, n) \
   {}
@@ -29,6 +34,9 @@
     return NULL;       \
   }
 
+/* UTIL */
+double log2(double n) { return log(n) / log(2); }
+
 char *get_type_name(enum type t) {
   switch (t) {
     case type_cons:
@@ -39,16 +47,16 @@ char *get_type_name(enum type t) {
       return "flonum";
     case type_symbol:
       return "symbol";
-    case type_array:
-      return "array";
+    case type_dynamic_array:
+      return "dynamic-array";
     case type_package:
       return "package";
     case type_string:
       return "string";
     case type_bytecode:
       return "bytecode";
-    case type_byte_array:
-      return "byte-array";
+    case type_dynamic_byte_array:
+      return "dynamic-byte-array";
     case type_file:
       return "file";
   }
@@ -64,6 +72,17 @@ void type_check(char *name, unsigned int argument, struct object *o,
         "BC: Function \"%s\" was called with an invalid argument "
         "at index %d. Expected type %s, but was %s.\n",
         name, argument, get_type_name(type), get_type_name(o->w0.type));
+    exit(1);
+  }
+}
+
+void type_check_or2(char *name, unsigned int argument, struct object *o,
+                enum type type0, enum type type1) {
+  if (o->w0.type != type0 && o->w0.type != type1) {
+    printf(
+        "BC: Function \"%s\" was called with an invalid argument "
+        "at index %d. Expected either %s or %s, but was %s.\n",
+        name, argument, get_type_name(type0), get_type_name(type1), get_type_name(o->w0.type));
     exit(1);
   }
 }
@@ -129,53 +148,35 @@ struct object *intern(struct gis *g, struct object *string) {
   return 0;
 }
 
-struct object *array(struct object *length) {
-  fixnum_t i = 0;
-  fixnum_t length_fix = length->w1.value.fixnum;
-  struct object *o = object(type_array);
-  NC(o, "Failed to allocate array object.");
-  o->w1.value.array = malloc(sizeof(struct array));
-  NC(o->w1.value.array, "Failed to allocate array.");
-  /* create a new fix the given one could be mutated: */
-  o->w1.value.array->length = fixnum(length_fix);
-  o->w1.value.array->values = malloc(length_fix * sizeof(struct object));
-  /* fill the array with nulls: */
-  for (; i < length_fix; ++i) o->w1.value.array->values[i] = 0;
+struct object *dynamic_array(fixnum_t initial_capacity) {
+  struct object *o = object(type_dynamic_array);
+  NC(o, "Failed to allocate dynamic-array object.");
+  o->w1.value.dynamic_array = malloc(sizeof(struct dynamic_array));
+  NC(o->w1.value.dynamic_array, "Failed to allocate dynamic-array.");
+  DYNAMIC_ARRAY_CAPACITY(o) = initial_capacity < 0 ? DEFAULT_INITIAL_CAPACITY : initial_capacity;
+  o->w1.value.dynamic_array->values = malloc(initial_capacity * sizeof(struct object));
+  NC(DYNAMIC_ARRAY_VALUES(o), "Failed to allocate dynamic-array values array.");
+  DYNAMIC_ARRAY_LENGTH(o) = 0;
   return o;
 }
 
-struct object *array_ref(struct object *array, struct object *index) {
-  TC("array_ref", 0, array, type_array);
-  TC("array_ref", 1, index, type_fixnum);
-  return array->w1.value.array->values[index->w1.value.fixnum];
-}
-
-struct object *byte_array(struct object *length) {
-  fixnum_t i;
-  fixnum_t length_fix;
+struct object *dynamic_byte_array(fixnum_t initial_capacity) {
   struct object *o;
-
-  TC("byte_array", 0, length, type_fixnum);
-
-  length_fix = length->w1.value.fixnum;
-
-  o = object(type_byte_array);
-  NC(o, "Failed to allocate byte-array object.");
-  o->w1.value.byte_array = malloc(sizeof(struct byte_array));
-  NC(o->w1.value.byte_array, "Failed to allocate byte-array.");
-  o->w1.value.byte_array->length =
-      fixnum(length_fix); /* create a new fix the given one could be mutated */
-  o->w1.value.byte_array->bytes = malloc(length_fix * sizeof(char));
-  NC(o->w1.value.byte_array->bytes, "Failed to allocate byte-array bytes.");
-  /* fill the byte-array with nulls */
-  for (i = 0; i < length_fix; ++i) o->w1.value.byte_array->bytes[i] = 0;
+  o = object(type_dynamic_byte_array);
+  NC(o, "Failed to allocate dynamic-byte-array object.");
+  o->w1.value.dynamic_byte_array = malloc(sizeof(struct dynamic_byte_array));
+  NC(o->w1.value.dynamic_byte_array, "Failed to allocate dynamic-byte-array.");
+  DYNAMIC_BYTE_ARRAY_CAPACITY(o) = initial_capacity < 0 ? DEFAULT_INITIAL_CAPACITY : initial_capacity;
+  DYNAMIC_BYTE_ARRAY_BYTES(o) = malloc(DYNAMIC_BYTE_ARRAY_CAPACITY(o) * sizeof(char));
+  NC(DYNAMIC_BYTE_ARRAY_BYTES(o), "Failed to allocate dynamic-byte-array bytes.");
+  DYNAMIC_BYTE_ARRAY_LENGTH(o) = 0;
   return o;
 }
 
 struct object *bytecode(struct object *code, struct object *constants) {
   struct object *o;
-  TC("bytecode", 0, code, type_byte_array);
-  TC("bytecode", 1, constants, type_array);
+  TC("bytecode", 0, code, type_dynamic_byte_array);
+  TC("bytecode", 1, constants, type_dynamic_array);
   o = object(type_bytecode);
   NC(o, "Failed to allocate bytecode object.");
   o->w1.value.bytecode = malloc(sizeof(struct bytecode));
@@ -186,15 +187,12 @@ struct object *bytecode(struct object *code, struct object *constants) {
 }
 
 struct object *string(char *contents) {
-  fixnum_t i = 0;
   struct object *o;
-  fixnum_t length_fix = strlen(contents);
-  struct object *length = fixnum(length_fix);
-  NC(length, "Failed to allocate string object's length.");
-  o = byte_array(length);
+  fixnum_t length = strlen(contents);
+  o = dynamic_byte_array(length);
   o->w0.type = type_string;
-  /* fill the byte-array with the characters from the string */
-  for (; i < length_fix; ++i) o->w1.value.byte_array->bytes[i] = contents[i];
+  memcpy(DYNAMIC_BYTE_ARRAY_BYTES(o), contents, length);
+  DYNAMIC_BYTE_ARRAY_LENGTH(o) = length;
   return o;
 }
 
@@ -241,6 +239,124 @@ struct object *open_file(struct object *path, struct object *mode) {
   free(path_cs);
   free(mode_cs);
   return o;
+}
+
+/*
+ * Dynamic Array
+ */
+struct object *dynamic_array_get(struct object *da, struct object *index) {
+  TC("dynamic_array_get", 0, da, type_dynamic_array);
+  TC("dynamic_array_get", 1, index, type_fixnum);
+  return DYNAMIC_ARRAY_VALUES(da)[FIXNUM_VALUE(index)];
+}
+struct object *dynamic_array_set(struct object *da, struct object *index, struct object *value) {
+  TC("dynamic_array_set", 0, da, type_dynamic_array);
+  TC("dynamic_array_set", 1, index, type_fixnum);
+  TC("dynamic_array_set", 2, value, type_fixnum);
+  DYNAMIC_ARRAY_VALUES(da)[FIXNUM_VALUE(index)] = value;
+  return NULL;
+}
+struct object *dynamic_array_length(struct object *da) {
+  TC("dynamic_array_length", 0, da, type_dynamic_array);
+  return fixnum(DYNAMIC_ARRAY_LENGTH(da));
+}
+struct object *dynamic_array_push(struct object *da, struct object *value) {
+  TC("dynamic_array_push", 0, da, type_dynamic_array);
+  if (DYNAMIC_ARRAY_LENGTH(da) >= DYNAMIC_ARRAY_CAPACITY(da)) {
+    DYNAMIC_ARRAY_CAPACITY(da) = DYNAMIC_ARRAY_CAPACITY(da) * 3/2.0;
+    DYNAMIC_ARRAY_VALUES(da) = realloc(DYNAMIC_ARRAY_VALUES(da), DYNAMIC_ARRAY_CAPACITY(da) * sizeof(char));
+    if (DYNAMIC_ARRAY_VALUES(da) == NULL) {
+      printf("BC: Failed to realloc dynamic-array.");
+      exit(1);
+    }
+  }
+  DYNAMIC_ARRAY_VALUES(da)[DYNAMIC_ARRAY_LENGTH(da)++] = value;
+  return NULL;
+}
+struct object *dynamic_array_pop(struct object *da) {
+  TC("dynamic_array_pop", 0, da, type_dynamic_array);
+  if (DYNAMIC_ARRAY_LENGTH(da) < 1) {
+    printf("BC: Attempted to pop an empty dynamic-array");
+    exit(1);
+  }
+  DYNAMIC_ARRAY_LENGTH(da)--;
+  return NULL;
+}
+struct object *dynamic_array_concat(struct object *da0, struct object *da1) {
+  struct object *da2; 
+
+  TC("dynamic_array_concat", 0, da0, type_dynamic_array);
+  TC("dynamic_array_concat", 1, da1, type_dynamic_array);
+
+  da2 = dynamic_array(DYNAMIC_ARRAY_CAPACITY(da0) + DYNAMIC_ARRAY_CAPACITY(da1));
+  memcpy(DYNAMIC_ARRAY_VALUES(da2), DYNAMIC_ARRAY_VALUES(da0), DYNAMIC_ARRAY_LENGTH(da0) * sizeof(char));
+  memcpy(&DYNAMIC_ARRAY_VALUES(da2)[DYNAMIC_ARRAY_LENGTH(da0)], DYNAMIC_ARRAY_VALUES(da1), DYNAMIC_ARRAY_LENGTH(da1) * sizeof(char));
+  return da2;
+}
+
+/*
+ * Dynamic Byte Array
+ */
+struct object *dynamic_byte_array_get(struct object *dba, struct object *index) {
+  TC2("dynamic_byte_array_get", 0, dba, type_dynamic_byte_array, type_string);
+  TC("dynamic_byte_array_get", 1, index, type_fixnum);
+  return fixnum(DYNAMIC_BYTE_ARRAY_BYTES(dba)[FIXNUM_VALUE(index)]);
+}
+struct object *dynamic_byte_array_set(struct object *dba, struct object *index, struct object *value) {
+  TC2("dynamic_byte_array_set", 0, dba, type_dynamic_byte_array, type_string);
+  TC("dynamic_byte_array_set", 1, index, type_fixnum);
+  TC("dynamic_byte_array_set", 2, value, type_fixnum);
+  DYNAMIC_BYTE_ARRAY_BYTES(dba)[FIXNUM_VALUE(index)] = FIXNUM_VALUE(value);
+  return NULL;
+}
+struct object *dynamic_byte_array_length(struct object *dba) {
+  TC2("dynamic_byte_array_length", 0, dba, type_dynamic_byte_array, type_string);
+  return fixnum(DYNAMIC_BYTE_ARRAY_LENGTH(dba));
+}
+void dynamic_byte_array_ensure_capacity(struct object *dba) {
+  TC2("dynamic_byte_array_ensure_capacity", 0, dba, type_dynamic_byte_array, type_string);
+  if (DYNAMIC_BYTE_ARRAY_LENGTH(dba) >= DYNAMIC_BYTE_ARRAY_CAPACITY(dba)) {
+    DYNAMIC_BYTE_ARRAY_CAPACITY(dba) = DYNAMIC_BYTE_ARRAY_CAPACITY(dba) * 3/2.0;
+    DYNAMIC_BYTE_ARRAY_BYTES(dba) = realloc(DYNAMIC_BYTE_ARRAY_BYTES(dba), DYNAMIC_BYTE_ARRAY_CAPACITY(dba) * sizeof(char));
+    if (DYNAMIC_BYTE_ARRAY_BYTES(dba) == NULL) {
+      printf("BC: Failed to realloc dynamic-byte-array.");
+      exit(1);
+    }
+  }
+}
+struct object *dynamic_byte_array_push(struct object *dba, struct object *value) {
+  TC2("dynamic_byte_array_push", 0, dba, type_dynamic_byte_array, type_string);
+  TC("dynamic_byte_array_push", 1, value, type_fixnum);
+  dynamic_byte_array_ensure_capacity(dba);
+  DYNAMIC_BYTE_ARRAY_BYTES(dba)[DYNAMIC_BYTE_ARRAY_LENGTH(dba)++] = FIXNUM_VALUE(value);
+  return NULL;
+}
+/** pushes a single byte (to avoid wrapping in a fixnum object) */
+struct object *dynamic_byte_array_push_char(struct object *dba, char x) {
+  dynamic_byte_array_ensure_capacity(dba);
+  DYNAMIC_BYTE_ARRAY_BYTES(dba)[DYNAMIC_BYTE_ARRAY_LENGTH(dba)++] = x;
+  return NULL;
+}
+struct object *dynamic_byte_array_pop(struct object *dba) {
+  TC2("dynamic_byte_array_pop", 0, dba, type_dynamic_byte_array, type_string);
+  if (DYNAMIC_BYTE_ARRAY_LENGTH(dba) < 1) {
+    printf("BC: Attempted to pop an empty dynamic-byte-array");
+    exit(1);
+  }
+  DYNAMIC_BYTE_ARRAY_LENGTH(dba)--;
+  return NULL;
+}
+struct object *dynamic_byte_array_concat(struct object *dba0, struct object *dba1) {
+  struct object *dba2; 
+
+  TC2("dynamic_byte_array_concat", 0, dba0, type_dynamic_byte_array, type_string);
+  TC2("dynamic_byte_array_concat", 1, dba1, type_dynamic_byte_array, type_string);
+
+  dba2 = dynamic_byte_array(DYNAMIC_BYTE_ARRAY_CAPACITY(dba0) + DYNAMIC_BYTE_ARRAY_CAPACITY(dba1));
+  DYNAMIC_BYTE_ARRAY_LENGTH(dba2) = DYNAMIC_BYTE_ARRAY_LENGTH(dba0) + DYNAMIC_BYTE_ARRAY_LENGTH(dba1);
+  memcpy(DYNAMIC_BYTE_ARRAY_BYTES(dba2), DYNAMIC_BYTE_ARRAY_BYTES(dba0), DYNAMIC_BYTE_ARRAY_LENGTH(dba0) * sizeof(char));
+  memcpy(&DYNAMIC_BYTE_ARRAY_BYTES(dba2)[DYNAMIC_BYTE_ARRAY_LENGTH(dba0)], DYNAMIC_BYTE_ARRAY_BYTES(dba1), DYNAMIC_BYTE_ARRAY_LENGTH(dba1) * sizeof(char));
+  return dba2;
 }
 
 void push(struct gis *g, struct object *object) {
@@ -312,17 +428,17 @@ void eval(struct gis *g, struct object *bc) {
   fixnum_t a0;            /* the arguments for bytecode parameters */
   struct object *v0, *v1; /* temps for values popped off the stack */
   struct object *c0; /* temps for constants (used for bytecode arguments) */
-  struct byte_array
+  struct dynamic_byte_array
       *code; /* the byte array containing the bytes in the bytecode */
-  struct array *constants;   /* the constants array */
+  struct dynamic_array *constants; /* the constants array */
   fixnum_t constants_length; /* the length of the constants array */
 
   TC("eval", 1, bc, type_bytecode);
   i = 0;
-  code = bc->w1.value.bytecode->code->w1.value.byte_array;
-  constants = bc->w1.value.bytecode->constants->w1.value.array;
-  constants_length = constants->length->w1.value.fixnum;
-  byte_count = code->length->w1.value.fixnum;
+  code = bc->w1.value.bytecode->code->w1.value.dynamic_byte_array;
+  constants = bc->w1.value.bytecode->constants->w1.value.dynamic_array;
+  constants_length = constants->length;
+  byte_count = code->length;
 
   while (i < byte_count) {
     switch (code->bytes[i]) {
@@ -346,19 +462,19 @@ void eval(struct gis *g, struct object *bc) {
         TC("intern", 0, v0, type_string);
         push(g, intern(g, pop(g)));
         break;
-      case op_array: /* array ( length -- array[length] ) */
-        SC(g, "array", 1);
+      case op_dynamic_array: /* dynamic-array ( length -- array[length] ) */
+        SC(g, "dynamic-array", 1);
         v0 = pop(g); /* length */
-        TC("array", 0, v0, type_fixnum);
-        push(g, array(v0));
+        TC("dynamic-array", 0, v0, type_fixnum);
+        push(g, dynamic_array(FIXNUM_VALUE(v0)));
         break;
-      case op_array_ref: /* array_ref ( array index -- object ) */
-        SC(g, "array-ref", 2);
+      case op_dynamic_array_get: /* array_ref ( array index -- object ) */
+        SC(g, "dynamic-array-get", 2);
         v0 = pop(g); /* index */
-        TC("array-ref", 0, v0, type_fixnum);
+        TC("dynamic-array-get", 0, v0, type_fixnum);
         v1 = pop(g); /* array */
-        TC("array-ref", 1, v1, type_array);
-        push(g, array_ref(v1, v0));
+        TC("dynamic-array-get", 1, v1, type_dynamic_array);
+        push(g, dynamic_array_get(v1, v0));
         break;
       case op_car: /* car ( (cons car cdr) -- car ) */
         SC(g, "car", 1);
@@ -393,129 +509,102 @@ void init() {
   g->package = package(string("user"));
 }
 
-double log2(double n) { return log(n) / log(2); }
-
 /* Marshaling  */
 struct object *marshal(struct object *o);
 
-/** returns how many bytes the given fixnum takes to store */
-fixnum_t marshal_length_fixnum_t(fixnum_t n) {
-  return ceil(log2(n) / 8) + 1;
-}
-fixnum_t write_marshaled_fixnum_t(char *buf, fixnum_t n) {
-  uint8_t byte_count;
-  uint8_t cursor;
+struct object *marshal_fixnum_t(fixnum_t n) {
+  struct object *ba;
+  fixnum_t byte_count;
 
-  cursor = 0;
   byte_count = ceil(log2(n) / 8);
-  buf[cursor++] = byte_count;
+
+  ba = dynamic_byte_array(byte_count + 2);
+
+  dynamic_byte_array_push_char(ba, type_fixnum);
+  dynamic_byte_array_push_char(ba, byte_count);
 
   while (n > 0) {
-    buf[cursor++] = byte_count & 0xFF;
+    dynamic_byte_array_push_char(ba, byte_count & 0xFF);
     n = n >> 8;
   }
 
-  assert(marshal_length_fixnum_t(n) == cursor);
-  return cursor;
+  return ba;
 }
 
-/*
- *
- */
-void write_marshaled_flonum_t(char *buf, flonum_t n) {
-  memcpy(buf, &n, sizeof(flonum_t));
-  /*fixnum_t i, j = 0;
-  for (i = sizeof(fixnum_t)-1; i >= 0; ++i)
-    buf[j++] = fixnum >> (8 * i); */
+struct object *marshal_string(struct object *str) {
+  struct object *ba;
+
+  TC("marshal_string", 0, str, type_string);
+
+  ba = dynamic_byte_array(1);
+  dynamic_byte_array_push_char(ba, type_string);
+  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(STRING_LENGTH(str)));
+  ba = dynamic_byte_array_concat(ba, str);
+  return ba;
+}
+
+struct object *marshal_dynamic_byte_array(struct object *ba0) {
+  struct object *ba1;
+
+  TC("marshal_dynamic_byte_array", 0, ba0, type_dynamic_byte_array);
+
+  ba1 = dynamic_byte_array(1);
+  dynamic_byte_array_push_char(ba1, type_dynamic_byte_array);
+  ba1 = dynamic_byte_array_concat(ba1, marshal_fixnum_t(DYNAMIC_BYTE_ARRAY_LENGTH(ba0)));
+  ba1 = dynamic_byte_array_concat(ba1, ba0);
+  return ba1;
+}
+
+struct object *marshal_dynamic_array(struct object *arr) {
+  struct object *ba;
+  fixnum_t arr_length;
+  fixnum_t i;
+  struct object **c_arr;
+
+  TC("marshal_dynamic_array", 0, arr, type_dynamic_array);
+
+  arr_length = DYNAMIC_ARRAY_LENGTH(arr);
+  c_arr = DYNAMIC_ARRAY_VALUES(arr);
+
+  ba = dynamic_byte_array(1);
+  dynamic_byte_array_push_char(ba, type_dynamic_array);
+  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(arr_length));
+
+  for (i = 0; i < arr_length; ++i) {
+    ba = dynamic_byte_array_concat(ba, marshal(c_arr[i]));
+  }
+
+  return ba;
+}
+
+struct object *marshal_fixnum(struct object *n) {
+  TC("marshal_fixnum", 0, n, type_fixnum);
+  return marshal_fixnum_t(FIXNUM_VALUE(n));
+}
+
+struct object *marshal_flonum(struct object *n) {
+  struct object *ba;
+
+  TC("marshal_flonum", 0, n, type_flonum);
+
+  ba = dynamic_byte_array(1);
+  dynamic_byte_array_push_char(ba, type_flonum);
+  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(3)); /* TODO: convert lhs and rhs */
+  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(9));
+
+  return ba;
 }
 
 /**
  * turns bytecode into a byte-array that can be stored to a file
  */
 struct object *marshal_bytecode(struct object *bc) {
-  /*struct object *ba;*/
+  struct object *ba;
   TC("marshal_bytecode", 0, bc, type_bytecode);
-  return NULL;
-}
-
-fixnum_t marshal_length_string(fixnum_t length) {
-  return marshal_length_fixnum_t(type_string) + marshal_length_fixnum_t(length) + length;
-}
-struct object *marshal_string(struct object *str) {
-  struct object *ba;
-  fixnum_t length;
-  char *buf;
-  fixnum_t cursor;
-
-  TC("marshal_string", 0, str, type_string);
-  cursor = 0;
-  length = STRING_LENGTH(str);
-  ba = byte_array(fixnum(marshal_length_string(length)));
-  buf = ba->w1.value.byte_array->bytes;
-
-  cursor += write_marshaled_fixnum_t(&buf[cursor], type_string);
-  cursor += write_marshaled_fixnum_t(&buf[cursor], length);
-  memcpy(&buf[cursor], STRING_CONTENTS(str), length);
-
-  return ba;
-}
-
-struct object *marshal_array(struct object *arr) {
-  struct object *ba;
-  fixnum_t arr_length;
-  fixnum_t byte_count;
-  fixnum_t i;
-  /*fixnum_t cursor;*/
-  struct object **c_arr;
-
-  TC("marshal_array", 0, arr, type_array);
-
-  arr_length = FIXNUM_VALUE(ARRAY_LENGTH(arr));
-  c_arr = ARRAY_VALUES(arr);
-
-  /* bad way of checking how many bytes needed for the buffer.
-     a better way is to use a vector. */
-  byte_count = 0;
-  for (i = 0; i < arr_length; ++i) {
-    byte_count += BYTE_ARRAY_LENGTH(marshal(c_arr[i]));
-  }
-
-  ba = byte_array(fixnum(byte_count));
-  return ba;
-}
-
-fixnum_t marshal_length_fixnum(fixnum_t n) {
-  return marshal_length_fixnum_t(type_fixnum) + marshal_length_fixnum_t(n);
-}
-struct object *marshal_fixnum(struct object *n) {
-  struct object *ba;
-  char *buf;
-  fixnum_t cursor;
-
-  TC("marshal_fixnum", 0, n, type_fixnum);
-  cursor = 0;
-  ba = byte_array(fixnum(marshal_length_fixnum(FIXNUM_VALUE(n))));
-  buf = ba->w1.value.byte_array->bytes;
-
-  cursor += write_marshaled_fixnum_t(buf, type_fixnum);
-  write_marshaled_fixnum_t(&buf[cursor], FIXNUM_VALUE(n));
-
-  return ba;
-}
-
-struct object *marshal_flonum(struct object *n) {
-  struct object *ba;
-  char *buf;
-  fixnum_t cursor;
-
-  TC("marshal_flonum", 0, n, type_fixnum);
-  cursor = 0;
-  ba = byte_array(fixnum(sizeof(fixnum_t) * 2));
-  buf = ba->w1.value.byte_array->bytes;
-
-  cursor += write_marshaled_fixnum_t(buf, type_flonum);
-  write_marshaled_flonum_t(&buf[cursor], FLONUM_VALUE(n));
-
+  ba = dynamic_byte_array(1);
+  dynamic_byte_array_push_char(ba, type_bytecode);
+  ba = dynamic_byte_array_concat(ba, marshal_dynamic_array(BYTECODE_CONSTANTS(bc)));
+  ba = dynamic_byte_array_concat(ba, marshal_dynamic_byte_array(BYTECODE_CODE(bc)));
   return ba;
 }
 
@@ -525,9 +614,9 @@ struct object *marshal_flonum(struct object *n) {
  */
 struct object *marshal(struct object *o) {
   switch (o->w0.type) {
-    case type_byte_array:
+    case type_dynamic_byte_array:
       return NULL;
-    case type_array:
+    case type_dynamic_array:
       return NULL;
     case type_cons:
       return NULL;
@@ -569,9 +658,8 @@ struct object *unmarshal(FILE *file) {
 }
 
 /**
- * Writes bytecode to a file for the given word size.
+ * Writes bytecode to a file
  * @param bc the bytecode to write
- * @param word_size_o the number of bytes in the target's machine word
  */
 struct object *write_bytecode_file(struct object *file, struct object *bc) {
   struct bytecode_file_header header;
@@ -594,7 +682,7 @@ struct object *write_bytecode_file(struct object *file, struct object *bc) {
 
   /* write the bytecode object */
   ba = marshal(bc);
-  fwrite(BYTE_ARRAY_BYTES(ba), sizeof(char), BYTE_ARRAY_LENGTH(ba),
+  fwrite(DYNAMIC_BYTE_ARRAY_BYTES(ba), sizeof(char), DYNAMIC_BYTE_ARRAY_LENGTH(ba),
          FILE_FP(file));
   return 0;
 }
@@ -637,28 +725,55 @@ struct object *read_bytecode_file(FILE *file) {
   return bc;
 }
 
+void run_tests() {
+  struct object *darr;
+
+  printf("Running tests...\n");
+
+  /* string conversions between bug strings and C strings */
+  assert(strcmp(bstring_to_cstring(string("asdf")), "asdf") == 0);
+  assert(strcmp(bstring_to_cstring(string("")), "") == 0);
+
+  darr = dynamic_array(2);
+  assert(FIXNUM_VALUE(dynamic_array_length(darr)) == 0);
+  dynamic_array_push(darr, fixnum(5));
+  assert(FIXNUM_VALUE(dynamic_array_length(darr)) == 1);
+  assert(FIXNUM_VALUE(dynamic_array_get(darr, fixnum(0))) == 5);
+  dynamic_array_push(darr, fixnum(9));
+  assert(FIXNUM_VALUE(dynamic_array_length(darr)) == 2);
+  assert(FIXNUM_VALUE(dynamic_array_get(darr, fixnum(1))) == 9);
+  assert(DYNAMIC_ARRAY_CAPACITY(darr) == 2);
+  dynamic_array_push(darr, fixnum(94));
+  assert(FIXNUM_VALUE(dynamic_array_length(darr)) == 3);
+  assert(FIXNUM_VALUE(dynamic_array_get(darr, fixnum(2))) == 94);
+  assert(DYNAMIC_ARRAY_CAPACITY(darr) == 3);
+
+  printf("Tests were successful\n");
+}
+
 int main() {
   struct object *bc, *code, *consts, *file;
   struct gis *g;
 
+  run_tests();
+
   g = gis();
   g->package = package(string("user"));
 
-  code = byte_array(fixnum(2));
-  code->w1.value.byte_array->bytes[0] = op_const;
-  code->w1.value.byte_array->bytes[1] = 0;
+  code = dynamic_byte_array(100);
+  dynamic_byte_array_push_char(code, op_const);
+  dynamic_byte_array_push_char(code, 0);
 
-  consts = array(fixnum(2));
-  consts->w1.value.array->values[0] = string("a");
-  consts->w1.value.array->values[1] = fixnum(4);
+  consts = dynamic_array(100);
+  dynamic_array_push(consts, string("a"));
+  dynamic_array_push(consts, fixnum(4));
+
   bc = bytecode(code, consts);
 
   eval(g, bc);
 
   file = open_file(string("myfile.txt"), string("wb"));
   write_bytecode_file(file, bc);
-
-  assert(strcmp(bstring_to_cstring(string("asdf")), "asdf") == 0);
 
   return 0;
 }

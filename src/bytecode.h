@@ -13,17 +13,35 @@ typedef float flonum_t;
 #define ARRAY_VALUES(o)\
   o->w1.value.array->values
 
-#define BYTE_ARRAY_LENGTH(o)\
-  FIXNUM_VALUE(o->w1.value.byte_array->length)
+#define DYNAMIC_BYTE_ARRAY_LENGTH(o)\
+  o->w1.value.dynamic_byte_array->length
 
-#define BYTE_ARRAY_BYTES(o)\
-  o->w1.value.byte_array->bytes
+#define DYNAMIC_BYTE_ARRAY_CAPACITY(o)\
+  o->w1.value.dynamic_byte_array->capacity
+
+#define DYNAMIC_BYTE_ARRAY_BYTES(o)\
+  o->w1.value.dynamic_byte_array->bytes
+
+#define DYNAMIC_ARRAY_LENGTH(o)\
+  o->w1.value.dynamic_array->length
+
+#define DYNAMIC_ARRAY_CAPACITY(o)\
+  o->w1.value.dynamic_array->capacity
+
+#define DYNAMIC_ARRAY_VALUES(o)\
+  o->w1.value.dynamic_array->values
+
+#define BYTECODE_CONSTANTS(o)\
+  o->w1.value.bytecode->constants
+
+#define BYTECODE_CODE(o)\
+  o->w1.value.bytecode->code
 
 #define STRING_LENGTH(o)\
-  BYTE_ARRAY_LENGTH(o)
+  DYNAMIC_BYTE_ARRAY_LENGTH(o)
 
 #define STRING_CONTENTS(o)\
-  BYTE_ARRAY_BYTES(o)
+  DYNAMIC_BYTE_ARRAY_BYTES(o)
 
 #define FILE_FP(o)\
  o->w1.value.file->fp
@@ -34,9 +52,17 @@ enum ops {
   op_drop,
   op_dup,
   op_intern,
-  op_array,
-  op_array_ref,
-  op_aref,
+  op_dynamic_array,
+  op_dynamic_array_get,
+  op_dynamic_array_set,
+  op_dynamic_array_push,
+  op_dynamic_array_pop,
+  op_dynamic_array_concat,
+  op_dynamic_byte_array_get,
+  op_dynamic_byte_array_set,
+  op_dynamic_byte_array_push,
+  op_dynamic_byte_array_pop,
+  op_dynamic_byte_array_concat,
   op_cons,
   op_car,
   op_cdr,
@@ -55,10 +81,10 @@ enum type {
   type_fixnum = 4,
   type_flonum = 8,
   type_symbol = 20,
-  type_array = 28,
+  type_dynamic_array = 28,
   type_string = 32,
   type_package = 36,
-  type_byte_array = 40,
+  type_dynamic_byte_array = 40,
   type_bytecode = 44,
   type_file = 48
 };
@@ -66,8 +92,8 @@ enum type {
 union value {
   fixnum_t fixnum;
   flonum_t flonum;
-  struct array *array;
-  struct byte_array *byte_array;
+  struct dynamic_array *dynamic_array;
+  struct dynamic_byte_array *dynamic_byte_array;
   struct symbol *symbol;
   struct bytecode *bytecode;
   struct package *package;
@@ -89,13 +115,15 @@ struct object {
   union w1 w1;
 };
 
-struct array {
-  struct object *length; /** the number of items in the array (a fixnum) */
+struct dynamic_array {
+  fixnum_t length; /** the number of items in the array (a fixnum) */
+  fixnum_t capacity;
   struct object **values; /** the contents of the array (arbitrary objects) */
 };
 
-struct byte_array {
-  struct object *length; /** the number of items in the byte-array (a fixnum) */
+struct dynamic_byte_array {
+  fixnum_t length; /** the number of items in the byte-array (a fixnum) */
+  fixnum_t capacity;
   char *bytes; /** the contents of the byte-array */
 };
 
