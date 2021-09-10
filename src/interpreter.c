@@ -515,12 +515,12 @@ void init() {
 }
 
 struct object *byte_stream_lift(struct object *e) {
-  if (OBJECT_TYPE(e) == type_dynamic_array || OBJECT_TYPE(e) == type_string) {
+  if (OBJECT_TYPE(e) == type_dynamic_byte_array || OBJECT_TYPE(e) == type_string) {
     return enumerator(e);
   } else if (OBJECT_TYPE(e) == type_file || OBJECT_TYPE(e) == type_enumerator) {
     return e;
   } else {
-    printf("BC: attempted to lift unsupported value into a byte-stream");
+    printf("BC: attempted to lift unsupported type %s into a byte-stream", get_type_name(OBJECT_TYPE(e)));
     exit(1);
   }
 }
@@ -540,8 +540,9 @@ struct object *byte_stream_do_read(struct object *e, fixnum_t n, char peek) {
     switch (ENUMERATOR_SOURCE(e)->w0.type) {
       case type_dynamic_byte_array:
       case type_string:
-        memcpy(DYNAMIC_BYTE_ARRAY_BYTES(ret), DYNAMIC_BYTE_ARRAY_BYTES(ENUMERATOR_SOURCE(e)), sizeof(char) * n);
+        memcpy(DYNAMIC_BYTE_ARRAY_BYTES(ret), &DYNAMIC_BYTE_ARRAY_BYTES(ENUMERATOR_SOURCE(e))[ENUMERATOR_INDEX(e)], sizeof(char) * n);
         if (!peek) ENUMERATOR_INDEX(e) += n;
+        break;
       default:
         printf("BC: byte stream get is not implemented for type %s.",
                get_type_name(e->w0.type));
@@ -558,14 +559,15 @@ char byte_stream_do_read_byte(struct object *e, char peek) {
     c = fgetc(FILE_FP(e)); 
     if (peek) ungetc(c, FILE_FP(e));
   } else {
-    switch (ENUMERATOR_SOURCE(e)->w0.type) {
+    switch (OBJECT_TYPE(ENUMERATOR_SOURCE(e))) {
       case type_dynamic_byte_array:
       case type_string:
         c = DYNAMIC_BYTE_ARRAY_BYTES(ENUMERATOR_SOURCE(e))[ENUMERATOR_INDEX(e)];
         if (!peek) ++ENUMERATOR_INDEX(e);
+        break;
       default:
         printf("BC: byte stream get char is not implemented for type %s.",
-               get_type_name(e->w0.type));
+               get_type_name(OBJECT_TYPE(ENUMERATOR_SOURCE(e))));
         exit(1);
     }
   }
@@ -774,14 +776,12 @@ struct object *unmarshal_fixnum(struct object *s) {
 }
 
 struct object *unmarshal_string(struct object *s) {
-  fixnum_t i, t;
-  struct object *length, *str;
+  fixnum_t t, length;
+  struct object *str;
 
   s = byte_stream_lift(s);
 
-  TC("unmarshal_string", 0, s, type_dynamic_byte_array);
-
-  i = 0;
+  TC2("unmarshal_string", 0, s, type_file, type_enumerator);
 
   t = byte_stream_read_byte(s);
   if (t != type_string) {
@@ -791,7 +791,7 @@ struct object *unmarshal_string(struct object *s) {
 
   length = unmarshal_fixnum_t(s);
 
-  str = byte_stream_read(e, length);
+  str = byte_stream_read(s, length);
   OBJECT_TYPE(str) = type_string;
   return str;
 }
@@ -951,6 +951,8 @@ void run_tests() {
   /* 
    * Marshaling/Unmarshaling
    */
+
+  /* Fixnum marshaling */
   /* no bytes */
   assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(0)))) == 0);
   /* one byte */
@@ -969,6 +971,10 @@ void run_tests() {
   assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(123456789)))) == 123456789);
   assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(-123456789)))) == -123456789);
 
+  /* String marshaling */
+  assert(strcmp(bstring_to_cstring(unmarshal_string(marshal_string(string("abcdef")))), "abcdef") == 0);
+  assert(strcmp(bstring_to_cstring(unmarshal_string(marshal_string(string("nerEW)F9nef09n230(N#EOINWEogiwe")))), "nerEW)F9nef09n230(N#EOINWEogiwe") == 0);
+  assert(strcmp(bstring_to_cstring(unmarshal_string(marshal_string(string("")))), "") == 0);
   printf("Tests were successful\n");
 }
 
