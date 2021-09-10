@@ -1,5 +1,38 @@
+#include <assert.h>
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define RUN_TIME_CHECKS
+
+#define DEFAULT_INITIAL_CAPACITY 100
+
+#ifdef RUN_TIME_CHECKS
+#define TC(name, argument, o, type) type_check(name, argument, o, type)
+#define TC2(name, argument, o, type0, type1) type_check_or2(name, argument, o, type0, type1)
+#define SC(g, name, n) stack_check(g, name, n)
+#else
+#define TC(name, argument, o, type) \
+  {}
+#define TC2(name, argument, o, type0, type1) \
+  {}
+#define SC(g, name, n) \
+  {}
+#endif
+
+#define NC(x, message) \
+  if (x == NULL) {     \
+    printf(message);   \
+    return NULL;       \
+  }
+
 typedef int fixnum_t;
 typedef float flonum_t;
+
+#define OBJECT_TYPE(o)\
+  o->w0.type
 
 #define FIXNUM_VALUE(o)\
  o->w1.value.fixnum
@@ -46,7 +79,22 @@ typedef float flonum_t;
 #define FILE_FP(o)\
  o->w1.value.file->fp
 
-#define BC_VERSION 0
+#define FILE_MODE(o)\
+ o->w1.value.file->mode
+
+#define FILE_PATH(o)\
+ o->w1.value.file->path
+
+#define ENUMERATOR_VALUE(o)\
+ o->w1.value.enumerator->value
+
+#define ENUMERATOR_SOURCE(o)\
+ o->w1.value.enumerator->source
+
+#define ENUMERATOR_INDEX(o)\
+ o->w1.value.enumerator->index
+
+#define BC_VERSION 2
 
 enum ops {
   op_drop,
@@ -86,7 +134,8 @@ enum type {
   type_package = 36,
   type_dynamic_byte_array = 40,
   type_bytecode = 44,
-  type_file = 48
+  type_file = 48,
+  type_enumerator = 52
 };
 
 union value {
@@ -97,6 +146,7 @@ union value {
   struct symbol *symbol;
   struct bytecode *bytecode;
   struct package *package;
+  struct enumerator *enumerator;
   struct file *file;
 };
 
@@ -145,19 +195,13 @@ struct bytecode {
 struct file {
   struct object *path; /** the path to the file that was opened */
   struct object *mode; /** the mode the file was opened as */
-  FILE *fp; /** the file pointer */
+  FILE *fp;            /** the file pointer */
 };
 
-/* Not an object in the bytecode, just used for documentation */
-struct bytecode_file_header {
-  /* header section - 128 bits */
-  uint8_t magic[4]; /** the ascii string "bug\0" */
-  uint32_t version; /** the version of bytecode this is */
-  uint8_t word_size; /** how many bytes are in a word */
-  uint8_t pad[3 + 4];
-
-  /* bytecode */
-  struct object bytecode;
+struct enumerator {
+  struct object *source;
+  struct object *value;
+  fixnum_t index;
 };
 
 /**

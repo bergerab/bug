@@ -2,37 +2,8 @@
  *
  * The Bug Bytecode interpreter
  */
-#include <assert.h>
-#include <math.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 #include "bytecode.h"
-
-#define RUN_TIME_CHECKS
-
-#define DEFAULT_INITIAL_CAPACITY 100
-
-#ifdef RUN_TIME_CHECKS
-#define TC(name, argument, o, type) type_check(name, argument, o, type)
-#define TC2(name, argument, o, type0, type1) type_check_or2(name, argument, o, type0, type1)
-#define SC(g, name, n) stack_check(g, name, n)
-#else
-#define TC(name, argument, o, type) \
-  {}
-#define TC2(name, argument, o, type0, type1) \
-  {}
-#define SC(g, name, n) \
-  {}
-#endif
-
-#define NC(x, message) \
-  if (x == NULL) {     \
-    printf(message);   \
-    return NULL;       \
-  }
 
 /* UTIL */
 double log2(double n) { return log(n) / log(2); }
@@ -59,6 +30,8 @@ char *get_type_name(enum type t) {
       return "dynamic-byte-array";
     case type_file:
       return "file";
+    case type_enumerator:
+      return "enumerator";
   }
   printf("BC: Given type number has no implemented name %d", t);
   exit(1);
@@ -196,6 +169,18 @@ struct object *string(char *contents) {
   return o;
 }
 
+struct object *enumerator(struct object *source) {
+  struct object *o;
+  o = object(type_enumerator);
+  NC(o, "Failed to allocate enumerator object.");
+  o->w1.value.enumerator = malloc(sizeof(struct enumerator));
+  NC(o->w1.value.enumerator, "Failed to allocate enumerator value.");
+  ENUMERATOR_SOURCE(o) = source;
+  ENUMERATOR_VALUE(o) = NULL;
+  ENUMERATOR_INDEX(o) = 0;
+  return o;
+}
+
 struct object *package(struct object *name) {
   struct object *o = object(type_package);
   NC(o, "Failed to allocate package object.");
@@ -232,13 +217,24 @@ struct object *open_file(struct object *path, struct object *mode) {
   }
 
   o = object(type_file);
+
   o->w1.value.file = malloc(sizeof(struct file));
-  o->w1.value.file->fp = fp;
-  o->w1.value.file->mode = string(mode_cs);
-  o->w1.value.file->path = string(path_cs);
+  NC(o->w1.value.file, "Failed to allocate file value.");
+
+  FILE_FP(o) = fp;
+  FILE_MODE(o) = string(mode_cs);
+  FILE_PATH(o) = string(path_cs);
+
   free(path_cs);
   free(mode_cs);
+
   return o;
+}
+
+struct object *close_file(struct object *file) {
+  TC("close_file", 0, file, type_file);
+  fclose(FILE_FP(file)); /* TODO: handle failure */
+  return NULL;
 }
 
 /*
@@ -297,10 +293,9 @@ struct object *dynamic_array_concat(struct object *da0, struct object *da1) {
 /*
  * Dynamic Byte Array
  */
-struct object *dynamic_byte_array_get(struct object *dba, struct object *index) {
+char dynamic_byte_array_get(struct object *dba, fixnum_t index) {
   TC2("dynamic_byte_array_get", 0, dba, type_dynamic_byte_array, type_string);
-  TC("dynamic_byte_array_get", 1, index, type_fixnum);
-  return fixnum(DYNAMIC_BYTE_ARRAY_BYTES(dba)[FIXNUM_VALUE(index)]);
+  return DYNAMIC_BYTE_ARRAY_BYTES(dba)[index];
 }
 struct object *dynamic_byte_array_set(struct object *dba, struct object *index, struct object *value) {
   TC2("dynamic_byte_array_set", 0, dba, type_dynamic_byte_array, type_string);
@@ -358,6 +353,16 @@ struct object *dynamic_byte_array_concat(struct object *dba0, struct object *dba
   memcpy(&DYNAMIC_BYTE_ARRAY_BYTES(dba2)[DYNAMIC_BYTE_ARRAY_LENGTH(dba0)], DYNAMIC_BYTE_ARRAY_BYTES(dba1), DYNAMIC_BYTE_ARRAY_LENGTH(dba1) * sizeof(char));
   return dba2;
 }
+/*
+struct object *dynamic_byte_array_splice(struct object *dba, fixnum_t i, fixnum_t j) {
+  struct object *o;
+
+  TC2("dynamic_byte_array_splice", 0, dba, type_dynamic_byte_array, type_string);
+  o = dynamic_byte_array(j - i);
+  memcpy(DYNAMIC_BYTE_ARRAY_BYTES(o), &DYNAMIC_BYTE_ARRAY_BYTES(dba)[i], (j - i) * sizeof(char));
+  return o;
+}
+*/
 
 void push(struct gis *g, struct object *object) {
   g->stack = cons(object, g->stack);
@@ -509,24 +514,116 @@ void init() {
   g->package = package(string("user"));
 }
 
+struct object *byte_stream_lift(struct object *e) {
+  if (OBJECT_TYPE(e) == type_dynamic_array || OBJECT_TYPE(e) == type_string) {
+    return enumerator(e);
+  } else if (OBJECT_TYPE(e) == type_file || OBJECT_TYPE(e) == type_enumerator) {
+    return e;
+  } else {
+    printf("BC: attempted to lift unsupported value into a byte-stream");
+    exit(1);
+  }
+}
+
+struct object *byte_stream_do_read(struct object *e, fixnum_t n, char peek) {
+  struct object *ret;
+
+  TC2("byte_stream_get", 0, e, type_enumerator, type_file);
+
+  ret = dynamic_byte_array(n);
+  DYNAMIC_ARRAY_LENGTH(ret) = n;
+
+  if (e->w0.type == type_file) {
+    fread(DYNAMIC_BYTE_ARRAY_BYTES(ret), sizeof(char), n, FILE_FP(e));
+    if (peek) fseek(FILE_FP(e), -n, SEEK_CUR);
+  } else {
+    switch (ENUMERATOR_SOURCE(e)->w0.type) {
+      case type_dynamic_byte_array:
+      case type_string:
+        memcpy(DYNAMIC_BYTE_ARRAY_BYTES(ret), DYNAMIC_BYTE_ARRAY_BYTES(ENUMERATOR_SOURCE(e)), sizeof(char) * n);
+        if (!peek) ENUMERATOR_INDEX(e) += n;
+      default:
+        printf("BC: byte stream get is not implemented for type %s.",
+               get_type_name(e->w0.type));
+        exit(1);
+    }
+  }
+  return ret;
+}
+
+char byte_stream_do_read_byte(struct object *e, char peek) {
+  char c;
+  TC2("byte_steam_get_char", 0, e, type_enumerator, type_file);
+  if (e->w0.type == type_file) {
+    c = fgetc(FILE_FP(e)); 
+    if (peek) ungetc(c, FILE_FP(e));
+  } else {
+    switch (ENUMERATOR_SOURCE(e)->w0.type) {
+      case type_dynamic_byte_array:
+      case type_string:
+        c = DYNAMIC_BYTE_ARRAY_BYTES(ENUMERATOR_SOURCE(e))[ENUMERATOR_INDEX(e)];
+        if (!peek) ++ENUMERATOR_INDEX(e);
+      default:
+        printf("BC: byte stream get char is not implemented for type %s.",
+               get_type_name(e->w0.type));
+        exit(1);
+    }
+  }
+  return c;
+}
+
+struct object *byte_stream_read(struct object *e, fixnum_t n) {
+  return byte_stream_do_read(e, n, 0);
+}
+
+struct object *byte_stream_peek(struct object *e, fixnum_t n) {
+  return byte_stream_do_read(e, n, 1);
+}
+
+char byte_stream_read_byte(struct object *e) {
+  return byte_stream_do_read_byte(e, 0);
+}
+
+char byte_stream_peek_byte(struct object *e) {
+  return byte_stream_do_read_byte(e, 1);
+}
+
+
+struct object *to_string(struct object *o) {
+  enum type t = o->w0.type;
+  switch (t) {
+    case type_fixnum:
+      return string("<fixnum>");
+    case type_flonum:
+      return string("<flonum>");
+    case type_string:
+      return o;
+    default:
+      printf("BC: type %s does not support to-string", get_type_name(t));
+      exit(1);
+  }
+}
+
 /* Marshaling  */
 struct object *marshal(struct object *o);
 
 struct object *marshal_fixnum_t(fixnum_t n) {
   struct object *ba;
-  fixnum_t byte_count;
+  char byte;
 
-  byte_count = ceil(log2(n) / 8);
-
-  ba = dynamic_byte_array(byte_count + 2);
-
+  ba = dynamic_byte_array(4);
   dynamic_byte_array_push_char(ba, type_fixnum);
-  dynamic_byte_array_push_char(ba, byte_count);
+  dynamic_byte_array_push_char(ba, n < 0 ? 1 : 0);
 
-  while (n > 0) {
-    dynamic_byte_array_push_char(ba, byte_count & 0xFF);
-    n = n >> 8;
-  }
+  n = n < 0 ? -n : n; /* abs */
+
+  do {
+    byte = n & 0x7F;
+    if (n > 0x7F) /* flip the continuation bit if there are more bytes */
+      byte |= 0x80;
+    dynamic_byte_array_push_char(ba, byte);
+    n >>= 7;
+  } while (n > 0);
 
   return ba;
 }
@@ -577,6 +674,17 @@ struct object *marshal_dynamic_array(struct object *arr) {
   return ba;
 }
 
+/** 
+ * The format used for marshaling fixnums is platform independent
+ * it has the following form (each is one byte):
+ *     0x04 <sign> <continuation_bit=1|7bits> <continuation_bit=1|7bits> etc... <continutation_bit=0|7bits>
+ * a sign of 1 means it is a negative number, a sign of 0 means positive number
+ * the continuation bit of 1 means the next byte is still part of the number
+ * once the continuation bit of 0 is reached, the number is complete
+ * 
+ * I'm not sure if there is any advantage between using sign magnitude vs 1 or 2s compliment for
+ * the marshaling format besides the memory cost of the sign byte (1 byte per number).
+ */
 struct object *marshal_fixnum(struct object *n) {
   TC("marshal_fixnum", 0, n, type_fixnum);
   return marshal_fixnum_t(FIXNUM_VALUE(n));
@@ -629,32 +737,132 @@ struct object *marshal(struct object *o) {
     case type_bytecode:
       return marshal_bytecode(o);
     default:
-      printf("BC: unmarshalable type %s.\n", get_type_name(o->w0.type));
+      printf("BC: cannot marshal type %s.\n", get_type_name(o->w0.type));
       return NULL;
   }
 }
 
-struct object *unmarshal(FILE *file) {
-  return NULL;
-  /*
-  switch (o->w0.type) {
-    case type_byte_array:
+fixnum_t unmarshal_fixnum_t(struct object *s) {
+  char byte, sign;
+  fixnum_t n, t, byte_count;
+
+  s = byte_stream_lift(s);
+
+  TC2("unmarshal_fixnum", 0, s, type_enumerator, type_file);
+
+  t = byte_stream_read_byte(s);
+  if (t != type_fixnum) {
+    printf("BC: unmarshaling fixnum expected fixnum type, but got %s.", get_type_name(t));
+    exit(1);
+  }
+
+  sign = byte_stream_read_byte(s);
+
+  n = 0;
+  byte_count = 0;
+  do { 
+    byte = byte_stream_read_byte(s);
+    n |= (byte & 0x7F) << (7 * byte_count); /* -1 because i counts the type byte */
+    ++byte_count;
+  } while (byte & 0x80);
+
+  return sign ? -n : n;
+}
+
+struct object *unmarshal_fixnum(struct object *s) {
+  return fixnum(unmarshal_fixnum_t(s));
+}
+
+struct object *unmarshal_string(struct object *s) {
+  fixnum_t i, t;
+  struct object *length, *str;
+
+  s = byte_stream_lift(s);
+
+  TC("unmarshal_string", 0, s, type_dynamic_byte_array);
+
+  i = 0;
+
+  t = byte_stream_read_byte(s);
+  if (t != type_string) {
+    printf("BC: unmarshaling string expected string type, but got %s.", get_type_name(t));
+    exit(1);
+  }
+
+  length = unmarshal_fixnum_t(s);
+
+  str = byte_stream_read(e, length);
+  OBJECT_TYPE(str) = type_string;
+  return str;
+}
+
+struct object *unmarshal(struct object *dba) {
+  char t;
+  TC("unmarshal", 0, dba, type_dynamic_byte_array);
+  t = dynamic_byte_array_get(dba, 0);
+  switch (t) {
+    case type_dynamic_byte_array:
       return NULL;
-    case type_array:
+    case type_dynamic_array:
       return NULL;
     case type_cons:
       return NULL;
     case type_fixnum:
-      return NULL;
+      return unmarshal_fixnum(dba);
     case type_flonum:
       return NULL;
     case type_string:
-      return NULL;
+      return unmarshal_string(dba);
     default:
-      printf("BC: unmarshalable type.");
+      printf("BC: cannot unmarshal type %s.", get_type_name(t));
       return NULL;
   }
-  */
+}
+
+struct object *make_bytecode_file_header() {
+  struct object *ba = dynamic_byte_array(10);
+  dynamic_byte_array_push_char(ba, 'b');
+  dynamic_byte_array_push_char(ba, 'u');
+  dynamic_byte_array_push_char(ba, 'g');
+  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(BC_VERSION));
+  return ba;
+}
+
+struct object *write_file(struct object *file, struct object *o) {
+  fixnum_t nmembers;
+  TC("write_file", 0, file, type_file);
+  switch (o->w0.type) {
+    case type_dynamic_byte_array:
+    case type_string:
+      nmembers = fwrite(DYNAMIC_BYTE_ARRAY_BYTES(o), sizeof(char),
+                        DYNAMIC_BYTE_ARRAY_LENGTH(o), FILE_FP(file));
+      if (nmembers != DYNAMIC_BYTE_ARRAY_LENGTH(o)) {
+        printf("BC: failed to write dynamic-byte-array to file.");
+        exit(1);
+      }
+      break;
+    default:
+      printf("BC: can not write object of type %s to a file.",
+             get_type_name(o->w0.type));
+      exit(1);
+  }
+  return NULL;
+}
+
+struct object *read_file(struct object *file) {
+  struct object *dba;
+  long file_size;
+
+  TC("read_file", 0, file, type_file);
+
+  fseek(FILE_FP(file), 0, SEEK_END);
+  file_size = ftell(FILE_FP(file));
+  fseek(FILE_FP(file), 0, SEEK_SET);
+
+  dba = dynamic_byte_array(file_size);
+  fread(DYNAMIC_BYTE_ARRAY_BYTES(dba), 1, file_size, FILE_FP(file));
+  fclose(FILE_FP(file));
+  return dba;
 }
 
 /**
@@ -662,42 +870,29 @@ struct object *unmarshal(FILE *file) {
  * @param bc the bytecode to write
  */
 struct object *write_bytecode_file(struct object *file, struct object *bc) {
-  struct bytecode_file_header header;
-  struct object *ba;
+  TC("write_bytecode_file", 0, file, type_file);
+  TC("write_bytecode_file", 1, bc, type_bytecode);
 
-  TC("write_bytecode_file", 0, bc, type_bytecode);
+  write_file(file, make_bytecode_file_header());
+  write_file(file, marshal_bytecode(bc));
 
-  header.magic[0] = 'b';
-  header.magic[1] = 'u';
-  header.magic[2] = 'g';
-  header.magic[3] = 0;
-  header.version = BC_VERSION;
-  header.word_size = sizeof(fixnum_t);
-  header.pad[0] = header.pad[1] = header.pad[2] = 0;
-  header.pad[3] = header.pad[4] = header.pad[5] = 0;
-  header.pad[6] = 0;
-
-  /* write the header */
-  fwrite(&header, sizeof(struct bytecode_file_header), 1, FILE_FP(file));
-
-  /* write the bytecode object */
-  ba = marshal(bc);
-  fwrite(DYNAMIC_BYTE_ARRAY_BYTES(ba), sizeof(char), DYNAMIC_BYTE_ARRAY_LENGTH(ba),
-         FILE_FP(file));
-  return 0;
+  return NULL;
 }
 
 struct object *read_bytecode_file(FILE *file) {
-  struct bytecode_file_header header;
+  /*
+  struct object *header;
   struct object *bc;
+  */
 
+  return NULL;
   /* read the header - TODO: make sure the file is large enough to read the file
    */
+  /*
   memcpy(&header, file, sizeof(struct bytecode_file_header));
 
   file = &file[sizeof(
-      struct bytecode_file_header)]; /* advance the file pointer to point at the
-                                        beginning of unmarshalable data */
+      struct bytecode_file_header)];
 
   if (header.magic[0] != 'b' && header.magic[1] != 'u' &&
       header.magic[2] != 'g' && header.magic[3] != 0) {
@@ -711,7 +906,6 @@ struct object *read_bytecode_file(FILE *file) {
     exit(1);
   }
 
-  /* write the bytecode object */
   bc = unmarshal(file);
 
   if (bc->w0.type != type_bytecode) {
@@ -723,6 +917,7 @@ struct object *read_bytecode_file(FILE *file) {
   }
 
   return bc;
+  */
 }
 
 void run_tests() {
@@ -730,10 +925,15 @@ void run_tests() {
 
   printf("Running tests...\n");
 
-  /* string conversions between bug strings and C strings */
+  /*
+   * Strings 
+   */
   assert(strcmp(bstring_to_cstring(string("asdf")), "asdf") == 0);
   assert(strcmp(bstring_to_cstring(string("")), "") == 0);
 
+  /*
+   * Dynamic Array
+   */
   darr = dynamic_array(2);
   assert(FIXNUM_VALUE(dynamic_array_length(darr)) == 0);
   dynamic_array_push(darr, fixnum(5));
@@ -747,6 +947,27 @@ void run_tests() {
   assert(FIXNUM_VALUE(dynamic_array_length(darr)) == 3);
   assert(FIXNUM_VALUE(dynamic_array_get(darr, fixnum(2))) == 94);
   assert(DYNAMIC_ARRAY_CAPACITY(darr) == 3);
+
+  /* 
+   * Marshaling/Unmarshaling
+   */
+  /* no bytes */
+  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(0)))) == 0);
+  /* one byte */
+  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(9)))) == 9);
+  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(-23)))) == -23);
+  /* two bytes */
+  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(256)))) == 256);
+  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(257)))) == 257);
+  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(-342)))) == -342);
+  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(2049)))) == 2049);
+  /* three bytes */
+  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(123456)))) == 123456);
+  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(-123499)))) == -123499);
+  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(20422)))) == 20422);
+  /* four bytes */
+  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(123456789)))) == 123456789);
+  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(-123456789)))) == -123456789);
 
   printf("Tests were successful\n");
 }
@@ -765,15 +986,18 @@ int main() {
   dynamic_byte_array_push_char(code, 0);
 
   consts = dynamic_array(100);
-  dynamic_array_push(consts, string("a"));
-  dynamic_array_push(consts, fixnum(4));
+  dynamic_array_push(consts, string("ab"));
+  dynamic_array_push(consts, fixnum(123456));
 
   bc = bytecode(code, consts);
 
   eval(g, bc);
 
-  file = open_file(string("myfile.txt"), string("wb"));
+  assert(strcmp(bstring_to_cstring(peek(g)), "ab") == 0);
+
+  file = open_file(string("file.txt"), string("wb"));
   write_bytecode_file(file, bc);
+  close_file(file);
 
   return 0;
 }
