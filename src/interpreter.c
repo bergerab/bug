@@ -83,8 +83,8 @@ fixnum_t count(struct object *list) {
   return count;
 }
 
-void stack_check(struct gis *g, char *name, fixnum_t n) {
-  fixnum_t stack_count = count(g->stack);
+void stack_check(struct gis *g, char *name, int n) {
+  unsigned int stack_count = count(g->stack);
   if (stack_count < n) {
     printf(
         "BC: Operation \"%s\" was called when the stack had too "
@@ -420,23 +420,23 @@ struct gis *gis() {
   if (a0 >= constants_length) {                                      \
     printf(                                                          \
         "BC: bytecode attempted to access an out of bounds index "   \
-        "%d in the constants vector, but only have %d constants.\n", \
+        "%ld in the constants vector, but only have %ld constants.\n", \
         a0, constants_length);                                       \
     break;                                                           \
   }                                                                  \
   c0 = constants->values[a0];
 
 void eval(struct gis *g, struct object *bc) {
-  fixnum_t i,             /* the current byte being evaluated */
+  unsigned long i,          /* the current byte being evaluated */
       byte_count;         /* number of  bytes in this bytecode */
   char t0;                /* temporary for reading bytecode arguments */
-  fixnum_t a0;            /* the arguments for bytecode parameters */
+  unsigned long a0;            /* the arguments for bytecode parameters */
   struct object *v0, *v1; /* temps for values popped off the stack */
   struct object *c0; /* temps for constants (used for bytecode arguments) */
   struct dynamic_byte_array
       *code; /* the byte array containing the bytes in the bytecode */
   struct dynamic_array *constants; /* the constants array */
-  fixnum_t constants_length; /* the length of the constants array */
+  unsigned long constants_length; /* the length of the constants array */
 
   TC("eval", 1, bc, type_bytecode);
   i = 0;
@@ -614,7 +614,7 @@ struct object *marshal_fixnum_t(fixnum_t n) {
   char byte;
 
   ba = dynamic_byte_array(4);
-  dynamic_byte_array_push_char(ba, type_fixnum);
+  dynamic_byte_array_push_char(ba, marshaled_type_integer);
   dynamic_byte_array_push_char(ba, n < 0 ? 1 : 0);
 
   n = n < 0 ? -n : n; /* abs */
@@ -636,7 +636,7 @@ struct object *marshal_string(struct object *str) {
   TC("marshal_string", 0, str, type_string);
 
   ba = dynamic_byte_array(1);
-  dynamic_byte_array_push_char(ba, type_string);
+  dynamic_byte_array_push_char(ba, marshaled_type_string);
   ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(STRING_LENGTH(str)));
   ba = dynamic_byte_array_concat(ba, str);
   return ba;
@@ -648,7 +648,7 @@ struct object *marshal_dynamic_byte_array(struct object *ba0) {
   TC("marshal_dynamic_byte_array", 0, ba0, type_dynamic_byte_array);
 
   ba1 = dynamic_byte_array(1);
-  dynamic_byte_array_push_char(ba1, type_dynamic_byte_array);
+  dynamic_byte_array_push_char(ba1, marshaled_type_dynamic_byte_array);
   ba1 = dynamic_byte_array_concat(ba1, marshal_fixnum_t(DYNAMIC_BYTE_ARRAY_LENGTH(ba0)));
   ba1 = dynamic_byte_array_concat(ba1, ba0);
   return ba1;
@@ -666,7 +666,7 @@ struct object *marshal_dynamic_array(struct object *arr) {
   c_arr = DYNAMIC_ARRAY_VALUES(arr);
 
   ba = dynamic_byte_array(1);
-  dynamic_byte_array_push_char(ba, type_dynamic_array);
+  dynamic_byte_array_push_char(ba, marshaled_type_dynamic_array);
   ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(arr_length));
 
   for (i = 0; i < arr_length; ++i) {
@@ -694,13 +694,28 @@ struct object *marshal_fixnum(struct object *n) {
 
 struct object *marshal_flonum(struct object *n) {
   struct object *ba;
+  fixnum_t mantissa_fix, factor;
+  flonum_t mantissa;
+  int exponent;
 
   TC("marshal_flonum", 0, n, type_flonum);
 
   ba = dynamic_byte_array(1);
-  dynamic_byte_array_push_char(ba, type_flonum);
-  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(3)); /* TODO: convert lhs and rhs */
-  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(9));
+  dynamic_byte_array_push_char(ba, marshaled_type_float);
+  dynamic_byte_array_push_char(ba, FLONUM_VALUE(n) < 0 ? 1 : 0);
+
+  /* Inefficient in both time and space but work short term.
+   *
+   * The idea was for the marshaled format to be as exact as possible
+   * (arbitrary precision), while have the types used in the program be inexact (e.g. float, double).
+   * I chose to use the base 2 floating point format (mantissa * 2^exponent = value) using 
+   * arbitrary long mantissas and exponents. 
+   * This is probably naive and might not work for NaN or Infinity. */
+  factor = 1;
+  mantissa = frexp(FLONUM_VALUE(n), &exponent);
+  mantissa_fix = mantissa * (factor<<DBL_MANT_DIG); /* TODO: make it choose between DBL/FLT properly */
+  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(mantissa_fix));
+  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(exponent));
 
   return ba;
 }
@@ -712,7 +727,7 @@ struct object *marshal_bytecode(struct object *bc) {
   struct object *ba;
   TC("marshal_bytecode", 0, bc, type_bytecode);
   ba = dynamic_byte_array(1);
-  dynamic_byte_array_push_char(ba, type_bytecode);
+  dynamic_byte_array_push_char(ba, marshaled_type_bytecode);
   ba = dynamic_byte_array_concat(ba, marshal_dynamic_array(BYTECODE_CONSTANTS(bc)));
   ba = dynamic_byte_array_concat(ba, marshal_dynamic_byte_array(BYTECODE_CODE(bc)));
   return ba;
@@ -744,77 +759,129 @@ struct object *marshal(struct object *o) {
   }
 }
 
-fixnum_t unmarshal_fixnum_t(struct object *s) {
-  char byte, sign;
-  fixnum_t n, t, byte_count;
+struct object *unmarshal_integer(struct object *s) {
+  char t, byte, sign, is_flo;
+  fixnum_t fix, byte_count;
+  flonum_t flo;
 
   s = byte_stream_lift(s);
 
-  TC2("unmarshal_fixnum", 0, s, type_enumerator, type_file);
+  TC2("unmarshal_integer", 0, s, type_enumerator, type_file);
 
   t = byte_stream_read_byte(s);
-  if (t != type_fixnum) {
-    printf("BC: unmarshaling fixnum expected fixnum type, but got %s.", get_type_name(t));
+  if (t != marshaled_type_integer) {
+    printf("BC: unmarshaling fixnum expected either marshaled_integer type, but was %d.", t);
     exit(1);
   }
 
   sign = byte_stream_read_byte(s);
 
-  n = 0;
+  is_flo = 0;
+  fix = 0;
+  flo = 0;
   byte_count = 0;
-  do { 
+  do {
     byte = byte_stream_read_byte(s);
-    n |= (byte & 0x7F) << (7 * byte_count); /* -1 because i counts the type byte */
+
+    /* if the number doesn't fit into a fixnum, use a flonum */
+    if (byte_count > sizeof(fixnum_t)) {
+      /* if the fixnum was just exceeded */
+      if (!is_flo) {
+        flo = (flonum_t)fix;
+        is_flo = 1;
+      }
+      flo += pow(2, 7 * byte_count) * (byte & 0x7F);
+    } else {
+      fix |= (byte & 0x7F) << (7 * byte_count);
+    }
     ++byte_count;
   } while (byte & 0x80);
 
-  return sign ? -n : n;
+  if (is_flo)
+    return flonum(sign ? -flo : flo);
+  return fixnum(sign ? -fix : fix);
 }
 
-struct object *unmarshal_fixnum(struct object *s) {
-  return fixnum(unmarshal_fixnum_t(s));
+struct object *unmarshal_float(struct object *s) {
+  char t;
+  fixnum_t sign;
+  struct object *mantissa_fix, *exponent;
+  flonum_t flo, mantissa;
+
+  s = byte_stream_lift(s);
+
+  TC2("unmarshal_float", 0, s, type_file, type_enumerator);
+
+  t = byte_stream_read_byte(s);
+  if (t != marshaled_type_float) {
+    printf("BC: unmarshaling float expected float type, but was %d.", t);
+    exit(1);
+  }
+
+  sign = byte_stream_read_byte(s);
+
+  mantissa_fix = unmarshal_integer(s);
+  if (OBJECT_TYPE(mantissa_fix) != type_fixnum) {
+    printf("BC: expected mantissa part of float to fit into a fixnum during float unmarshaling");
+    exit(1);
+  }
+
+  mantissa = FIXNUM_VALUE(mantissa_fix) / log10(FIXNUM_VALUE(mantissa_fix));
+
+  exponent = unmarshal_integer(s);
+  if (OBJECT_TYPE(exponent) != type_fixnum) {
+    printf("BC: expected exponent part of float to fit into a fixnum during float unmarshaling");
+    exit(1);
+  }
+
+  flo = ldexp(mantissa, FIXNUM_VALUE(exponent));
+  return flonum(sign == 1 ? -flo : flo);
 }
 
 struct object *unmarshal_string(struct object *s) {
-  fixnum_t t, length;
-  struct object *str;
+  char t;
+  struct object *str, *length;
 
   s = byte_stream_lift(s);
 
   TC2("unmarshal_string", 0, s, type_file, type_enumerator);
 
   t = byte_stream_read_byte(s);
-  if (t != type_string) {
-    printf("BC: unmarshaling string expected string type, but got %s.", get_type_name(t));
+  if (t != marshaled_type_string) {
+    printf("BC: unmarshaling string expected string type, but was %d.", t);
     exit(1);
   }
 
-  length = unmarshal_fixnum_t(s);
+  length = unmarshal_integer(s);
+  if (OBJECT_TYPE(length) != type_fixnum) {
+    printf("BC: expected string length to fit into a fixnum during string unmarshal");
+    exit(1);
+  }
 
-  str = byte_stream_read(s, length);
+  str = byte_stream_read(s, FIXNUM_VALUE(length));
   OBJECT_TYPE(str) = type_string;
   return str;
 }
 
 struct object *unmarshal(struct object *dba) {
-  char t;
+  enum marshaled_type t;
   TC("unmarshal", 0, dba, type_dynamic_byte_array);
   t = dynamic_byte_array_get(dba, 0);
   switch (t) {
-    case type_dynamic_byte_array:
+    case marshaled_type_dynamic_byte_array:
       return NULL;
-    case type_dynamic_array:
+    case marshaled_type_dynamic_array:
       return NULL;
-    case type_cons:
+    case marshaled_type_cons:
       return NULL;
-    case type_fixnum:
-      return unmarshal_fixnum(dba);
-    case type_flonum:
+    case marshaled_type_integer:
+      return unmarshal_integer(dba);
+    case marshaled_type_float:
       return NULL;
-    case type_string:
+    case marshaled_type_string:
       return unmarshal_string(dba);
     default:
-      printf("BC: cannot unmarshal type %s.", get_type_name(t));
+      printf("BC: cannot unmarshal marshaled type %d.", t);
       return NULL;
   }
 }
@@ -926,7 +993,7 @@ void run_tests() {
   printf("Running tests...\n");
 
   /*
-   * Strings 
+   * String - bug string to c string
    */
   assert(strcmp(bstring_to_cstring(string("asdf")), "asdf") == 0);
   assert(strcmp(bstring_to_cstring(string("")), "") == 0);
@@ -954,22 +1021,27 @@ void run_tests() {
 
   /* Fixnum marshaling */
   /* no bytes */
-  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(0)))) == 0);
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(0)))) == 0);
   /* one byte */
-  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(9)))) == 9);
-  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(-23)))) == -23);
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(9)))) == 9);
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(-23)))) == -23);
   /* two bytes */
-  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(256)))) == 256);
-  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(257)))) == 257);
-  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(-342)))) == -342);
-  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(2049)))) == 2049);
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(256)))) == 256);
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(257)))) == 257);
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(-342)))) == -342);
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(2049)))) == 2049);
   /* three bytes */
-  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(123456)))) == 123456);
-  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(-123499)))) == -123499);
-  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(20422)))) == 20422);
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(123456)))) == 123456);
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(-123499)))) == -123499);
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(20422)))) == 20422);
   /* four bytes */
-  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(123456789)))) == 123456789);
-  assert(FIXNUM_VALUE(unmarshal_fixnum(marshal_fixnum(fixnum(-123456789)))) == -123456789);
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(123456789)))) == 123456789);
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(-123456789)))) == -123456789);
+  /* Should test fixnums that are from platforms that have larger word sizes (e.g. read in a fixnum larger than four bytes on a machine with two byte words) */
+
+  /* flonum marshaling */
+  printf("%f \n", FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(1)))) );
+  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(1)))) == 1);
 
   /* String marshaling */
   assert(strcmp(bstring_to_cstring(unmarshal_string(marshal_string(string("abcdef")))), "abcdef") == 0);
@@ -994,6 +1066,7 @@ int main() {
   consts = dynamic_array(100);
   dynamic_array_push(consts, string("ab"));
   dynamic_array_push(consts, fixnum(123456));
+  dynamic_array_push(consts, flonum(8));
 
   bc = bytecode(code, consts);
 

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <float.h>
 
 #define RUN_TIME_CHECKS
 
@@ -28,8 +29,8 @@
     return NULL;       \
   }
 
-typedef int fixnum_t;
-typedef float flonum_t;
+typedef int64_t fixnum_t;
+typedef double flonum_t;
 
 #define OBJECT_TYPE(o)\
   o->w0.type
@@ -210,4 +211,16 @@ struct enumerator {
 struct gis {
   struct object *stack; /** the data stack (a cons list) */
   struct object *package; /** the current package being evaluated */
+};
+
+enum marshaled_type {
+  marshaled_type_integer,
+  marshaled_type_float,
+  marshaled_type_symbol,
+  marshaled_type_string,
+  marshaled_type_nil,
+  marshaled_type_cons,
+  marshaled_type_dynamic_array,
+  marshaled_type_dynamic_byte_array,
+  marshaled_type_bytecode
 };
