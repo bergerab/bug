@@ -6,7 +6,9 @@
 #include "bytecode.h"
 
 /*===============================*
+ *===============================*
  * Utility Procedures            *
+ *===============================*
  *===============================*/
 double log2(double n) { return log(n) / log(2); }
 
@@ -82,7 +84,7 @@ void type_check_or2(char *name, unsigned int argument, struct object *o,
 char *bstring_to_cstring(struct object *str) {
   fixnum_t length;
   char *buf;
-  TC("bstring_to_cstring", 0, str, type_string);
+  TC2("bstring_to_cstring", 0, str, type_string, type_dynamic_byte_array);
   length = STRING_LENGTH(str);
   buf = malloc(sizeof(char) * (length + 1));
   memcpy(buf, STRING_CONTENTS(str), length);
@@ -540,7 +542,9 @@ void init() {
 }
 
 /*===============================*
+ *===============================*
  * Byte Streams (for marshaling) *
+ *===============================*
  *===============================*/
 
 /**
@@ -623,7 +627,9 @@ char byte_stream_peek_byte(struct object *e) {
 }
 
 /*===============================*
+ *===============================*
  * Marshaling                    *
+ *===============================*
  *===============================*/
 struct object *marshal(struct object *o);
 
@@ -826,7 +832,9 @@ struct object *marshal(struct object *o) {
 }
 
 /*===============================*
+ *===============================*
  * Unmarshaling                  *
+ *===============================*
  *===============================*/
 struct object *unmarshal(struct object *s);
 
@@ -976,6 +984,47 @@ struct object *unmarshal_cons(struct object *s) {
   return cons(car, cdr);
 }
 
+struct object *unmarshal_dynamic_byte_array(struct object *s) {
+  unsigned char t;
+  struct object *length;
+
+  s = byte_stream_lift(s);
+
+  t = byte_stream_read_byte(s);
+  if (t != marshaled_type_dynamic_byte_array) {
+    printf("BC: unmarshaling dynamic-byte-array expected dynamic-byte-array type, but was %d.", t);
+    exit(1);
+  }
+
+  length = unmarshal_integer(s); /* TODO: make sure this is not a float */
+  return byte_stream_read(s, UFIXNUM_VALUE(length));
+}
+
+struct object *unmarshal_dynamic_array(struct object *s) {
+  unsigned char t;
+  struct object *length, *darr;
+  ufixnum_t i;
+
+  s = byte_stream_lift(s);
+
+  t = byte_stream_read_byte(s);
+  if (t != marshaled_type_dynamic_array) {
+    printf("BC: unmarshaling dynamic-array expected dynamic-array type, but was %d.", t);
+    exit(1);
+  }
+
+  length = unmarshal_integer(s); /* TODO: make sure this is not a float */
+  darr = dynamic_array(UFIXNUM_VALUE(length));
+
+  i = UFIXNUM_VALUE(length);
+  /* unmarshal i items: */
+  while (i != 0) { 
+    dynamic_array_push(darr, unmarshal(s));
+    --i;
+  }
+  return darr;
+}
+
 struct object *unmarshal_nil(struct object *s) {
   unsigned char t;
   s = byte_stream_lift(s);
@@ -995,9 +1044,9 @@ struct object *unmarshal(struct object *s) {
 
   switch (t) {
     case marshaled_type_dynamic_byte_array:
-      return NULL;
+      return unmarshal_dynamic_byte_array(s);
     case marshaled_type_dynamic_array:
-      return NULL;
+      return unmarshal_dynamic_array(s);
     case marshaled_type_cons:
       return unmarshal_cons(s);
     case marshaled_type_nil:
@@ -1015,7 +1064,9 @@ struct object *unmarshal(struct object *s) {
 }
 
 /*===============================*
+ *===============================*
  * Bytecode File Formatting      *
+ *===============================*
  *===============================*/
 struct object *make_bytecode_file_header() {
   struct object *ba = dynamic_byte_array(10);
@@ -1119,10 +1170,12 @@ struct object *read_bytecode_file(FILE *file) {
 }
  
 /*===============================*
+ *===============================*
  * Tests                         *
+ *===============================*
  *===============================*/
 void run_tests() {
-  struct object *darr, *o0;
+  struct object *darr, *o0, *dba;
 
   printf("Running tests...\n");
 
@@ -1205,6 +1258,27 @@ void run_tests() {
   assert(FIXNUM_VALUE(CONS_CAR(CONS_CDR(o0))) == 99);
   assert(CONS_CDR(CONS_CDR(o0)) == NULL);
 
+  /* marshal/unmarshal dynamic byte array */
+  dba = dynamic_byte_array(10);
+  dynamic_byte_array_push_char(dba, 54);
+  dynamic_byte_array_push_char(dba, 99);
+  dynamic_byte_array_push_char(dba, 23);
+  dynamic_byte_array_push_char(dba, 9);
+  o0 = unmarshal_dynamic_byte_array(marshal_dynamic_byte_array(dba));
+  assert(DYNAMIC_BYTE_ARRAY_LENGTH(dba) == DYNAMIC_BYTE_ARRAY_LENGTH(o0));
+  assert(strcmp(bstring_to_cstring(dba), bstring_to_cstring(o0)) == 0);
+
+  /* marshal/unmarshal dynamic array */
+  darr = dynamic_array(10);
+  dynamic_array_push(darr, fixnum(3));
+  dynamic_array_push(darr, string("e2"));
+  dynamic_array_push(darr, NULL);
+  o0 = unmarshal_dynamic_array(marshal_dynamic_array(darr));
+  assert(DYNAMIC_ARRAY_LENGTH(darr) == DYNAMIC_ARRAY_LENGTH(o0));
+  assert(FIXNUM_VALUE(DYNAMIC_ARRAY_VALUES(darr)[0]) == 3);
+  assert(strcmp(bstring_to_cstring(DYNAMIC_ARRAY_VALUES(darr)[1]), "e2") == 0);
+  assert(DYNAMIC_ARRAY_VALUES(darr)[2] == NULL);
+
   printf("Tests were successful\n");
 }
 
@@ -1223,7 +1297,7 @@ int main() {
 
   consts = dynamic_array(100);
   dynamic_array_push(consts, string("ab"));
-  dynamic_array_push(consts, cons(string("F"), string("E")));
+  dynamic_array_push(consts, cons(string("F"), cons(string("E"), NULL)));
   dynamic_array_push(consts, flonum(8));
 
   bc = bytecode(code, consts);
