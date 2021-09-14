@@ -180,10 +180,10 @@ struct object *dynamic_byte_array(fixnum_t initial_capacity) {
   return o;
 }
 
-struct object *bytecode(struct object *code, struct object *constants) {
+struct object *bytecode(struct object *constants, struct object *code) {
   struct object *o;
-  TC("bytecode", 0, code, type_dynamic_byte_array);
-  TC("bytecode", 1, constants, type_dynamic_array);
+  TC("bytecode", 0, constants, type_dynamic_array);
+  TC("bytecode", 1, code, type_dynamic_byte_array);
   o = object(type_bytecode);
   NC(o, "Failed to allocate bytecode object.");
   o->w1.value.bytecode = malloc(sizeof(struct bytecode));
@@ -1025,6 +1025,23 @@ struct object *unmarshal_dynamic_array(struct object *s) {
   return darr;
 }
 
+struct object *unmarshal_bytecode(struct object *s) {
+  unsigned char t;
+  struct object *constants, *code;
+
+  s = byte_stream_lift(s);
+  t = byte_stream_read_byte(s);
+  if (t != marshaled_type_bytecode) {
+    printf("BC: unmarshaling bytecode expected bytecode type, but was %d.", t);
+    exit(1);
+  }
+
+  constants = unmarshal_dynamic_array(s);
+  code = unmarshal_dynamic_byte_array(s);
+
+  return bytecode(constants, code);
+}
+
 struct object *unmarshal_nil(struct object *s) {
   unsigned char t;
   s = byte_stream_lift(s);
@@ -1057,6 +1074,8 @@ struct object *unmarshal(struct object *s) {
       return unmarshal_float(s);
     case marshaled_type_string:
       return unmarshal_string(s);
+    case marshaled_type_bytecode:
+      return unmarshal_bytecode(s);
     default:
       printf("BC: cannot unmarshal marshaled type %d.", t);
       return NULL;
@@ -1175,7 +1194,7 @@ struct object *read_bytecode_file(FILE *file) {
  *===============================*
  *===============================*/
 void run_tests() {
-  struct object *darr, *o0, *dba;
+  struct object *darr, *o0, *dba, *bc;
 
   printf("Running tests...\n");
 
@@ -1279,6 +1298,27 @@ void run_tests() {
   assert(strcmp(bstring_to_cstring(DYNAMIC_ARRAY_VALUES(darr)[1]), "e2") == 0);
   assert(DYNAMIC_ARRAY_VALUES(darr)[2] == NULL);
 
+  /* marshal bytecode */
+  darr = dynamic_array(10); /* constants vector */
+  dynamic_array_push(darr, string("blackhole"));
+  dynamic_array_push(darr, flonum(3.234));
+  dynamic_array_push(darr, ufixnum(234234234));
+  dba = dynamic_byte_array(10); /* the code vector */
+  dynamic_byte_array_push_char(dba, 0x62);
+  dynamic_byte_array_push_char(dba, 0x39);
+  dynamic_byte_array_push_char(dba, 0x13);
+  dynamic_byte_array_push_char(dba, 0x23);
+  bc = bytecode(darr, dba);
+  o0 = unmarshal_bytecode(marshal_bytecode(bc));
+  /* check constants vector */
+  assert(DYNAMIC_ARRAY_LENGTH(darr) == DYNAMIC_ARRAY_LENGTH(BYTECODE_CONSTANTS(o0)));
+  assert(strcmp(bstring_to_cstring(DYNAMIC_ARRAY_VALUES(BYTECODE_CONSTANTS(o0))[0]), "blackhole") == 0);
+  assert(FLONUM_VALUE(DYNAMIC_ARRAY_VALUES(BYTECODE_CONSTANTS(o0))[1]) == 3.234);
+  assert(UFIXNUM_VALUE(DYNAMIC_ARRAY_VALUES(BYTECODE_CONSTANTS(o0))[2]) == 234234234);
+  /* check code vector */
+  assert(DYNAMIC_BYTE_ARRAY_LENGTH(dba) == DYNAMIC_BYTE_ARRAY_LENGTH(BYTECODE_CODE(o0)));
+  assert(strcmp(bstring_to_cstring(dba), bstring_to_cstring(BYTECODE_CODE(o0))) == 0);
+
   printf("Tests were successful\n");
 }
 
@@ -1300,7 +1340,7 @@ int main() {
   dynamic_array_push(consts, cons(string("F"), cons(string("E"), NULL)));
   dynamic_array_push(consts, flonum(8));
 
-  bc = bytecode(code, consts);
+  bc = bytecode(consts, code);
 
   eval(g, bc);
 
