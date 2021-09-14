@@ -1147,45 +1147,35 @@ struct object *write_bytecode_file(struct object *file, struct object *bc) {
   return NULL;
 }
 
-struct object *read_bytecode_file(FILE *file) {
-  /*
-  struct object *header;
-  struct object *bc;
-  */
+struct object *read_bytecode_file(struct object *s) {
+  struct object *version, *bc;
 
-  return NULL;
-  /* read the header - TODO: make sure the file is large enough to read the file
-   */
-  /*
-  memcpy(&header, file, sizeof(struct bytecode_file_header));
+  s = byte_stream_lift(s);
 
-  file = &file[sizeof(
-      struct bytecode_file_header)];
-
-  if (header.magic[0] != 'b' && header.magic[1] != 'u' &&
-      header.magic[2] != 'g' && header.magic[3] != 0) {
+  if (byte_stream_read_byte(s) != 'b' || 
+      byte_stream_read_byte(s) != 'u'|| 
+      byte_stream_read_byte(s) != 'g') {
     printf("BC: Invalid magic string\n");
     exit(1);
   }
 
-  if (header.version != BC_VERSION) {
-    printf("BC: Invalid version (interpreter is %d, bytecode is %d).\n",
-           BC_VERSION, header.version);
+  version = unmarshal_integer(s);
+  if (UFIXNUM_VALUE(version) != BC_VERSION) {
+    printf("BC: Version mismatch (this interpreter has version %d, the file has version %d).\n", BC_VERSION, (unsigned int)UFIXNUM_VALUE(version));
     exit(1);
   }
 
-  bc = unmarshal(file);
+  bc = unmarshal_bytecode(s);
 
-  if (bc->w0.type != type_bytecode) {
+  if (get_object_type(bc) != type_bytecode) {
     printf(
         "BC: Bytecode file requires a marshalled bytecode object immediately "
         "after the header, but found a %s.\n",
-        get_type_name(bc->w0.type));
+        get_object_type_name(bc));
     exit(1);
   }
 
   return bc;
-  */
 }
  
 /*===============================*
@@ -1349,6 +1339,12 @@ int main() {
   file = open_file(string("file.txt"), string("wb"));
   write_bytecode_file(file, bc);
   close_file(file);
+
+  file = open_file(string("file.txt"), string("r"));
+  bc = read_bytecode_file(file);
+  close_file(file);
+
+  eval(g, bc);
 
   return 0;
 }
