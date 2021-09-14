@@ -53,6 +53,12 @@ typedef double flonum_t;
 #define ARRAY_VALUES(o)\
   o->w1.value.array->values
 
+#define CONS_CAR(o)\
+  o->w0.car
+
+#define CONS_CDR(o)\
+  o->w1.cdr
+
 #define DYNAMIC_BYTE_ARRAY_LENGTH(o)\
   o->w1.value.dynamic_byte_array->length
 
@@ -132,18 +138,21 @@ enum ops {
    be defined within the language. */
 /* keeps the two right most bits as 0 to keep it as a flag */
 enum type {
-  type_cons = 0,
-  type_fixnum = 4,
-  type_ufixnum = 8,
-  type_flonum = 12,
-  type_symbol = 16,
-  type_dynamic_array = 20,
-  type_string = 24,
-  type_package = 28,
-  type_dynamic_byte_array = 32,
-  type_bytecode = 36,
-  type_file = 40,
-  type_enumerator = 44
+  type_cons = 0,    /* ... 0000 0000 */
+  type_fixnum = 2,  /* ... 0000 0010 */
+  type_ufixnum = 6, /* ... 0000 0110 */
+  type_flonum = 10, /* ... 0000 1010 */
+  type_symbol = 14, /* ... 0001 1110 */
+  type_dynamic_array =
+      18, /* etc... the lsb is always 0, the second lsb is always 1 */
+  type_string = 22,
+  type_package = 26,
+  type_dynamic_byte_array = 30,
+  type_bytecode = 34,
+  type_file = 38,
+  type_enumerator = 42,
+  type_nil = 46 /* type_nil won't appear on an object, only from calls to
+                   get_object_type(...) */
 };
 
 union value {

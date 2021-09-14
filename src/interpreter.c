@@ -5,7 +5,9 @@
 
 #include "bytecode.h"
 
-/* UTIL */
+/*===============================*
+ * Utility Procedures            *
+ *===============================*/
 double log2(double n) { return log(n) / log(2); }
 
 char *get_type_name(enum type t) {
@@ -34,30 +36,42 @@ char *get_type_name(enum type t) {
       return "file";
     case type_enumerator:
       return "enumerator";
+    case type_nil:
+      return "nil";
   }
   printf("BC: Given type number has no implemented name %d", t);
   exit(1);
 }
 
+enum type get_object_type(struct object *o) {
+  if (o == NULL) return type_nil;
+  if (OBJECT_TYPE(o) & 0x2) return OBJECT_TYPE(o);
+  return type_cons;
+}
+
+char *get_object_type_name(struct object *o) {
+  return get_type_name(get_object_type(o));
+}
+
 #ifdef RUN_TIME_CHECKS
 void type_check(char *name, unsigned int argument, struct object *o,
                 enum type type) {
-  if (o->w0.type != type) {
+  if (get_object_type(o) != type) {
     printf(
         "BC: Function \"%s\" was called with an invalid argument "
         "at index %d. Expected type %s, but was %s.\n",
-        name, argument, get_type_name(type), get_type_name(o->w0.type));
+        name, argument, get_type_name(type), get_object_type_name(o));
     exit(1);
   }
 }
 
 void type_check_or2(char *name, unsigned int argument, struct object *o,
                 enum type type0, enum type type1) {
-  if (o->w0.type != type0 && o->w0.type != type1) {
+  if (get_object_type(o) != type0 && get_object_type(o) != type1) {
     printf(
         "BC: Function \"%s\" was called with an invalid argument "
         "at index %d. Expected either %s or %s, but was %s.\n",
-        name, argument, get_type_name(type0), get_type_name(type1), get_type_name(o->w0.type));
+        name, argument, get_type_name(type0), get_type_name(type1), get_object_type_name(o));
     exit(1);
   }
 }
@@ -76,6 +90,9 @@ char *bstring_to_cstring(struct object *str) {
   return buf;
 }
 
+/**
+ * Counts the number of items in a cons list
+ */
 fixnum_t count(struct object *list) {
   fixnum_t count = 0;
   while (list != 0) {
@@ -85,6 +102,9 @@ fixnum_t count(struct object *list) {
   return count;
 }
 
+/**
+ * Checks the number of items on the stack (for bytecode interpreter)
+ */
 void stack_check(struct gis *g, char *name, int n) {
   unsigned int stack_count = count(g->stack);
   if (stack_count < n) {
@@ -97,10 +117,13 @@ void stack_check(struct gis *g, char *name, int n) {
 }
 #endif
 
+/*
+ * Value constructors
+ */
 struct object *object(enum type type) {
   struct object *o = malloc(sizeof(struct object));
   if (o == NULL) return NULL;
-  o->w0.type = type;
+  OBJECT_TYPE(o) = type;
   return o;
 }
 
@@ -172,7 +195,7 @@ struct object *string(char *contents) {
   struct object *o;
   fixnum_t length = strlen(contents);
   o = dynamic_byte_array(length);
-  o->w0.type = type_string;
+  OBJECT_TYPE(o) = type_string;
   memcpy(DYNAMIC_BYTE_ARRAY_BYTES(o), contents, length);
   DYNAMIC_BYTE_ARRAY_LENGTH(o) = length;
   return o;
@@ -362,17 +385,10 @@ struct object *dynamic_byte_array_concat(struct object *dba0, struct object *dba
   memcpy(&DYNAMIC_BYTE_ARRAY_BYTES(dba2)[DYNAMIC_BYTE_ARRAY_LENGTH(dba0)], DYNAMIC_BYTE_ARRAY_BYTES(dba1), DYNAMIC_BYTE_ARRAY_LENGTH(dba1) * sizeof(char));
   return dba2;
 }
-/*
-struct object *dynamic_byte_array_splice(struct object *dba, fixnum_t i, fixnum_t j) {
-  struct object *o;
 
-  TC2("dynamic_byte_array_splice", 0, dba, type_dynamic_byte_array, type_string);
-  o = dynamic_byte_array(j - i);
-  memcpy(DYNAMIC_BYTE_ARRAY_BYTES(o), &DYNAMIC_BYTE_ARRAY_BYTES(dba)[i], (j - i) * sizeof(char));
-  return o;
-}
-*/
-
+/* 
+ * Bytecode Interpreter 
+ */
 void push(struct gis *g, struct object *object) {
   g->stack = cons(object, g->stack);
 }
@@ -381,18 +397,18 @@ struct object *pop(struct gis *g) {
   struct object *value;
   SC(g, "pop", 1);
   value = g->stack->w0.car;
-  g->stack = g->stack->w1.cdr;
+  g->stack = CONS_CDR(g->stack);
   return value;
 }
 
 struct object *peek(struct gis *g) {
   SC(g, "peek", 1);
-  return g->stack->w0.car;
+  return CONS_CAR(g->stack);
 }
 
 void dup(struct gis *g) {
   SC(g, "dup", 1);
-  g->stack = cons(g->stack->w0.car, g->stack);
+  g->stack = cons(CONS_CAR(g->stack), g->stack);
 }
 
 struct gis *gis() {
@@ -436,16 +452,16 @@ struct gis *gis() {
   c0 = constants->values[a0];
 
 void eval(struct gis *g, struct object *bc) {
-  unsigned long i,          /* the current byte being evaluated */
+  unsigned long i,        /* the current byte being evaluated */
       byte_count;         /* number of  bytes in this bytecode */
-  unsigned char t0;                /* temporary for reading bytecode arguments */
-  unsigned long a0;            /* the arguments for bytecode parameters */
+  unsigned char t0;       /* temporary for reading bytecode arguments */
+  unsigned long a0;       /* the arguments for bytecode parameters */
   struct object *v0, *v1; /* temps for values popped off the stack */
   struct object *c0; /* temps for constants (used for bytecode arguments) */
   struct dynamic_byte_array
       *code; /* the byte array containing the bytes in the bytecode */
   struct dynamic_array *constants; /* the constants array */
-  unsigned long constants_length; /* the length of the constants array */
+  unsigned long constants_length;  /* the length of the constants array */
 
   TC("eval", 1, bc, type_bytecode);
   i = 0;
@@ -523,13 +539,20 @@ void init() {
   g->package = package(string("user"));
 }
 
+/*===============================*
+ * Byte Streams (for marshaling) *
+ *===============================*/
+
+/**
+ * Idempotently lift the value into a stream.
+ */
 struct object *byte_stream_lift(struct object *e) {
-  if (OBJECT_TYPE(e) == type_dynamic_byte_array || OBJECT_TYPE(e) == type_string) {
+  if (get_object_type(e) == type_dynamic_byte_array || get_object_type(e) == type_string) {
     return enumerator(e);
-  } else if (OBJECT_TYPE(e) == type_file || OBJECT_TYPE(e) == type_enumerator) {
+  } else if (get_object_type(e) == type_file || get_object_type(e) == type_enumerator) {
     return e;
   } else {
-    printf("BC: attempted to lift unsupported type %s into a byte-stream", get_type_name(OBJECT_TYPE(e)));
+    printf("BC: attempted to lift unsupported type %s into a byte-stream", get_object_type_name(e));
     exit(1);
   }
 }
@@ -542,11 +565,11 @@ struct object *byte_stream_do_read(struct object *e, fixnum_t n, char peek) {
   ret = dynamic_byte_array(n);
   DYNAMIC_ARRAY_LENGTH(ret) = n;
 
-  if (e->w0.type == type_file) {
+  if (get_object_type(e) == type_file) {
     fread(DYNAMIC_BYTE_ARRAY_BYTES(ret), sizeof(char), n, FILE_FP(e));
     if (peek) fseek(FILE_FP(e), -n, SEEK_CUR);
   } else {
-    switch (ENUMERATOR_SOURCE(e)->w0.type) {
+    switch (get_object_type(ENUMERATOR_SOURCE(e))) {
       case type_dynamic_byte_array:
       case type_string:
         memcpy(DYNAMIC_BYTE_ARRAY_BYTES(ret), &DYNAMIC_BYTE_ARRAY_BYTES(ENUMERATOR_SOURCE(e))[ENUMERATOR_INDEX(e)], sizeof(char) * n);
@@ -554,7 +577,7 @@ struct object *byte_stream_do_read(struct object *e, fixnum_t n, char peek) {
         break;
       default:
         printf("BC: byte stream get is not implemented for type %s.",
-               get_type_name(e->w0.type));
+               get_object_type_name(e));
         exit(1);
     }
   }
@@ -564,11 +587,11 @@ struct object *byte_stream_do_read(struct object *e, fixnum_t n, char peek) {
 char byte_stream_do_read_byte(struct object *e, char peek) {
   char c;
   TC2("byte_steam_get_char", 0, e, type_enumerator, type_file);
-  if (e->w0.type == type_file) {
+  if (get_object_type(e) == type_file) {
     c = fgetc(FILE_FP(e)); 
     if (peek) ungetc(c, FILE_FP(e));
   } else {
-    switch (OBJECT_TYPE(ENUMERATOR_SOURCE(e))) {
+    switch (get_object_type(ENUMERATOR_SOURCE(e))) {
       case type_dynamic_byte_array:
       case type_string:
         c = DYNAMIC_BYTE_ARRAY_BYTES(ENUMERATOR_SOURCE(e))[ENUMERATOR_INDEX(e)];
@@ -576,7 +599,7 @@ char byte_stream_do_read_byte(struct object *e, char peek) {
         break;
       default:
         printf("BC: byte stream get char is not implemented for type %s.",
-               get_type_name(OBJECT_TYPE(ENUMERATOR_SOURCE(e))));
+               get_object_type_name(ENUMERATOR_SOURCE(e)));
         exit(1);
     }
   }
@@ -599,23 +622,9 @@ char byte_stream_peek_byte(struct object *e) {
   return byte_stream_do_read_byte(e, 1);
 }
 
-
-struct object *to_string(struct object *o) {
-  enum type t = o->w0.type;
-  switch (t) {
-    case type_fixnum:
-      return string("<fixnum>");
-    case type_flonum:
-      return string("<flonum>");
-    case type_string:
-      return o;
-    default:
-      printf("BC: type %s does not support to-string", get_type_name(t));
-      exit(1);
-  }
-}
-
-/* Marshaling  */
+/*===============================*
+ * Marshaling                    *
+ *===============================*/
 struct object *marshal(struct object *o);
 
 struct object *marshal_fixnum_t(fixnum_t n) {
@@ -680,6 +689,25 @@ struct object *marshal_dynamic_byte_array(struct object *ba0) {
   ba1 = dynamic_byte_array_concat(ba1, marshal_fixnum_t(DYNAMIC_BYTE_ARRAY_LENGTH(ba0)));
   ba1 = dynamic_byte_array_concat(ba1, ba0);
   return ba1;
+}
+
+struct object *marshal_nil() {
+  struct object *ba;
+  ba = dynamic_byte_array(1);
+  dynamic_byte_array_push_char(ba, marshaled_type_nil);
+  return ba;
+}
+
+struct object *marshal_cons(struct object *o) {
+  struct object *ba;
+
+  TC("marshal_cons", 0, o, type_cons);
+
+  ba = dynamic_byte_array(10);
+  dynamic_byte_array_push_char(ba, marshaled_type_cons);
+  ba = dynamic_byte_array_concat(ba, marshal(CONS_CAR(o)));
+  ba = dynamic_byte_array_concat(ba, marshal(CONS_CDR(o)));
+  return ba;
 }
 
 struct object *marshal_dynamic_array(struct object *arr) {
@@ -773,13 +801,14 @@ struct object *marshal_bytecode(struct object *bc) {
  * representation of the object.
  */
 struct object *marshal(struct object *o) {
-  switch (o->w0.type) {
+  if (o == NULL) return marshal_nil();
+  switch (get_object_type(o)) {
     case type_dynamic_byte_array:
-      return NULL;
+      return marshal_dynamic_byte_array(o);
     case type_dynamic_array:
-      return NULL;
+      return marshal_dynamic_array(o);
     case type_cons:
-      return NULL;
+      return marshal_cons(o);
     case type_fixnum:
       return marshal_fixnum(o);
     case type_ufixnum:
@@ -791,10 +820,15 @@ struct object *marshal(struct object *o) {
     case type_bytecode:
       return marshal_bytecode(o);
     default:
-      printf("BC: cannot marshal type %s.\n", get_type_name(o->w0.type));
+      printf("BC: cannot marshal type %s.\n", get_object_type_name(o));
       return NULL;
   }
 }
+
+/*===============================*
+ * Unmarshaling                  *
+ *===============================*/
+struct object *unmarshal(struct object *s);
 
 struct object *unmarshal_integer(struct object *s) {
   unsigned char t, sign, is_flo, is_init_flo;
@@ -883,7 +917,7 @@ struct object *unmarshal_float(struct object *s) {
   sign = byte_stream_read_byte(s);
 
   mantissa_fix = unmarshal_integer(s);
-  if (OBJECT_TYPE(mantissa_fix) == type_flonum) {
+  if (get_object_type(mantissa_fix) == type_flonum) {
     printf("BC: expected mantissa part of float to fit into a fixnum or ufixnum during float unmarshaling");
     exit(1);
   }
@@ -891,7 +925,7 @@ struct object *unmarshal_float(struct object *s) {
   mantissa = (flonum_t)UFIXNUM_VALUE(mantissa_fix) / pow(2, DBL_MANT_DIG); /* TODO: make it choose between DBL/FLT properly */
 
   exponent = unmarshal_integer(s);
-  if (OBJECT_TYPE(exponent) != type_fixnum) {
+  if (get_object_type(exponent) != type_fixnum) {
     printf("BC: expected exponent part of float to fit into a fixnum during float unmarshaling");
     exit(1);
   }
@@ -915,7 +949,7 @@ struct object *unmarshal_string(struct object *s) {
   }
 
   length = unmarshal_integer(s);
-  if (OBJECT_TYPE(length) != type_fixnum) {
+  if (get_object_type(length) != type_fixnum) {
     printf("BC: expected string length to fit into a fixnum during string unmarshal");
     exit(1);
   }
@@ -925,29 +959,64 @@ struct object *unmarshal_string(struct object *s) {
   return str;
 }
 
-struct object *unmarshal(struct object *dba) {
+struct object *unmarshal_cons(struct object *s) {
+  unsigned char t;
+  struct object *car, *cdr;
+
+  s = byte_stream_lift(s);
+
+  t = byte_stream_read_byte(s);
+  if (t != marshaled_type_cons) {
+    printf("BC: unmarshaling cons expected cons type, but was %d.", t);
+    exit(1);
+  }
+
+  car = unmarshal(s);
+  cdr = unmarshal(s);
+  return cons(car, cdr);
+}
+
+struct object *unmarshal_nil(struct object *s) {
+  unsigned char t;
+  s = byte_stream_lift(s);
+  t = byte_stream_read_byte(s);
+  if (t != marshaled_type_nil) {
+    printf("BC: unmarshaling nil expected nil type, but was %d.", t);
+    exit(1);
+  }
+  return NULL;
+}
+
+struct object *unmarshal(struct object *s) {
   enum marshaled_type t;
-  TC("unmarshal", 0, dba, type_dynamic_byte_array);
-  t = dynamic_byte_array_get(dba, 0);
+
+  s = byte_stream_lift(s);
+  t = byte_stream_peek_byte(s);
+
   switch (t) {
     case marshaled_type_dynamic_byte_array:
       return NULL;
     case marshaled_type_dynamic_array:
       return NULL;
     case marshaled_type_cons:
-      return NULL;
+      return unmarshal_cons(s);
+    case marshaled_type_nil:
+      return unmarshal_nil(s);
     case marshaled_type_integer:
-      return unmarshal_integer(dba);
+      return unmarshal_integer(s);
     case marshaled_type_float:
-      return NULL;
+      return unmarshal_float(s);
     case marshaled_type_string:
-      return unmarshal_string(dba);
+      return unmarshal_string(s);
     default:
       printf("BC: cannot unmarshal marshaled type %d.", t);
       return NULL;
   }
 }
 
+/*===============================*
+ * Bytecode File Formatting      *
+ *===============================*/
 struct object *make_bytecode_file_header() {
   struct object *ba = dynamic_byte_array(10);
   dynamic_byte_array_push_char(ba, 'b');
@@ -960,7 +1029,7 @@ struct object *make_bytecode_file_header() {
 struct object *write_file(struct object *file, struct object *o) {
   fixnum_t nmembers;
   TC("write_file", 0, file, type_file);
-  switch (o->w0.type) {
+  switch (get_object_type(o)) {
     case type_dynamic_byte_array:
     case type_string:
       nmembers = fwrite(DYNAMIC_BYTE_ARRAY_BYTES(o), sizeof(char),
@@ -972,7 +1041,7 @@ struct object *write_file(struct object *file, struct object *o) {
       break;
     default:
       printf("BC: can not write object of type %s to a file.",
-             get_type_name(o->w0.type));
+             get_object_type_name(o));
       exit(1);
   }
   return NULL;
@@ -1048,9 +1117,12 @@ struct object *read_bytecode_file(FILE *file) {
   return bc;
   */
 }
-
+ 
+/*===============================*
+ * Tests                         *
+ *===============================*/
 void run_tests() {
-  struct object *darr;
+  struct object *darr, *o0;
 
   printf("Running tests...\n");
 
@@ -1112,10 +1184,27 @@ void run_tests() {
   assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(-1.23)))) == -1.23);
   /* TODO: test that NaN and +/- Infinity work */
 
-  /* String marshaling */
+  /* string marshaling */
   assert(strcmp(bstring_to_cstring(unmarshal_string(marshal_string(string("abcdef")))), "abcdef") == 0);
   assert(strcmp(bstring_to_cstring(unmarshal_string(marshal_string(string("nerEW)F9nef09n230(N#EOINWEogiwe")))), "nerEW)F9nef09n230(N#EOINWEogiwe") == 0);
   assert(strcmp(bstring_to_cstring(unmarshal_string(marshal_string(string("")))), "") == 0);
+
+  /* nil marshaling */
+  assert(unmarshal_nil(marshal_nil()) == NULL);
+
+  /* cons filled with nils */
+  o0 = unmarshal_cons(marshal_cons(cons(NULL, NULL)));
+  assert(CONS_CAR(o0) == NULL); assert(CONS_CDR(o0) == NULL);
+  /* cons with strings */
+  o0 = unmarshal_cons(marshal_cons(cons(string("A"), string("B"))));
+  assert(strcmp(bstring_to_cstring(CONS_CAR(o0)), "A") == 0);
+  assert(strcmp(bstring_to_cstring(CONS_CDR(o0)), "B") == 0);
+  /* cons list with fixnums */
+  o0 = unmarshal_cons(marshal_cons(cons(fixnum(35), cons(fixnum(99), NULL))));
+  assert(FIXNUM_VALUE(CONS_CAR(o0)) == 35);
+  assert(FIXNUM_VALUE(CONS_CAR(CONS_CDR(o0))) == 99);
+  assert(CONS_CDR(CONS_CDR(o0)) == NULL);
+
   printf("Tests were successful\n");
 }
 
@@ -1134,7 +1223,7 @@ int main() {
 
   consts = dynamic_array(100);
   dynamic_array_push(consts, string("ab"));
-  dynamic_array_push(consts, fixnum(123456));
+  dynamic_array_push(consts, cons(string("F"), string("E")));
   dynamic_array_push(consts, flonum(8));
 
   bc = bytecode(code, consts);
