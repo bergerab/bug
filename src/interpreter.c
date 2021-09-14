@@ -14,6 +14,8 @@ char *get_type_name(enum type t) {
       return "cons";
     case type_fixnum:
       return "fixnum";
+    case type_ufixnum:
+      return "ufixnum";
     case type_flonum:
       return "flonum";
     case type_symbol:
@@ -106,6 +108,13 @@ struct object *fixnum(fixnum_t fixnum) {
   struct object *o = object(type_fixnum);
   NC(o, "Failed to allocate fixnum object.");
   o->w1.value.fixnum = fixnum;
+  return o;
+}
+
+struct object *ufixnum(ufixnum_t ufixnum) {
+  struct object *o = object(type_ufixnum);
+  NC(o, "Failed to allocate ufixnum object.");
+  o->w1.value.ufixnum = ufixnum;
   return o;
 }
 
@@ -429,7 +438,7 @@ struct gis *gis() {
 void eval(struct gis *g, struct object *bc) {
   unsigned long i,          /* the current byte being evaluated */
       byte_count;         /* number of  bytes in this bytecode */
-  char t0;                /* temporary for reading bytecode arguments */
+  unsigned char t0;                /* temporary for reading bytecode arguments */
   unsigned long a0;            /* the arguments for bytecode parameters */
   struct object *v0, *v1; /* temps for values popped off the stack */
   struct object *c0; /* temps for constants (used for bytecode arguments) */
@@ -611,13 +620,32 @@ struct object *marshal(struct object *o);
 
 struct object *marshal_fixnum_t(fixnum_t n) {
   struct object *ba;
-  char byte;
+  unsigned char byte;
 
   ba = dynamic_byte_array(4);
   dynamic_byte_array_push_char(ba, marshaled_type_integer);
   dynamic_byte_array_push_char(ba, n < 0 ? 1 : 0);
 
   n = n < 0 ? -n : n; /* abs */
+
+  do {
+    byte = n & 0x7F;
+    if (n > 0x7F) /* flip the continuation bit if there are more bytes */
+      byte |= 0x80;
+    dynamic_byte_array_push_char(ba, byte);
+    n >>= 7;
+  } while (n > 0);
+
+  return ba;
+}
+
+struct object *marshal_ufixnum_t(ufixnum_t n) {
+  struct object *ba;
+  unsigned char byte;
+
+  ba = dynamic_byte_array(4);
+  dynamic_byte_array_push_char(ba, marshaled_type_integer);
+  dynamic_byte_array_push_char(ba, 0);
 
   do {
     byte = n & 0x7F;
@@ -692,9 +720,14 @@ struct object *marshal_fixnum(struct object *n) {
   return marshal_fixnum_t(FIXNUM_VALUE(n));
 }
 
+struct object *marshal_ufixnum(struct object *n) {
+  TC("marshal_ufixnum", 0, n, type_ufixnum);
+  return marshal_ufixnum_t(UFIXNUM_VALUE(n));
+}
+
 struct object *marshal_flonum(struct object *n) {
   struct object *ba;
-  fixnum_t mantissa_fix, factor;
+  ufixnum_t mantissa_fix;
   flonum_t mantissa;
   int exponent;
 
@@ -711,11 +744,13 @@ struct object *marshal_flonum(struct object *n) {
    * I chose to use the base 2 floating point format (mantissa * 2^exponent = value) using 
    * arbitrary long mantissas and exponents. 
    * This is probably naive and might not work for NaN or Infinity. */
-  factor = 1;
   mantissa = frexp(FLONUM_VALUE(n), &exponent);
-  mantissa_fix = mantissa * (factor<<DBL_MANT_DIG); /* TODO: make it choose between DBL/FLT properly */
-  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(mantissa_fix));
-  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(exponent));
+  /* frexp keeps sign information on the mantissa, we convert it to a unsigned fixnum (hence the abs(...)). */
+  /* we already have the sign information in the marshaled flonum */
+  mantissa = mantissa < 0 ? -mantissa : mantissa;
+  mantissa_fix = mantissa * pow(2, DBL_MANT_DIG); /* TODO: make it choose between DBL/FLT properly */
+  ba = dynamic_byte_array_concat(ba, marshal_ufixnum_t(mantissa_fix));
+  ba = dynamic_byte_array_concat(ba, marshal_ufixnum_t(exponent));
 
   return ba;
 }
@@ -747,6 +782,8 @@ struct object *marshal(struct object *o) {
       return NULL;
     case type_fixnum:
       return marshal_fixnum(o);
+    case type_ufixnum:
+      return marshal_ufixnum(o);
     case type_flonum:
       return marshal_flonum(o);
     case type_string:
@@ -760,8 +797,9 @@ struct object *marshal(struct object *o) {
 }
 
 struct object *unmarshal_integer(struct object *s) {
-  char t, byte, sign, is_flo;
-  fixnum_t fix, byte_count;
+  unsigned char t, sign, is_flo, is_init_flo;
+  ufixnum_t ufix, next_ufix, byte_count, byte; /* the byte must be a ufixnum because it is used in operations that result in ufixnum */
+  fixnum_t fix, next_fix;
   flonum_t flo;
 
   s = byte_stream_lift(s);
@@ -777,34 +815,58 @@ struct object *unmarshal_integer(struct object *s) {
   sign = byte_stream_read_byte(s);
 
   is_flo = 0;
-  fix = 0;
+  is_init_flo = 0;
+  ufix = 0;
   flo = 0;
-  byte_count = 0;
+  byte_count = 0; /* number of bytes we have read (each byte contains 7 bits of the number) */
   do {
     byte = byte_stream_read_byte(s);
 
-    /* if the number doesn't fit into a fixnum, use a flonum */
-    if (byte_count > sizeof(fixnum_t)) {
+    /* if the number fit into a ufixnum or a fixnum, use a flonum */
+    if (is_flo) {
       /* if the fixnum was just exceeded */
-      if (!is_flo) {
-        flo = (flonum_t)fix;
-        is_flo = 1;
+      if (!is_init_flo) {
+        flo = sign == 1 ? fix : ufix;
+        is_init_flo = 1;
       }
       flo += pow(2, 7 * byte_count) * (byte & 0x7F);
     } else {
-      fix |= (byte & 0x7F) << (7 * byte_count);
+      if (sign == 1) { /* if the number is negative, it must be a signed fixnum */
+        next_fix = fix | (byte & 0x7F) << (7 * byte_count);
+        if (next_fix < fix || -next_fix > -fix) { /* if overflow occurred, or underflow occurred */
+          is_flo = 1;
+          --byte_count; /* force the next iteration to process the number as a flonum
+                           re-use the same byte, because this one couldn't fit. */
+        } else {
+          fix = next_fix;
+        }
+      } else { /* otherwise try to fit it into a unsigned fixnum */
+        next_ufix = ufix | ((byte & 0x7F) << (7 * byte_count));
+        if (next_ufix < ufix) { /* if overflow occurred */
+          is_flo = 1;
+          --byte_count; /* force the next iteration to process the number as a
+                           flonum re-use the same byte, because this one
+                           couldn't fit. */
+        } else {
+          ufix = next_ufix;
+        }
+      }
     }
     ++byte_count;
   } while (byte & 0x80);
 
   if (is_flo)
     return flonum(sign ? -flo : flo);
-  return fixnum(sign ? -fix : fix);
+  if (sign == 1)
+    return fixnum(sign ? -fix : fix);
+  /* if the ufix fits into a fix, use it as a fix */
+  if (ufix < INT64_MAX) /* TODO: define FIXNUM_MAX */
+    return fixnum(ufix);
+  return ufixnum(ufix);
 }
 
 struct object *unmarshal_float(struct object *s) {
-  char t;
-  fixnum_t sign;
+  unsigned char t, sign;
   struct object *mantissa_fix, *exponent;
   flonum_t flo, mantissa;
 
@@ -821,12 +883,12 @@ struct object *unmarshal_float(struct object *s) {
   sign = byte_stream_read_byte(s);
 
   mantissa_fix = unmarshal_integer(s);
-  if (OBJECT_TYPE(mantissa_fix) != type_fixnum) {
-    printf("BC: expected mantissa part of float to fit into a fixnum during float unmarshaling");
+  if (OBJECT_TYPE(mantissa_fix) == type_flonum) {
+    printf("BC: expected mantissa part of float to fit into a fixnum or ufixnum during float unmarshaling");
     exit(1);
   }
 
-  mantissa = FIXNUM_VALUE(mantissa_fix) / log10(FIXNUM_VALUE(mantissa_fix));
+  mantissa = (flonum_t)UFIXNUM_VALUE(mantissa_fix) / pow(2, DBL_MANT_DIG); /* TODO: make it choose between DBL/FLT properly */
 
   exponent = unmarshal_integer(s);
   if (OBJECT_TYPE(exponent) != type_fixnum) {
@@ -839,7 +901,7 @@ struct object *unmarshal_float(struct object *s) {
 }
 
 struct object *unmarshal_string(struct object *s) {
-  char t;
+  unsigned char t;
   struct object *str, *length;
 
   s = byte_stream_lift(s);
@@ -1038,10 +1100,17 @@ void run_tests() {
   assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(123456789)))) == 123456789);
   assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(-123456789)))) == -123456789);
   /* Should test fixnums that are from platforms that have larger word sizes (e.g. read in a fixnum larger than four bytes on a machine with two byte words) */
+  assert(UFIXNUM_VALUE(unmarshal_integer(marshal_ufixnum(ufixnum(MAX_UFIXNUM)))) == MAX_UFIXNUM);
 
   /* flonum marshaling */
-  printf("%f \n", FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(1)))) );
-  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(1)))) == 1);
+  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(0.0)))) == 0.0);
+  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(1.0)))) == 1.0);
+  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(1.23)))) == 1.23);
+  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(1e23)))) == 1e23);
+  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(123456789123456789123456789123456789.0)))) == 123456789123456789123456789123456789.0);
+  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(-0.0)))) == -0.0);
+  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(-1.23)))) == -1.23);
+  /* TODO: test that NaN and +/- Infinity work */
 
   /* String marshaling */
   assert(strcmp(bstring_to_cstring(unmarshal_string(marshal_string(string("abcdef")))), "abcdef") == 0);

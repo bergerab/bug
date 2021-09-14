@@ -30,13 +30,19 @@
   }
 
 typedef int64_t fixnum_t;
+typedef uint64_t ufixnum_t;
 typedef double flonum_t;
+
+#define MAX_UFIXNUM UINT64_MAX
 
 #define OBJECT_TYPE(o)\
   o->w0.type
 
 #define FIXNUM_VALUE(o)\
  o->w1.value.fixnum
+
+#define UFIXNUM_VALUE(o)\
+ o->w1.value.ufixnum
 
 #define FLONUM_VALUE(o)\
  o->w1.value.flonum
@@ -128,19 +134,21 @@ enum ops {
 enum type {
   type_cons = 0,
   type_fixnum = 4,
-  type_flonum = 8,
-  type_symbol = 20,
-  type_dynamic_array = 28,
-  type_string = 32,
-  type_package = 36,
-  type_dynamic_byte_array = 40,
-  type_bytecode = 44,
-  type_file = 48,
-  type_enumerator = 52
+  type_ufixnum = 8,
+  type_flonum = 12,
+  type_symbol = 16,
+  type_dynamic_array = 20,
+  type_string = 24,
+  type_package = 28,
+  type_dynamic_byte_array = 32,
+  type_bytecode = 36,
+  type_file = 40,
+  type_enumerator = 44
 };
 
 union value {
   fixnum_t fixnum;
+  ufixnum_t ufixnum;
   flonum_t flonum;
   struct dynamic_array *dynamic_array;
   struct dynamic_byte_array *dynamic_byte_array;
@@ -167,14 +175,14 @@ struct object {
 };
 
 struct dynamic_array {
-  fixnum_t length; /** the number of items in the array (a fixnum) */
-  fixnum_t capacity;
+  ufixnum_t length; /** the number of items in the array (a fixnum) */
+  ufixnum_t capacity;
   struct object **values; /** the contents of the array (arbitrary objects) */
 };
 
 struct dynamic_byte_array {
-  fixnum_t length; /** the number of items in the byte-array (a fixnum) */
-  fixnum_t capacity;
+  ufixnum_t length; /** the number of items in the byte-array (a fixnum) */
+  ufixnum_t capacity;
   char *bytes; /** the contents of the byte-array */
 };
 
