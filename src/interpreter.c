@@ -596,6 +596,11 @@ struct object *to_string_flonum_t(flonum_t n) {
 
   while (decimal_part > 0 && decimal_part % 10 == 0) decimal_part /= 10;
 
+  /* TODO: round the last digit */
+  /* TODO: normalize if necessary -- if integral part is >= 8 digits or decimal part is >= 4 digits, use scientific notation */
+  /* make a cap on how many digits are shown */
+  /* TODO: handle NaN and +/- Infinity */
+
   str = to_string_ufixnum_t(integral_part);
   dynamic_byte_array_push_char(str, '.');
   str = dynamic_byte_array_concat(str, to_string_fixnum_t(decimal_part));
@@ -628,8 +633,14 @@ struct object *do_to_string(struct object *o, char repr) {
     case type_fixnum:
       return to_string_fixnum_t(FIXNUM_VALUE(o));
     case type_dynamic_byte_array:
-      str = string("(dynamic-byte-array");
-      str = dynamic_byte_array_concat(str, string(")"));
+      str = string("[");
+      /* TODO write all bits as hex */
+      str = dynamic_byte_array_concat(str, string("]"));
+      return str;
+    case type_dynamic_array:
+      str = string("[");
+      /* TODO add each to-string'ed item to the string */
+      str = dynamic_byte_array_concat(str, string("]"));
       return str;
     default:
       printf("Unhandled type\n");
@@ -644,6 +655,12 @@ struct object *to_string(struct object *o) {
 struct object *to_repr(struct object *o) {
   return do_to_string(o, 1);
 }
+
+/*===============================*
+ *===============================*
+ * Equality                      *
+ *===============================*
+ *===============================*/
 
 /*===============================*
  *===============================*
@@ -876,7 +893,7 @@ struct object *marshal_flonum(struct object *n) {
   struct object *ba;
   ufixnum_t mantissa_fix;
   flonum_t mantissa;
-  fixnum_t exponent;
+  int exponent;
 
   TC("marshal_flonum", 0, n, type_flonum);
 
@@ -901,7 +918,7 @@ struct object *marshal_flonum(struct object *n) {
       mantissa *
       pow(2, DBL_MANT_DIG); /* TODO: make it choose between DBL/FLT properly */
   ba = dynamic_byte_array_concat(ba, marshal_ufixnum_t(mantissa_fix));
-  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(exponent));
+  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t((fixnum_t)exponent));
 
   return ba;
 }
@@ -983,6 +1000,7 @@ struct object *unmarshal_integer(struct object *s) {
   is_flo = 0;
   is_init_flo = 0;
   ufix = 0;
+  fix = 0;
   flo = 0;
   byte_count = 0; /* number of bytes we have read (each byte contains 7 bits of
                      the number) */
@@ -998,8 +1016,7 @@ struct object *unmarshal_integer(struct object *s) {
       }
       flo += pow(2, 7 * byte_count) * (byte & 0x7F);
     } else {
-      if (sign ==
-          1) { /* if the number is negative, it must be a signed fixnum */
+      if (sign == 1) { /* if the number is negative, it must be a signed fixnum */
         next_fix = fix | (byte & 0x7F) << (7 * byte_count);
         if (next_fix < fix ||
             -next_fix >
@@ -1027,10 +1044,13 @@ struct object *unmarshal_integer(struct object *s) {
   } while (byte & 0x80);
 
   if (is_flo) return flonum(sign ? -flo : flo);
-  if (sign == 1) return fixnum(sign ? -fix : fix);
+  if (sign == 1) {
+    return fixnum(sign ? -fix : fix);
+  }
   /* if the ufix fits into a fix, use it as a fix */
-  if (ufix < INT64_MAX) /* TODO: define FIXNUM_MAX */
+  if (ufix < INT64_MAX) { /* TODO: define FIXNUM_MAX */
     return fixnum(ufix);
+  }
   return ufixnum(ufix);
 }
 
@@ -1367,6 +1387,8 @@ void run_tests() {
   /* one byte */
   assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(9)))) == 9);
   assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(-23)))) == -23);
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(-76)))) == -76);
+  assert(FIXNUM_VALUE(unmarshal(marshal_fixnum(fixnum(-76)))) == -76);
   /* two bytes */
   assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(256)))) == 256);
   assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(257)))) == 257);
@@ -1498,8 +1520,15 @@ void run_tests() {
 
   assert_string_eq(to_string(flonum(0.0)), string("0.0"));
   assert_string_eq(to_string(flonum(1)), string("1.0"));
+  assert_string_eq(to_string(flonum(56789.0)), string("56789.0"));
   assert_string_eq(to_string(flonum(56789.43215)), string("56789.43215"));
-
+  assert_string_eq(to_string(flonum(9999999.41)), string("9999999.41"));
+  assert_string_eq(to_string(flonum(9999999999999999.41)), string("10000000000000000.0")); /* doesn't really test anything about the code */
+  assert_string_eq(to_string(flonum(9000000000000000.52)), string("9000000000000001.0")); /* doesn't really test anything about the code */
+  assert_string_eq(to_string(flonum(9e15)), string("9000000000000000.0"));
+  assert_string_eq(to_string(flonum(9e15 * 10)), string("9e+16"));
+  assert_string_eq(to_string(flonum(1234123412341123499.123412341234)), string("1.2341234123411236e+18"));
+  
   printf("Tests were successful\n");
 }
 
