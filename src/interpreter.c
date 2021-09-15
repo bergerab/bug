@@ -173,7 +173,7 @@ struct object *dynamic_byte_array(fixnum_t initial_capacity) {
   NC(o, "Failed to allocate dynamic-byte-array object.");
   o->w1.value.dynamic_byte_array = malloc(sizeof(struct dynamic_byte_array));
   NC(o->w1.value.dynamic_byte_array, "Failed to allocate dynamic-byte-array.");
-  DYNAMIC_BYTE_ARRAY_CAPACITY(o) = initial_capacity < 0 ? DEFAULT_INITIAL_CAPACITY : initial_capacity;
+  DYNAMIC_BYTE_ARRAY_CAPACITY(o) = initial_capacity <= 0 ? DEFAULT_INITIAL_CAPACITY : initial_capacity;
   DYNAMIC_BYTE_ARRAY_BYTES(o) = malloc(DYNAMIC_BYTE_ARRAY_CAPACITY(o) * sizeof(char));
   NC(DYNAMIC_BYTE_ARRAY_BYTES(o), "Failed to allocate dynamic-byte-array bytes.");
   DYNAMIC_BYTE_ARRAY_LENGTH(o) = 0;
@@ -346,7 +346,7 @@ void dynamic_byte_array_ensure_capacity(struct object *dba) {
   TC2("dynamic_byte_array_ensure_capacity", 0, dba, type_dynamic_byte_array, type_string);
   if (DYNAMIC_BYTE_ARRAY_LENGTH(dba) >= DYNAMIC_BYTE_ARRAY_CAPACITY(dba)) {
     DYNAMIC_BYTE_ARRAY_CAPACITY(dba) = DYNAMIC_BYTE_ARRAY_CAPACITY(dba) * 3/2.0;
-    DYNAMIC_BYTE_ARRAY_BYTES(dba) = realloc(DYNAMIC_BYTE_ARRAY_BYTES(dba), DYNAMIC_BYTE_ARRAY_CAPACITY(dba) * sizeof(char));
+    DYNAMIC_BYTE_ARRAY_BYTES(dba) = realloc(DYNAMIC_BYTE_ARRAY_BYTES(dba), DYNAMIC_BYTE_ARRAY_CAPACITY(dba) * sizeof(unsigned char));
     if (DYNAMIC_BYTE_ARRAY_BYTES(dba) == NULL) {
       printf("BC: Failed to realloc dynamic-byte-array.");
       exit(1);
@@ -386,6 +386,13 @@ struct object *dynamic_byte_array_concat(struct object *dba0, struct object *dba
   memcpy(DYNAMIC_BYTE_ARRAY_BYTES(dba2), DYNAMIC_BYTE_ARRAY_BYTES(dba0), DYNAMIC_BYTE_ARRAY_LENGTH(dba0) * sizeof(char));
   memcpy(&DYNAMIC_BYTE_ARRAY_BYTES(dba2)[DYNAMIC_BYTE_ARRAY_LENGTH(dba0)], DYNAMIC_BYTE_ARRAY_BYTES(dba1), DYNAMIC_BYTE_ARRAY_LENGTH(dba1) * sizeof(char));
   return dba2;
+}
+struct object *dynamic_byte_array_from_array(ufixnum_t length, unsigned char *arr) {
+  struct object *dba;
+  dba = dynamic_byte_array(length);
+  DYNAMIC_BYTE_ARRAY_LENGTH(dba) = length;
+  memcpy(DYNAMIC_BYTE_ARRAY_BYTES(dba), arr, sizeof(unsigned char));
+  return dba;
 }
 
 /* 
@@ -541,6 +548,103 @@ void init() {
   g->package = package(string("user"));
 }
 
+
+/*===============================*
+ *===============================*
+ * to-string                     *
+ *===============================*
+ *===============================*/
+void reverse_string(struct object *o) {
+  ufixnum_t i;
+  char temp;
+
+  for (i = 0; i < STRING_LENGTH(o)/2; ++i) {
+    temp = STRING_CONTENTS(o)[i];
+    STRING_CONTENTS(o)[i] = STRING_CONTENTS(o)[STRING_LENGTH(o)-1-i];
+    STRING_CONTENTS(o)[STRING_LENGTH(o)-1-i] = temp;
+  }
+}
+
+struct object *to_string_ufixnum_t(ufixnum_t n) {
+  struct object *str;
+  ufixnum_t cursor;
+
+  if (n == 0) return string("0");
+  str = string("");
+  cursor = n;
+  while (cursor != 0) {
+    dynamic_byte_array_push_char(str, '0' + cursor % 10);
+    cursor /= 10;
+  }
+  reverse_string(str);
+  return str;
+}
+
+struct object *to_string_fixnum_t(fixnum_t n) {
+  if (n < 0)
+    return dynamic_byte_array_concat(string("-"), to_string_ufixnum_t(-n));
+  return to_string_ufixnum_t(n);
+}
+
+struct object *to_string_flonum_t(flonum_t n) {
+  ufixnum_t integral_part, decimal_part;
+  ufixnum_t decimals = 9; /* how many digits in the decimal part to keep */
+  struct object *str;
+
+  integral_part = n; /* casting to a ufixnum extracts the integral part */
+  decimal_part = (n - integral_part) * pow(10, decimals);
+
+  while (decimal_part > 0 && decimal_part % 10 == 0) decimal_part /= 10;
+
+  str = to_string_ufixnum_t(integral_part);
+  dynamic_byte_array_push_char(str, '.');
+  str = dynamic_byte_array_concat(str, to_string_fixnum_t(decimal_part));
+  return str;
+}
+
+struct object *do_to_string(struct object *o, char repr) {
+  struct object *str;
+
+  switch (get_object_type(o)) {
+    case type_cons:
+      str = string("(");
+      str = dynamic_byte_array_concat(str, do_to_string(CONS_CAR(o), 1));
+      str = dynamic_byte_array_concat(str, string(" "));
+      str = dynamic_byte_array_concat(str, do_to_string(CONS_CDR(o), 1));
+      dynamic_byte_array_push_char(str, ')');
+      return str;
+    case type_string:
+      if (repr) {
+        o = dynamic_byte_array_concat(string("\""), o);
+        dynamic_byte_array_push_char(o, '\"');
+      }
+      return o;
+    case type_nil:
+      return string("nil");
+    case type_flonum:
+      return to_string_flonum_t(FLONUM_VALUE(o));
+    case type_ufixnum:
+      return to_string_ufixnum_t(UFIXNUM_VALUE(o));
+    case type_fixnum:
+      return to_string_fixnum_t(FIXNUM_VALUE(o));
+    case type_dynamic_byte_array:
+      str = string("(dynamic-byte-array");
+      str = dynamic_byte_array_concat(str, string(")"));
+      return str;
+    default:
+      printf("Unhandled type\n");
+      exit(1);
+  }
+}
+
+struct object *to_string(struct object *o) {
+  return do_to_string(o, 0);
+}
+
+struct object *to_repr(struct object *o) {
+  return do_to_string(o, 1);
+}
+
 /*===============================*
  *===============================*
  * Byte Streams (for marshaling) *
@@ -551,12 +655,15 @@ void init() {
  * Idempotently lift the value into a stream.
  */
 struct object *byte_stream_lift(struct object *e) {
-  if (get_object_type(e) == type_dynamic_byte_array || get_object_type(e) == type_string) {
+  if (get_object_type(e) == type_dynamic_byte_array ||
+      get_object_type(e) == type_string) {
     return enumerator(e);
-  } else if (get_object_type(e) == type_file || get_object_type(e) == type_enumerator) {
+  } else if (get_object_type(e) == type_file ||
+             get_object_type(e) == type_enumerator) {
     return e;
   } else {
-    printf("BC: attempted to lift unsupported type %s into a byte-stream", get_object_type_name(e));
+    printf("BC: attempted to lift unsupported type %s into a byte-stream",
+           get_object_type_name(e));
     exit(1);
   }
 }
@@ -576,7 +683,10 @@ struct object *byte_stream_do_read(struct object *e, fixnum_t n, char peek) {
     switch (get_object_type(ENUMERATOR_SOURCE(e))) {
       case type_dynamic_byte_array:
       case type_string:
-        memcpy(DYNAMIC_BYTE_ARRAY_BYTES(ret), &DYNAMIC_BYTE_ARRAY_BYTES(ENUMERATOR_SOURCE(e))[ENUMERATOR_INDEX(e)], sizeof(char) * n);
+        memcpy(DYNAMIC_BYTE_ARRAY_BYTES(ret),
+               &DYNAMIC_BYTE_ARRAY_BYTES(
+                   ENUMERATOR_SOURCE(e))[ENUMERATOR_INDEX(e)],
+               sizeof(char) * n);
         if (!peek) ENUMERATOR_INDEX(e) += n;
         break;
       default:
@@ -592,7 +702,7 @@ char byte_stream_do_read_byte(struct object *e, char peek) {
   char c;
   TC2("byte_steam_get_char", 0, e, type_enumerator, type_file);
   if (get_object_type(e) == type_file) {
-    c = fgetc(FILE_FP(e)); 
+    c = fgetc(FILE_FP(e));
     if (peek) ungetc(c, FILE_FP(e));
   } else {
     switch (get_object_type(ENUMERATOR_SOURCE(e))) {
@@ -692,7 +802,8 @@ struct object *marshal_dynamic_byte_array(struct object *ba0) {
 
   ba1 = dynamic_byte_array(1);
   dynamic_byte_array_push_char(ba1, marshaled_type_dynamic_byte_array);
-  ba1 = dynamic_byte_array_concat(ba1, marshal_fixnum_t(DYNAMIC_BYTE_ARRAY_LENGTH(ba0)));
+  ba1 = dynamic_byte_array_concat(
+      ba1, marshal_fixnum_t(DYNAMIC_BYTE_ARRAY_LENGTH(ba0)));
   ba1 = dynamic_byte_array_concat(ba1, ba0);
   return ba1;
 }
@@ -738,16 +849,18 @@ struct object *marshal_dynamic_array(struct object *arr) {
   return ba;
 }
 
-/** 
+/**
  * The format used for marshaling fixnums is platform independent
  * it has the following form (each is one byte):
- *     0x04 <sign> <continuation_bit=1|7bits> <continuation_bit=1|7bits> etc... <continutation_bit=0|7bits>
- * a sign of 1 means it is a negative number, a sign of 0 means positive number
- * the continuation bit of 1 means the next byte is still part of the number
- * once the continuation bit of 0 is reached, the number is complete
- * 
- * I'm not sure if there is any advantage between using sign magnitude vs 1 or 2s compliment for
- * the marshaling format besides the memory cost of the sign byte (1 byte per number).
+ *     0x04 <sign> <continuation_bit=1|7bits> <continuation_bit=1|7bits> etc...
+ * <continutation_bit=0|7bits> a sign of 1 means it is a negative number, a sign
+ * of 0 means positive number the continuation bit of 1 means the next byte is
+ * still part of the number once the continuation bit of 0 is reached, the
+ * number is complete
+ *
+ * I'm not sure if there is any advantage between using sign magnitude vs 1 or
+ * 2s compliment for the marshaling format besides the memory cost of the sign
+ * byte (1 byte per number).
  */
 struct object *marshal_fixnum(struct object *n) {
   TC("marshal_fixnum", 0, n, type_fixnum);
@@ -763,7 +876,7 @@ struct object *marshal_flonum(struct object *n) {
   struct object *ba;
   ufixnum_t mantissa_fix;
   flonum_t mantissa;
-  int exponent;
+  fixnum_t exponent;
 
   TC("marshal_flonum", 0, n, type_flonum);
 
@@ -774,17 +887,21 @@ struct object *marshal_flonum(struct object *n) {
   /* Inefficient in both time and space but work short term.
    *
    * The idea was for the marshaled format to be as exact as possible
-   * (arbitrary precision), while have the types used in the program be inexact (e.g. float, double).
-   * I chose to use the base 2 floating point format (mantissa * 2^exponent = value) using 
-   * arbitrary long mantissas and exponents. 
-   * This is probably naive and might not work for NaN or Infinity. */
+   * (arbitrary precision), while have the types used in the program be inexact
+   * (e.g. float, double). I chose to use the base 2 floating point format
+   * (mantissa * 2^exponent = value) using arbitrary long mantissas and
+   * exponents. This is probably naive and might not work for NaN or Infinity.
+   */
   mantissa = frexp(FLONUM_VALUE(n), &exponent);
-  /* frexp keeps sign information on the mantissa, we convert it to a unsigned fixnum (hence the abs(...)). */
+  /* frexp keeps sign information on the mantissa, we convert it to a unsigned
+   * fixnum (hence the abs(...)). */
   /* we already have the sign information in the marshaled flonum */
   mantissa = mantissa < 0 ? -mantissa : mantissa;
-  mantissa_fix = mantissa * pow(2, DBL_MANT_DIG); /* TODO: make it choose between DBL/FLT properly */
+  mantissa_fix =
+      mantissa *
+      pow(2, DBL_MANT_DIG); /* TODO: make it choose between DBL/FLT properly */
   ba = dynamic_byte_array_concat(ba, marshal_ufixnum_t(mantissa_fix));
-  ba = dynamic_byte_array_concat(ba, marshal_ufixnum_t(exponent));
+  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(exponent));
 
   return ba;
 }
@@ -797,8 +914,10 @@ struct object *marshal_bytecode(struct object *bc) {
   TC("marshal_bytecode", 0, bc, type_bytecode);
   ba = dynamic_byte_array(1);
   dynamic_byte_array_push_char(ba, marshaled_type_bytecode);
-  ba = dynamic_byte_array_concat(ba, marshal_dynamic_array(BYTECODE_CONSTANTS(bc)));
-  ba = dynamic_byte_array_concat(ba, marshal_dynamic_byte_array(BYTECODE_CODE(bc)));
+  ba = dynamic_byte_array_concat(ba,
+                                 marshal_dynamic_array(BYTECODE_CONSTANTS(bc)));
+  ba = dynamic_byte_array_concat(ba,
+                                 marshal_dynamic_byte_array(BYTECODE_CODE(bc)));
   return ba;
 }
 
@@ -840,7 +959,9 @@ struct object *unmarshal(struct object *s);
 
 struct object *unmarshal_integer(struct object *s) {
   unsigned char t, sign, is_flo, is_init_flo;
-  ufixnum_t ufix, next_ufix, byte_count, byte; /* the byte must be a ufixnum because it is used in operations that result in ufixnum */
+  ufixnum_t ufix, next_ufix, byte_count,
+      byte; /* the byte must be a ufixnum because it is used in operations that
+               result in ufixnum */
   fixnum_t fix, next_fix;
   flonum_t flo;
 
@@ -850,7 +971,10 @@ struct object *unmarshal_integer(struct object *s) {
 
   t = byte_stream_read_byte(s);
   if (t != marshaled_type_integer) {
-    printf("BC: unmarshaling fixnum expected either marshaled_integer type, but was %d.", t);
+    printf(
+        "BC: unmarshaling fixnum expected either marshaled_integer type, but "
+        "was %d.",
+        t);
     exit(1);
   }
 
@@ -860,7 +984,8 @@ struct object *unmarshal_integer(struct object *s) {
   is_init_flo = 0;
   ufix = 0;
   flo = 0;
-  byte_count = 0; /* number of bytes we have read (each byte contains 7 bits of the number) */
+  byte_count = 0; /* number of bytes we have read (each byte contains 7 bits of
+                     the number) */
   do {
     byte = byte_stream_read_byte(s);
 
@@ -873,12 +998,16 @@ struct object *unmarshal_integer(struct object *s) {
       }
       flo += pow(2, 7 * byte_count) * (byte & 0x7F);
     } else {
-      if (sign == 1) { /* if the number is negative, it must be a signed fixnum */
+      if (sign ==
+          1) { /* if the number is negative, it must be a signed fixnum */
         next_fix = fix | (byte & 0x7F) << (7 * byte_count);
-        if (next_fix < fix || -next_fix > -fix) { /* if overflow occurred, or underflow occurred */
+        if (next_fix < fix ||
+            -next_fix >
+                -fix) { /* if overflow occurred, or underflow occurred */
           is_flo = 1;
-          --byte_count; /* force the next iteration to process the number as a flonum
-                           re-use the same byte, because this one couldn't fit. */
+          --byte_count; /* force the next iteration to process the number as a
+                           flonum re-use the same byte, because this one
+                           couldn't fit. */
         } else {
           fix = next_fix;
         }
@@ -897,10 +1026,8 @@ struct object *unmarshal_integer(struct object *s) {
     ++byte_count;
   } while (byte & 0x80);
 
-  if (is_flo)
-    return flonum(sign ? -flo : flo);
-  if (sign == 1)
-    return fixnum(sign ? -fix : fix);
+  if (is_flo) return flonum(sign ? -flo : flo);
+  if (sign == 1) return fixnum(sign ? -fix : fix);
   /* if the ufix fits into a fix, use it as a fix */
   if (ufix < INT64_MAX) /* TODO: define FIXNUM_MAX */
     return fixnum(ufix);
@@ -926,15 +1053,21 @@ struct object *unmarshal_float(struct object *s) {
 
   mantissa_fix = unmarshal_integer(s);
   if (get_object_type(mantissa_fix) == type_flonum) {
-    printf("BC: expected mantissa part of float to fit into a fixnum or ufixnum during float unmarshaling");
+    printf(
+        "BC: expected mantissa part of float to fit into a fixnum or ufixnum "
+        "during float unmarshaling");
     exit(1);
   }
 
-  mantissa = (flonum_t)UFIXNUM_VALUE(mantissa_fix) / pow(2, DBL_MANT_DIG); /* TODO: make it choose between DBL/FLT properly */
+  mantissa =
+      (flonum_t)UFIXNUM_VALUE(mantissa_fix) /
+      pow(2, DBL_MANT_DIG); /* TODO: make it choose between DBL/FLT properly */
 
   exponent = unmarshal_integer(s);
   if (get_object_type(exponent) != type_fixnum) {
-    printf("BC: expected exponent part of float to fit into a fixnum during float unmarshaling");
+    printf(
+        "BC: expected exponent part of float to fit into a fixnum during float "
+        "unmarshaling (was %s).", get_object_type_name(exponent));
     exit(1);
   }
 
@@ -958,7 +1091,9 @@ struct object *unmarshal_string(struct object *s) {
 
   length = unmarshal_integer(s);
   if (get_object_type(length) != type_fixnum) {
-    printf("BC: expected string length to fit into a fixnum during string unmarshal");
+    printf(
+        "BC: expected string length to fit into a fixnum during string "
+        "unmarshal");
     exit(1);
   }
 
@@ -992,7 +1127,10 @@ struct object *unmarshal_dynamic_byte_array(struct object *s) {
 
   t = byte_stream_read_byte(s);
   if (t != marshaled_type_dynamic_byte_array) {
-    printf("BC: unmarshaling dynamic-byte-array expected dynamic-byte-array type, but was %d.", t);
+    printf(
+        "BC: unmarshaling dynamic-byte-array expected dynamic-byte-array type, "
+        "but was %d.",
+        t);
     exit(1);
   }
 
@@ -1009,7 +1147,10 @@ struct object *unmarshal_dynamic_array(struct object *s) {
 
   t = byte_stream_read_byte(s);
   if (t != marshaled_type_dynamic_array) {
-    printf("BC: unmarshaling dynamic-array expected dynamic-array type, but was %d.", t);
+    printf(
+        "BC: unmarshaling dynamic-array expected dynamic-array type, but was "
+        "%d.",
+        t);
     exit(1);
   }
 
@@ -1018,7 +1159,7 @@ struct object *unmarshal_dynamic_array(struct object *s) {
 
   i = UFIXNUM_VALUE(length);
   /* unmarshal i items: */
-  while (i != 0) { 
+  while (i != 0) {
     dynamic_array_push(darr, unmarshal(s));
     --i;
   }
@@ -1152,8 +1293,7 @@ struct object *read_bytecode_file(struct object *s) {
 
   s = byte_stream_lift(s);
 
-  if (byte_stream_read_byte(s) != 'b' || 
-      byte_stream_read_byte(s) != 'u'|| 
+  if (byte_stream_read_byte(s) != 'b' || byte_stream_read_byte(s) != 'u' ||
       byte_stream_read_byte(s) != 'g') {
     printf("BC: Invalid magic string\n");
     exit(1);
@@ -1161,7 +1301,10 @@ struct object *read_bytecode_file(struct object *s) {
 
   version = unmarshal_integer(s);
   if (UFIXNUM_VALUE(version) != BC_VERSION) {
-    printf("BC: Version mismatch (this interpreter has version %d, the file has version %d).\n", BC_VERSION, (unsigned int)UFIXNUM_VALUE(version));
+    printf(
+        "BC: Version mismatch (this interpreter has version %d, the file has "
+        "version %d).\n",
+        BC_VERSION, (unsigned int)UFIXNUM_VALUE(version));
     exit(1);
   }
 
@@ -1177,7 +1320,7 @@ struct object *read_bytecode_file(struct object *s) {
 
   return bc;
 }
- 
+
 /*===============================*
  *===============================*
  * Tests                         *
@@ -1187,6 +1330,9 @@ void run_tests() {
   struct object *darr, *o0, *dba, *bc;
 
   printf("Running tests...\n");
+
+#define assert_string_eq(str1, str2) \
+  assert(strcmp(bstring_to_cstring(str1), bstring_to_cstring(str2)) == 0);
 
   /*
    * String - bug string to c string
@@ -1211,7 +1357,7 @@ void run_tests() {
   assert(FIXNUM_VALUE(dynamic_array_get(darr, fixnum(2))) == 94);
   assert(DYNAMIC_ARRAY_CAPACITY(darr) == 3);
 
-  /* 
+  /*
    * Marshaling/Unmarshaling
    */
 
@@ -1227,36 +1373,53 @@ void run_tests() {
   assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(-342)))) == -342);
   assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(2049)))) == 2049);
   /* three bytes */
-  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(123456)))) == 123456);
-  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(-123499)))) == -123499);
-  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(20422)))) == 20422);
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(123456)))) ==
+         123456);
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(-123499)))) ==
+         -123499);
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(20422)))) ==
+         20422);
   /* four bytes */
-  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(123456789)))) == 123456789);
-  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(-123456789)))) == -123456789);
-  /* Should test fixnums that are from platforms that have larger word sizes (e.g. read in a fixnum larger than four bytes on a machine with two byte words) */
-  assert(UFIXNUM_VALUE(unmarshal_integer(marshal_ufixnum(ufixnum(MAX_UFIXNUM)))) == MAX_UFIXNUM);
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(123456789)))) ==
+         123456789);
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(-123456789)))) ==
+         -123456789);
+  /* Should test fixnums that are from platforms that have larger word sizes
+   * (e.g. read in a fixnum larger than four bytes on a machine with two byte
+   * words) */
+  assert(UFIXNUM_VALUE(unmarshal_integer(
+             marshal_ufixnum(ufixnum(MAX_UFIXNUM)))) == MAX_UFIXNUM);
 
   /* flonum marshaling */
   assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(0.0)))) == 0.0);
   assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(1.0)))) == 1.0);
   assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(1.23)))) == 1.23);
   assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(1e23)))) == 1e23);
-  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(123456789123456789123456789123456789.0)))) == 123456789123456789123456789123456789.0);
+  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(1e-23)))) == 1e-23);
+  assert(FLONUM_VALUE(unmarshal_float(
+             marshal_flonum(flonum(123456789123456789123456789123456789.0)))) ==
+         123456789123456789123456789123456789.0);
   assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(-0.0)))) == -0.0);
   assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(-1.23)))) == -1.23);
   /* TODO: test that NaN and +/- Infinity work */
 
   /* string marshaling */
-  assert(strcmp(bstring_to_cstring(unmarshal_string(marshal_string(string("abcdef")))), "abcdef") == 0);
-  assert(strcmp(bstring_to_cstring(unmarshal_string(marshal_string(string("nerEW)F9nef09n230(N#EOINWEogiwe")))), "nerEW)F9nef09n230(N#EOINWEogiwe") == 0);
-  assert(strcmp(bstring_to_cstring(unmarshal_string(marshal_string(string("")))), "") == 0);
+  assert_string_eq(unmarshal_string(marshal_string(string("abcdef"))),
+                   string("abcdef"));
+  assert(strcmp(bstring_to_cstring(unmarshal_string(
+                    marshal_string(string("nerEW)F9nef09n230(N#EOINWEogiwe")))),
+                "nerEW)F9nef09n230(N#EOINWEogiwe") == 0);
+  assert(
+      strcmp(bstring_to_cstring(unmarshal_string(marshal_string(string("")))),
+             "") == 0);
 
   /* nil marshaling */
   assert(unmarshal_nil(marshal_nil()) == NULL);
 
   /* cons filled with nils */
   o0 = unmarshal_cons(marshal_cons(cons(NULL, NULL)));
-  assert(CONS_CAR(o0) == NULL); assert(CONS_CDR(o0) == NULL);
+  assert(CONS_CAR(o0) == NULL);
+  assert(CONS_CDR(o0) == NULL);
   /* cons with strings */
   o0 = unmarshal_cons(marshal_cons(cons(string("A"), string("B"))));
   assert(strcmp(bstring_to_cstring(CONS_CAR(o0)), "A") == 0);
@@ -1301,13 +1464,41 @@ void run_tests() {
   bc = bytecode(darr, dba);
   o0 = unmarshal_bytecode(marshal_bytecode(bc));
   /* check constants vector */
-  assert(DYNAMIC_ARRAY_LENGTH(darr) == DYNAMIC_ARRAY_LENGTH(BYTECODE_CONSTANTS(o0)));
-  assert(strcmp(bstring_to_cstring(DYNAMIC_ARRAY_VALUES(BYTECODE_CONSTANTS(o0))[0]), "blackhole") == 0);
-  assert(FLONUM_VALUE(DYNAMIC_ARRAY_VALUES(BYTECODE_CONSTANTS(o0))[1]) == 3.234);
-  assert(UFIXNUM_VALUE(DYNAMIC_ARRAY_VALUES(BYTECODE_CONSTANTS(o0))[2]) == 234234234);
+  assert(DYNAMIC_ARRAY_LENGTH(darr) ==
+         DYNAMIC_ARRAY_LENGTH(BYTECODE_CONSTANTS(o0)));
+  assert(strcmp(bstring_to_cstring(
+                    DYNAMIC_ARRAY_VALUES(BYTECODE_CONSTANTS(o0))[0]),
+                "blackhole") == 0);
+  assert(FLONUM_VALUE(DYNAMIC_ARRAY_VALUES(BYTECODE_CONSTANTS(o0))[1]) ==
+         3.234);
+  assert(UFIXNUM_VALUE(DYNAMIC_ARRAY_VALUES(BYTECODE_CONSTANTS(o0))[2]) ==
+         234234234);
   /* check code vector */
-  assert(DYNAMIC_BYTE_ARRAY_LENGTH(dba) == DYNAMIC_BYTE_ARRAY_LENGTH(BYTECODE_CODE(o0)));
-  assert(strcmp(bstring_to_cstring(dba), bstring_to_cstring(BYTECODE_CODE(o0))) == 0);
+  assert(DYNAMIC_BYTE_ARRAY_LENGTH(dba) ==
+         DYNAMIC_BYTE_ARRAY_LENGTH(BYTECODE_CODE(o0)));
+  assert(strcmp(bstring_to_cstring(dba),
+                bstring_to_cstring(BYTECODE_CODE(o0))) == 0);
+
+  /* to-string */
+  assert_string_eq(to_string(fixnum(0)), string("0"));
+  assert_string_eq(to_string(fixnum(1)), string("1"));
+  assert_string_eq(to_string(fixnum(2)), string("2"));
+  assert_string_eq(to_string(fixnum(3)), string("3"));
+  assert_string_eq(to_string(fixnum(9)), string("9"));
+  assert_string_eq(to_string(fixnum(10)), string("10"));
+
+  assert_string_eq(to_string(string("ABC")), string("ABC"));
+  assert_string_eq(to_string(string("")), string(""));
+
+  assert_string_eq(to_string(cons(string("ABC"), fixnum(43))),
+                   string("(\"ABC\" 43)"));
+  assert_string_eq(
+      to_string(cons(string("ABC"), cons(ufixnum(24234234), NULL))),
+      string("(\"ABC\" (24234234 nil))"));
+
+  assert_string_eq(to_string(flonum(0.0)), string("0.0"));
+  assert_string_eq(to_string(flonum(1)), string("1.0"));
+  assert_string_eq(to_string(flonum(56789.43215)), string("56789.43215"));
 
   printf("Tests were successful\n");
 }
