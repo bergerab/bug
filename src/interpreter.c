@@ -293,7 +293,7 @@ struct object *dynamic_array_length(struct object *da) {
 struct object *dynamic_array_push(struct object *da, struct object *value) {
   TC("dynamic_array_push", 0, da, type_dynamic_array);
   if (DYNAMIC_ARRAY_LENGTH(da) >= DYNAMIC_ARRAY_CAPACITY(da)) {
-    DYNAMIC_ARRAY_CAPACITY(da) = DYNAMIC_ARRAY_CAPACITY(da) * 3/2.0;
+    DYNAMIC_ARRAY_CAPACITY(da) = (DYNAMIC_ARRAY_LENGTH(da) + 1) * 3/2.0;
     DYNAMIC_ARRAY_VALUES(da) = realloc(DYNAMIC_ARRAY_VALUES(da), DYNAMIC_ARRAY_CAPACITY(da) * sizeof(char));
     if (DYNAMIC_ARRAY_VALUES(da) == NULL) {
       printf("BC: Failed to realloc dynamic-array.");
@@ -345,8 +345,8 @@ struct object *dynamic_byte_array_length(struct object *dba) {
 void dynamic_byte_array_ensure_capacity(struct object *dba) {
   TC2("dynamic_byte_array_ensure_capacity", 0, dba, type_dynamic_byte_array, type_string);
   if (DYNAMIC_BYTE_ARRAY_LENGTH(dba) >= DYNAMIC_BYTE_ARRAY_CAPACITY(dba)) {
-    DYNAMIC_BYTE_ARRAY_CAPACITY(dba) = DYNAMIC_BYTE_ARRAY_CAPACITY(dba) * 3/2.0;
-    DYNAMIC_BYTE_ARRAY_BYTES(dba) = realloc(DYNAMIC_BYTE_ARRAY_BYTES(dba), DYNAMIC_BYTE_ARRAY_CAPACITY(dba) * sizeof(unsigned char));
+    DYNAMIC_BYTE_ARRAY_CAPACITY(dba) = (DYNAMIC_BYTE_ARRAY_LENGTH(dba) + 1) * 3/2.0;
+    DYNAMIC_BYTE_ARRAY_BYTES(dba) = realloc(DYNAMIC_BYTE_ARRAY_BYTES(dba), DYNAMIC_BYTE_ARRAY_CAPACITY(dba) * sizeof(char));
     if (DYNAMIC_BYTE_ARRAY_BYTES(dba) == NULL) {
       printf("BC: Failed to realloc dynamic-byte-array.");
       exit(1);
@@ -364,6 +364,17 @@ struct object *dynamic_byte_array_push(struct object *dba, struct object *value)
 struct object *dynamic_byte_array_push_char(struct object *dba, char x) {
   dynamic_byte_array_ensure_capacity(dba);
   DYNAMIC_BYTE_ARRAY_BYTES(dba)[DYNAMIC_BYTE_ARRAY_LENGTH(dba)++] = x;
+  return NULL;
+}
+struct object *dynamic_byte_array_insert_char(struct object *dba, ufixnum_t i, char x) {
+  ufixnum_t j;
+
+  dynamic_byte_array_ensure_capacity(dba);
+  for (j = DYNAMIC_BYTE_ARRAY_LENGTH(dba); j > i; --j) {
+    DYNAMIC_BYTE_ARRAY_BYTES(dba)[j] = DYNAMIC_BYTE_ARRAY_BYTES(dba)[j-1];
+  }
+  DYNAMIC_BYTE_ARRAY_BYTES(dba)[i] = x;
+  ++DYNAMIC_BYTE_ARRAY_LENGTH(dba);
   return NULL;
 }
 struct object *dynamic_byte_array_pop(struct object *dba) {
@@ -588,22 +599,49 @@ struct object *to_string_fixnum_t(fixnum_t n) {
 
 struct object *to_string_flonum_t(flonum_t n) {
   ufixnum_t integral_part, decimal_part;
-  ufixnum_t decimals = 9; /* how many digits in the decimal part to keep */
+  ufixnum_t ndecimal, nintegral; /* how many digits in the decimal and integral part to keep */
+  flonum_t nexp;
   struct object *str;
 
+  ndecimal = 9;
+  nintegral = 16;
+
+  nexp = n == 0 ? 0 : log10(n);
+
   integral_part = n; /* casting to a ufixnum extracts the integral part */
-  decimal_part = (n - integral_part) * pow(10, decimals);
+  decimal_part = (n - integral_part) * pow(10, ndecimal);
 
   while (decimal_part > 0 && decimal_part % 10 == 0) decimal_part /= 10;
 
   /* TODO: round the last digit */
   /* TODO: normalize if necessary -- if integral part is >= 8 digits or decimal part is >= 4 digits, use scientific notation */
   /* make a cap on how many digits are shown */
+  /* handle 0.00001 -> 1e-5 */
+  /* handle 12345123451234512345.0 -> 1.2345123451234513e+19 */
   /* TODO: handle NaN and +/- Infinity */
+
+  if (nexp > nintegral) {
+    /* trim all right most 0s (those will be the decimal part of the normalized output) */
+    while (integral_part > 0 && integral_part % 10 == 0) integral_part /= 10;
+    str = to_string_ufixnum_t(integral_part);
+    if (integral_part >= 10)
+      dynamic_byte_array_insert_char(str, 1, '.');
+    dynamic_byte_array_push_char(str, 'e');
+    if (nexp > 0)
+      dynamic_byte_array_push_char(str, '+');
+    str = dynamic_byte_array_concat(str, to_string_fixnum_t(nexp));
+  printf("OK=%s c=%f ndigits=%f\n", bstring_to_cstring(str), n, nexp);
+    return str;
+  }
 
   str = to_string_ufixnum_t(integral_part);
   dynamic_byte_array_push_char(str, '.');
+  while (nexp < -1) {
+    dynamic_byte_array_push_char(str, '0');
+    ++nexp;
+  }
   str = dynamic_byte_array_concat(str, to_string_fixnum_t(decimal_part));
+  printf("OK=%s c=%f ndigits=%f\n", bstring_to_cstring(str), n, nexp);
   return str;
 }
 
@@ -1375,7 +1413,49 @@ void run_tests() {
   dynamic_array_push(darr, fixnum(94));
   assert(FIXNUM_VALUE(dynamic_array_length(darr)) == 3);
   assert(FIXNUM_VALUE(dynamic_array_get(darr, fixnum(2))) == 94);
-  assert(DYNAMIC_ARRAY_CAPACITY(darr) == 3);
+  assert(DYNAMIC_ARRAY_CAPACITY(darr) == 4);
+
+  /*
+   * Dynamic byte Array
+   */
+  dba = dynamic_byte_array(2);
+  assert(FIXNUM_VALUE(dynamic_byte_array_length(dba)) == 0);
+  dynamic_byte_array_push(dba, fixnum(5));
+  assert(FIXNUM_VALUE(dynamic_byte_array_length(dba)) == 1);
+  assert(dynamic_byte_array_get(dba, 0) == 5);
+  dynamic_byte_array_push(dba, fixnum(9));
+  assert(FIXNUM_VALUE(dynamic_byte_array_length(dba)) == 2);
+  assert(dynamic_byte_array_get(dba, 1) == 9);
+  assert(DYNAMIC_BYTE_ARRAY_CAPACITY(dba) == 2);
+  dynamic_byte_array_push(dba, fixnum(94));
+  assert(FIXNUM_VALUE(dynamic_byte_array_length(dba)) == 3);
+  assert(dynamic_byte_array_get(dba, 2) == 94);
+  assert(DYNAMIC_BYTE_ARRAY_CAPACITY(dba) == 4);
+
+  dynamic_byte_array_insert_char(dba, 0, 96);
+  assert(FIXNUM_VALUE(dynamic_byte_array_length(dba)) == 4);
+  assert(dynamic_byte_array_get(dba, 0) == 96);
+  assert(dynamic_byte_array_get(dba, 1) == 5);
+  assert(dynamic_byte_array_get(dba, 2) == 9);
+  assert(dynamic_byte_array_get(dba, 3) == 94);
+
+  dynamic_byte_array_insert_char(dba, 2, 99);
+  assert(FIXNUM_VALUE(dynamic_byte_array_length(dba)) == 5);
+  assert(dynamic_byte_array_get(dba, 0) == 96);
+  assert(dynamic_byte_array_get(dba, 1) == 5);
+  assert(dynamic_byte_array_get(dba, 2) == 99);
+  assert(dynamic_byte_array_get(dba, 3) == 9);
+  assert(dynamic_byte_array_get(dba, 4) == 94);
+
+  dba = dynamic_byte_array(2);
+  dynamic_byte_array_insert_char(dba, 0, 11);
+  assert(FIXNUM_VALUE(dynamic_byte_array_length(dba)) == 1);
+  assert(dynamic_byte_array_get(dba, 0) == 11);
+
+  dynamic_byte_array_insert_char(dba, 1, 32);
+  assert(FIXNUM_VALUE(dynamic_byte_array_length(dba)) == 2);
+  assert(dynamic_byte_array_get(dba, 0) == 11);
+  assert(dynamic_byte_array_get(dba, 1) == 32);
 
   /*
    * Marshaling/Unmarshaling
@@ -1520,14 +1600,15 @@ void run_tests() {
 
   assert_string_eq(to_string(flonum(0.0)), string("0.0"));
   assert_string_eq(to_string(flonum(1)), string("1.0"));
+  assert_string_eq(to_string(flonum(0.01)), string("0.01"));
   assert_string_eq(to_string(flonum(56789.0)), string("56789.0"));
   assert_string_eq(to_string(flonum(56789.43215)), string("56789.43215"));
   assert_string_eq(to_string(flonum(9999999.41)), string("9999999.41"));
-  assert_string_eq(to_string(flonum(9999999999999999.41)), string("10000000000000000.0")); /* doesn't really test anything about the code */
-  assert_string_eq(to_string(flonum(9000000000000000.52)), string("9000000000000001.0")); /* doesn't really test anything about the code */
+  assert_string_eq(to_string(flonum(9000000000000000.52)), string("9000000000000001.0"));
   assert_string_eq(to_string(flonum(9e15)), string("9000000000000000.0"));
   assert_string_eq(to_string(flonum(9e15 * 10)), string("9e+16"));
   assert_string_eq(to_string(flonum(1234123412341123499.123412341234)), string("1.2341234123411236e+18"));
+  assert_string_eq(to_string(flonum(0.00000000000000000000000000000000000000000000034234234232942362341239123412312348)), string("3.4234234232942363e-46"));
   
   printf("Tests were successful\n");
 }
