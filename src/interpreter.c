@@ -597,40 +597,66 @@ struct object *to_string_fixnum_t(fixnum_t n) {
   return to_string_ufixnum_t(n);
 }
 
+/* a buggy float to string implementation 
+   shows a maximum of 9 decimal digits even if the double contains more.
+   doesn't handle NaN or +/- Infinity */
 struct object *to_string_flonum_t(flonum_t n) {
   ufixnum_t integral_part, decimal_part;
   ufixnum_t ndecimal, nintegral; /* how many digits in the decimal and integral part to keep */
-  flonum_t nexp;
+  flonum_t nexp, nexp2;
+  fixnum_t i, leading_zero_threshold;
   struct object *str;
 
   ndecimal = 9;
-  nintegral = 16;
+  nintegral = 16; /* the threshold where scientific notation is used */
+  leading_zero_threshold = 7; /* the threshold when scientific notation is used */
 
   nexp = n == 0 ? 0 : log10(n);
 
   integral_part = n; /* casting to a ufixnum extracts the integral part */
   decimal_part = (n - integral_part) * pow(10, ndecimal);
 
-  while (decimal_part > 0 && decimal_part % 10 == 0) decimal_part /= 10;
+  if (n == 0) return string("0.0");
 
-  /* TODO: round the last digit */
-  /* TODO: normalize if necessary -- if integral part is >= 8 digits or decimal part is >= 4 digits, use scientific notation */
-  /* make a cap on how many digits are shown */
-  /* handle 0.00001 -> 1e-5 */
-  /* handle 12345123451234512345.0 -> 1.2345123451234513e+19 */
-  /* TODO: handle NaN and +/- Infinity */
+  while (decimal_part > 0 && decimal_part % 10 == 0) decimal_part /= 10;
 
   if (nexp > nintegral) {
     /* trim all right most 0s (those will be the decimal part of the normalized output) */
     while (integral_part > 0 && integral_part % 10 == 0) integral_part /= 10;
+
+    nexp2 = log10(integral_part);
+    if (nexp2 > ndecimal + 1) {
+      for (i = nexp2 - ndecimal; i > 0;
+           --i) { /* keep ndecimal + 1 digits (plus one is to keep the first
+                     part of the scientific notation 9.2342341e+4) */
+        if (i == 1 && integral_part % 10 > 4) {
+          integral_part += 10; /* round if this is the last digit and 5 or more */
+        }
+        integral_part /= 10;
+      }
+    }
     str = to_string_ufixnum_t(integral_part);
     if (integral_part >= 10)
       dynamic_byte_array_insert_char(str, 1, '.');
     dynamic_byte_array_push_char(str, 'e');
-    if (nexp > 0)
-      dynamic_byte_array_push_char(str, '+');
+    dynamic_byte_array_push_char(str, '+');
     str = dynamic_byte_array_concat(str, to_string_fixnum_t(nexp));
-  printf("OK=%s c=%f ndigits=%f\n", bstring_to_cstring(str), n, nexp);
+    return str;
+  }
+
+  if (nexp <= -leading_zero_threshold) { /* check if this could be a 0.{...0...}n
+                                           number */
+    /* first is to normalize 0.00000000nnnn to 0.nnnn, second is to convert to unsigned fixnum (plus one because one extra digit will be in the integral part another plus one so we can have one digit for rounding) */
+    decimal_part = n * pow(10, (fixnum_t)-nexp) * pow(10, ndecimal + 1 + 1);
+    if (decimal_part % 10 > 4) {
+      decimal_part += 10; /* round if this is the last digit and 5 or more */
+    }
+    decimal_part /= 10; /* drop the extra digit we grabbed for rounding */
+    while (decimal_part > 0 && decimal_part % 10 == 0) decimal_part /= 10; /* trim all rhs zeros */
+    str = to_string_ufixnum_t(decimal_part);
+    if (decimal_part >= 10) dynamic_byte_array_insert_char(str, 1, '.');
+    dynamic_byte_array_push_char(str, 'e');
+    str = dynamic_byte_array_concat(str, to_string_fixnum_t(floor(nexp)));
     return str;
   }
 
@@ -641,7 +667,6 @@ struct object *to_string_flonum_t(flonum_t n) {
     ++nexp;
   }
   str = dynamic_byte_array_concat(str, to_string_fixnum_t(decimal_part));
-  printf("OK=%s c=%f ndigits=%f\n", bstring_to_cstring(str), n, nexp);
   return str;
 }
 
@@ -1607,9 +1632,16 @@ void run_tests() {
   assert_string_eq(to_string(flonum(9000000000000000.52)), string("9000000000000001.0"));
   assert_string_eq(to_string(flonum(9e15)), string("9000000000000000.0"));
   assert_string_eq(to_string(flonum(9e15 * 10)), string("9e+16"));
-  assert_string_eq(to_string(flonum(1234123412341123499.123412341234)), string("1.2341234123411236e+18"));
-  assert_string_eq(to_string(flonum(0.00000000000000000000000000000000000000000000034234234232942362341239123412312348)), string("3.4234234232942363e-46"));
-  
+  assert_string_eq(to_string(flonum(0.123456789123456789123456789)), string("0.123456789"));
+  assert_string_eq(to_string(flonum(1234123412341123499.123412341234)), string("1.234123412e+18"));
+  assert_string_eq(to_string(flonum(1234123412941123499.123412341234)), string("1.234123413e+18")); /* should round last digit */
+  assert_string_eq(to_string(flonum(0.000001)), string("0.000001"));
+  assert_string_eq(to_string(flonum(0.0000001)), string("1e-7"));
+  assert_string_eq(to_string(flonum(0.00000001)), string("1e-8"));
+  assert_string_eq(to_string(flonum(0.000000059)), string("5.9e-8"));
+  assert_string_eq(to_string(flonum(0.00000000000000000000000000000000000000000000034234234232942362341239123412312348)), string("3.423423423e-46"));
+  assert_string_eq(to_string(flonum(0.00000000000000000000000000000000000000000000034234234267942362341239123412312348)), string("3.423423427e-46")); /* should round last digit */
+
   printf("Tests were successful\n");
 }
 
