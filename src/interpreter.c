@@ -274,6 +274,10 @@ struct object *close_file(struct object *file) {
 /*
  * Dynamic Array
  */
+struct object *dynamic_array_get_fixnum_t(struct object *da, fixnum_t index) {
+  TC("dynamic_array_get", 0, da, type_dynamic_array);
+  return DYNAMIC_ARRAY_VALUES(da)[index];
+}
 struct object *dynamic_array_get(struct object *da, struct object *index) {
   TC("dynamic_array_get", 0, da, type_dynamic_array);
   TC("dynamic_array_get", 1, index, type_fixnum);
@@ -565,6 +569,8 @@ void init() {
  * to-string                     *
  *===============================*
  *===============================*/
+struct object *do_to_string(struct object *o, char repr);
+
 void reverse_string(struct object *o) {
   ufixnum_t i;
   char temp;
@@ -598,14 +604,18 @@ struct object *to_string_fixnum_t(fixnum_t n) {
 }
 
 /* a buggy float to string implementation 
-   shows a maximum of 9 decimal digits even if the double contains more.
-   doesn't handle NaN or +/- Infinity */
+   shows a maximum of 9 decimal digits even if the double contains more */
 struct object *to_string_flonum_t(flonum_t n) {
   ufixnum_t integral_part, decimal_part;
   ufixnum_t ndecimal, nintegral; /* how many digits in the decimal and integral part to keep */
   flonum_t nexp, nexp2;
   fixnum_t i, leading_zero_threshold;
   struct object *str;
+
+  if (n == 0) return string("0.0");
+  if (n != n) return string("NaN");
+  if (n > DBL_MAX) return string("Infinity"); /* TODO: update to be FLONUM_MAX/FLONUM_MIN*/
+  if (n < DBL_MIN) return string("-Infinity");
 
   ndecimal = 9;
   nintegral = 16; /* the threshold where scientific notation is used */
@@ -615,8 +625,6 @@ struct object *to_string_flonum_t(flonum_t n) {
 
   integral_part = n; /* casting to a ufixnum extracts the integral part */
   decimal_part = (n - integral_part) * pow(10, ndecimal);
-
-  if (n == 0) return string("0.0");
 
   while (decimal_part > 0 && decimal_part % 10 == 0) decimal_part /= 10;
 
@@ -670,6 +678,51 @@ struct object *to_string_flonum_t(flonum_t n) {
   return str;
 }
 
+struct object *to_string_dynamic_byte_array(struct object *dba) {
+  struct object *str;
+  ufixnum_t i;
+  char byte, nib0, nib1;
+
+  TC("to_string_dynamic_byte_array", 0, dba, type_dynamic_byte_array);
+
+  str = string("[");
+  for (i = 0; i < DYNAMIC_BYTE_ARRAY_LENGTH(dba); ++i) {
+    byte = DYNAMIC_BYTE_ARRAY_BYTES(dba)[i];
+    nib0 = byte & 0x0F;
+    nib1 = byte >> 4;
+
+    dynamic_byte_array_push_char(str, '0');
+    dynamic_byte_array_push_char(str, 'x');
+    if (nib1 > 9) dynamic_byte_array_push_char(str, 'A' + (nib1 - 10));
+    else dynamic_byte_array_push_char(str, '0' + nib1);
+    if (nib0 > 9) dynamic_byte_array_push_char(str, 'A' + (nib0 - 10));
+    else dynamic_byte_array_push_char(str, '0' + nib0);
+
+    dynamic_byte_array_push_char(str, ' ');
+  }
+  if (DYNAMIC_BYTE_ARRAY_LENGTH(dba) > 0)
+    dynamic_byte_array_pop(str); /* remove the extra space */
+  dynamic_byte_array_push_char(str, ']');
+  return str;
+}
+
+struct object *to_string_dynamic_array(struct object *da) {
+  struct object *str;
+  ufixnum_t i;
+
+  TC("to_string_dynamic_array", 0, da, type_dynamic_array);
+
+  str = string("[");
+  for (i = 0; i < DYNAMIC_ARRAY_LENGTH(da); ++i) {
+    str = dynamic_byte_array_concat(str, do_to_string(dynamic_array_get_fixnum_t(da, i), 1));
+    dynamic_byte_array_push_char(str, ' ');
+  }
+  if (DYNAMIC_ARRAY_LENGTH(da) > 0)
+    dynamic_byte_array_pop(str); /* remove the extra space */
+  dynamic_byte_array_push_char(str, ']');
+  return str;
+}
+
 struct object *do_to_string(struct object *o, char repr) {
   struct object *str;
 
@@ -696,17 +749,11 @@ struct object *do_to_string(struct object *o, char repr) {
     case type_fixnum:
       return to_string_fixnum_t(FIXNUM_VALUE(o));
     case type_dynamic_byte_array:
-      str = string("[");
-      /* TODO write all bits as hex */
-      str = dynamic_byte_array_concat(str, string("]"));
-      return str;
+      return to_string_dynamic_byte_array(o);
     case type_dynamic_array:
-      str = string("[");
-      /* TODO add each to-string'ed item to the string */
-      str = dynamic_byte_array_concat(str, string("]"));
-      return str;
+      return to_string_dynamic_array(o);
     default:
-      printf("Unhandled type\n");
+      printf("Type doesn't support to-string\n");
       exit(1);
   }
 }
@@ -1410,7 +1457,7 @@ struct object *read_bytecode_file(struct object *s) {
  *===============================*
  *===============================*/
 void run_tests() {
-  struct object *darr, *o0, *dba, *bc;
+  struct object *darr, *o0, *dba, *dba1, *bc, *da;
 
   printf("Running tests...\n");
 
@@ -1458,14 +1505,14 @@ void run_tests() {
   assert(DYNAMIC_BYTE_ARRAY_CAPACITY(dba) == 4);
 
   dynamic_byte_array_insert_char(dba, 0, 96);
-  assert(FIXNUM_VALUE(dynamic_byte_array_length(dba)) == 4);
+  assert(UFIXNUM_VALUE(dynamic_byte_array_length(dba)) == 4);
   assert(dynamic_byte_array_get(dba, 0) == 96);
   assert(dynamic_byte_array_get(dba, 1) == 5);
   assert(dynamic_byte_array_get(dba, 2) == 9);
   assert(dynamic_byte_array_get(dba, 3) == 94);
 
   dynamic_byte_array_insert_char(dba, 2, 99);
-  assert(FIXNUM_VALUE(dynamic_byte_array_length(dba)) == 5);
+  assert(UFIXNUM_VALUE(dynamic_byte_array_length(dba)) == 5);
   assert(dynamic_byte_array_get(dba, 0) == 96);
   assert(dynamic_byte_array_get(dba, 1) == 5);
   assert(dynamic_byte_array_get(dba, 2) == 99);
@@ -1474,13 +1521,27 @@ void run_tests() {
 
   dba = dynamic_byte_array(2);
   dynamic_byte_array_insert_char(dba, 0, 11);
-  assert(FIXNUM_VALUE(dynamic_byte_array_length(dba)) == 1);
+  assert(UFIXNUM_VALUE(dynamic_byte_array_length(dba)) == 1);
   assert(dynamic_byte_array_get(dba, 0) == 11);
 
   dynamic_byte_array_insert_char(dba, 1, 32);
-  assert(FIXNUM_VALUE(dynamic_byte_array_length(dba)) == 2);
+  assert(UFIXNUM_VALUE(dynamic_byte_array_length(dba)) == 2);
   assert(dynamic_byte_array_get(dba, 0) == 11);
   assert(dynamic_byte_array_get(dba, 1) == 32);
+
+  dba = dynamic_byte_array(2);
+  dynamic_byte_array_push_char(dba, 4);
+  dynamic_byte_array_push_char(dba, 9);
+  dba1 = dynamic_byte_array(2);
+  dynamic_byte_array_push_char(dba1, 77);
+  dynamic_byte_array_push_char(dba1, 122);
+  dba = dynamic_byte_array_concat(dba, dba1);
+  assert(UFIXNUM_VALUE(dynamic_byte_array_length(dba)) == 4);
+  assert(DYNAMIC_BYTE_ARRAY_CAPACITY(dba) == 4);
+  assert(dynamic_byte_array_get(dba, 0) == 4);
+  assert(dynamic_byte_array_get(dba, 1) == 9);
+  assert(dynamic_byte_array_get(dba, 2) == 77);
+  assert(dynamic_byte_array_get(dba, 3) == 122);
 
   /*
    * Marshaling/Unmarshaling
@@ -1641,6 +1702,23 @@ void run_tests() {
   assert_string_eq(to_string(flonum(0.000000059)), string("5.9e-8"));
   assert_string_eq(to_string(flonum(0.00000000000000000000000000000000000000000000034234234232942362341239123412312348)), string("3.423423423e-46"));
   assert_string_eq(to_string(flonum(0.00000000000000000000000000000000000000000000034234234267942362341239123412312348)), string("3.423423427e-46")); /* should round last digit */
+
+  dba = dynamic_byte_array(10);
+  dynamic_byte_array_push_char(dba, 60);
+  dynamic_byte_array_push_char(dba, 71);
+  dynamic_byte_array_push_char(dba, 1);
+  assert_string_eq(to_string(dba), string("[0x3C 0x47 0x01]"));
+
+  dba = dynamic_byte_array(10);
+  assert_string_eq(to_string(dba), string("[]"));
+
+  da = dynamic_array(10);
+  dynamic_array_push(da, string("bink"));
+  dynamic_array_push(da, flonum(3.245));
+  assert_string_eq(to_string(da), string("[\"bink\" 3.245]"));
+
+  da = dynamic_array(10);
+  assert_string_eq(to_string(da), string("[]"));
 
   printf("Tests were successful\n");
 }
