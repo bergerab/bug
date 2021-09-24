@@ -769,8 +769,57 @@ struct object *to_repr(struct object *o) {
 /*===============================*
  *===============================*
  * Equality                      *
+ *     Structural equality
  *===============================*
  *===============================*/
+char equals(struct object *o0, struct object *o1);
+
+char equals(struct object *o0, struct object *o1) {
+  ufixnum_t i;
+
+  if (get_object_type(o0) != get_object_type(o1)) return 0;
+  switch (get_object_type(o0)) {
+    case type_cons:
+      return equals(CONS_CAR(o0), CONS_CAR(o1)) && equals(CONS_CDR(o0), CONS_CDR(o1));
+    case type_string:
+    case type_dynamic_byte_array:
+      if (DYNAMIC_BYTE_ARRAY_LENGTH(o0) != DYNAMIC_BYTE_ARRAY_LENGTH(o1))
+        return 0;
+      for (i = 0; i < DYNAMIC_BYTE_ARRAY_LENGTH(o0); ++i)
+        if (DYNAMIC_BYTE_ARRAY_BYTES(o0)[i] != DYNAMIC_BYTE_ARRAY_BYTES(o1)[i])
+          return 0;
+      return 1;
+    case type_nil:
+      return 1;
+    case type_flonum:
+      return FLONUM_VALUE(o0) == FLONUM_VALUE(o1);
+    case type_ufixnum:
+      return UFIXNUM_VALUE(o0) == UFIXNUM_VALUE(o1);
+    case type_fixnum:
+      return FIXNUM_VALUE(o0) == FIXNUM_VALUE(o1);
+    case type_dynamic_array:
+      if (DYNAMIC_ARRAY_LENGTH(o0) != DYNAMIC_ARRAY_LENGTH(o1))
+        return 0;
+      for (i = 0; i < DYNAMIC_ARRAY_LENGTH(o0); ++i)
+        if (!equals(DYNAMIC_ARRAY_VALUES(o0)[i], DYNAMIC_ARRAY_VALUES(o1)[i]))
+          return 0;
+      return 1;
+    case type_file:
+      return o0 == o1;
+    case type_enumerator:
+      return equals(ENUMERATOR_SOURCE(o0), ENUMERATOR_SOURCE(o1)) &&
+             ENUMERATOR_INDEX(o0) == ENUMERATOR_INDEX(o1);
+    case type_package:
+      return o0 == o1;
+    case type_symbol:
+      return o0 == o1;
+    case type_bytecode:
+      return equals(BYTECODE_CONSTANTS(o0), BYTECODE_CONSTANTS(o1)) &&
+             equals(BYTECODE_CODE(o0), BYTECODE_CODE(o1));
+  }
+  printf("Unhandled equals");
+  exit(1);
+}
 
 /*===============================*
  *===============================*
@@ -1457,7 +1506,7 @@ struct object *read_bytecode_file(struct object *s) {
  *===============================*
  *===============================*/
 void run_tests() {
-  struct object *darr, *o0, *dba, *dba1, *bc, *da;
+  struct object *darr, *o0, *o1, *dba, *dba1, *bc, *da;
 
   printf("Running tests...\n");
 
@@ -1719,6 +1768,66 @@ void run_tests() {
 
   da = dynamic_array(10);
   assert_string_eq(to_string(da), string("[]"));
+
+  /*
+   * equals 
+   */
+
+  /* fixnum */
+  assert(equals(fixnum(-2), fixnum(-2)));
+  assert(!equals(fixnum(-2), fixnum(2)));
+  /* ufixnum */
+  assert(equals(ufixnum(242344238L), ufixnum(242344238L)));
+  assert(!equals(ufixnum(242344231L), ufixnum(242344238L)));
+  /* flonum */
+  assert(equals(flonum(1.234), flonum(1.234)));
+  assert(!equals(flonum(-1.234), flonum(1.234)));
+  /* string */
+  assert(equals(string("abcdefghi"), string("abcdefghi")));
+  assert(!equals(string("e"), string("")));
+  /* nil */
+  assert(equals(NULL, NULL));
+  /* cons */
+  assert(equals(cons(fixnum(7), NULL), cons(fixnum(7), NULL)));
+  assert(!equals(cons(fixnum(7), cons(fixnum(8), NULL)), cons(fixnum(7), cons(fixnum(10), NULL))));
+  assert(!equals(cons(fixnum(7), cons(fixnum(8), NULL)), cons(fixnum(9), cons(fixnum(8), NULL))));
+  assert(!equals(cons(fixnum(7), cons(fixnum(8), NULL)), cons(fixnum(7), cons(fixnum(8), cons(fixnum(9), NULL)))));
+  assert(equals(cons(fixnum(7), cons(fixnum(8), cons(fixnum(9), NULL))), cons(fixnum(7), cons(fixnum(8), cons(fixnum(9), NULL)))));
+  assert(equals(cons(cons(string("a"), cons(string("b"), NULL)), cons(fixnum(8), cons(fixnum(9), NULL))), 
+                cons(cons(string("a"), cons(string("b"), NULL)), cons(fixnum(8), cons(fixnum(9), NULL)))));
+  assert(!equals(cons(cons(string("a"), cons(string("b"), NULL)), cons(fixnum(8), cons(fixnum(9), NULL))), 
+                cons(cons(string("a"), cons(string("x"), NULL)), cons(fixnum(8), cons(fixnum(9), NULL)))));
+  /* dynamic array */
+  o0 = dynamic_array(10);
+  o1 = dynamic_array(10);
+  assert(equals(o0, o1));
+
+  dynamic_array_push(o0, fixnum(1));
+  assert(!equals(o0, o1));
+  dynamic_array_push(o1, fixnum(1));
+  assert(equals(o0, o1));
+
+  dynamic_array_push(o0, fixnum(2));
+  dynamic_array_push(o1, fixnum(2));
+  assert(equals(o0, o1));
+
+  /* dynamic byte array */
+  o0 = dynamic_byte_array(10);
+  o1 = dynamic_byte_array(10);
+  assert(equals(o0, o1));
+
+  dynamic_byte_array_push(o0, fixnum(1));
+  assert(!equals(o0, o1));
+  dynamic_byte_array_push(o1, fixnum(1));
+  assert(equals(o0, o1));
+
+  dynamic_byte_array_push(o0, fixnum(2));
+  dynamic_byte_array_push(o1, fixnum(2));
+  assert(equals(o0, o1));
+
+  /* To be equal the types must be the same */
+  assert(!equals(NULL, fixnum(2)));
+  assert(!equals(fixnum(8), string("g")));
 
   printf("Tests were successful\n");
 }
