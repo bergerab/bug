@@ -1506,7 +1506,7 @@ struct object *read_bytecode_file(struct object *s) {
  *===============================*
  *===============================*/
 void run_tests() {
-  struct object *darr, *o0, *o1, *dba, *dba1, *bc, *da;
+  struct object *darr, *o0, *o1, *dba, *dba1, *bc, *da, *code, *consts;
 
   printf("Running tests...\n");
 
@@ -1810,7 +1810,6 @@ void run_tests() {
   dynamic_array_push(o0, fixnum(2));
   dynamic_array_push(o1, fixnum(2));
   assert(equals(o0, o1));
-
   /* dynamic byte array */
   o0 = dynamic_byte_array(10);
   o1 = dynamic_byte_array(10);
@@ -1825,9 +1824,35 @@ void run_tests() {
   dynamic_byte_array_push(o1, fixnum(2));
   assert(equals(o0, o1));
 
+  /* enumerator */
+  o0 = enumerator(string("abcdefg"));
+  o1 = enumerator(string("abcdefg"));
+  assert(equals(o0, o1));
+  byte_stream_read(o1, 1);
+  assert(!equals(o0, o1));
+  byte_stream_read(o0, 1);
+  assert(equals(o0, o1));
+  o0 = enumerator(string("91"));
+  o1 = enumerator(string("93"));
+  assert(!equals(o0, o1));
+
+  /* TODO: add equals tests for package, symbol and file */
+
+  /* bytecode */
+  code = dynamic_byte_array(100);
+  dynamic_byte_array_push_char(code, op_const);
+  dynamic_byte_array_push_char(code, 0);
+  consts = dynamic_array(100);
+  dynamic_array_push(consts, string("ab"));
+  dynamic_array_push(consts, cons(string("F"), cons(string("E"), NULL)));
+  dynamic_array_push(consts, flonum(8));
+
+  bc = bytecode(consts, code);
+
   /* To be equal the types must be the same */
   assert(!equals(NULL, fixnum(2)));
   assert(!equals(fixnum(8), string("g")));
+
 
   printf("Tests were successful\n");
 }

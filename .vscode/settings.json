@@ -2,6 +2,7 @@
   "files.associations": {
     "type_traits": "c",
     "cmath": "c",
-    "limits": "c"
+    "limits": "c",
+    "*.tcc": "c"
   }
 }
