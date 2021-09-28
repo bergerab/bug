@@ -5,6 +5,13 @@
 
 #include "bytecode.h"
 
+/**
+ * The global interpreter state
+ * 
+ * Initialized using init_gis()
+ */
+struct gis *gis;
+
 /*===============================*
  *===============================*
  * Utility Procedures            *
@@ -107,8 +114,8 @@ fixnum_t count(struct object *list) {
 /**
  * Checks the number of items on the stack (for bytecode interpreter)
  */
-void stack_check(struct gis *g, char *name, int n) {
-  unsigned int stack_count = count(g->stack);
+void stack_check(char *name, int n) {
+  unsigned int stack_count = count(gis->stack);
   if (stack_count < n) {
     printf(
         "BC: Operation \"%s\" was called when the stack had too "
@@ -150,7 +157,7 @@ struct object *flonum(flonum_t flo) {
   return o;
 }
 
-struct object *intern(struct gis *g, struct object *string) {
+struct object *intern(struct object *string) {
   TC("intern", 0, string, type_string);
   return 0;
 }
@@ -423,34 +430,34 @@ struct object *dynamic_byte_array_from_array(ufixnum_t length, unsigned char *ar
 /* 
  * Bytecode Interpreter 
  */
-void push(struct gis *g, struct object *object) {
-  g->stack = cons(object, g->stack);
+void push(struct object *object) {
+  gis->stack = cons(object, gis->stack);
 }
 
-struct object *pop(struct gis *g) {
+struct object *pop() {
   struct object *value;
-  SC(g, "pop", 1);
-  value = g->stack->w0.car;
-  g->stack = CONS_CDR(g->stack);
+  SC("pop", 1);
+  value = gis->stack->w0.car;
+  gis->stack = CONS_CDR(gis->stack);
   return value;
 }
 
-struct object *peek(struct gis *g) {
-  SC(g, "peek", 1);
-  return CONS_CAR(g->stack);
+struct object *peek() {
+  SC("peek", 1);
+  return CONS_CAR(gis->stack);
 }
 
-void dup(struct gis *g) {
-  SC(g, "dup", 1);
-  g->stack = cons(CONS_CAR(g->stack), g->stack);
+void dup() {
+  SC("dup", 1);
+  gis->stack = cons(CONS_CAR(gis->stack), gis->stack);
 }
 
-struct gis *gis() {
-  struct gis *g = malloc(sizeof(struct gis));
-  NC(g, "Failed to allocate global interpreter state.");
-  g->stack = 0;
-  g->package = 0;
-  return g;
+struct gis *init_gis() {
+  gis = malloc(sizeof(struct gis));
+  NC(gis, "Failed to allocate global interpreter state.");
+  gis->stack = 0;
+  gis->package = 0;
+  return gis;
 }
 
 /* (7F)_16 is (0111 1111)_2, it extracts the numerical value from the temporary
@@ -485,7 +492,7 @@ struct gis *gis() {
   }                                                                  \
   c0 = constants->values[a0];
 
-void eval(struct gis *g, struct object *bc) {
+void eval(struct object *bc) {
   unsigned long i,        /* the current byte being evaluated */
       byte_count;         /* number of  bytes in this bytecode */
   unsigned char t0;       /* temporary for reading bytecode arguments */
@@ -507,54 +514,54 @@ void eval(struct gis *g, struct object *bc) {
   while (i < byte_count) {
     switch (code->bytes[i]) {
       case op_drop: /* drop ( x -- ) */
-        SC(g, "drop", 1);
-        pop(g);
+        SC("drop", 1);
+        pop();
         break;
       case op_dup: /* dup ( x -- x x ) */
-        SC(g, "dup", 1);
-        dup(g);
+        SC("dup", 1);
+        dup();
         break;
       case op_cons: /* cons ( car cdr -- (cons car cdr) ) */
-        SC(g, "cons", 2);
-        v1 = pop(g); /* cdr */
-        v0 = pop(g); /* car */
-        push(g, cons(v0, v1));
+        SC("cons", 2);
+        v1 = pop(); /* cdr */
+        v0 = pop(); /* car */
+        push(cons(v0, v1));
         break;
       case op_intern: /* intern ( string -- symbol ) */
-        SC(g, "intern", 1);
-        v0 = pop(g);
+        SC("intern", 1);
+        v0 = pop();
         TC("intern", 0, v0, type_string);
-        push(g, intern(g, pop(g)));
+        push(intern(pop()));
         break;
       case op_dynamic_array: /* dynamic-array ( length -- array[length] ) */
-        SC(g, "dynamic-array", 1);
-        v0 = pop(g); /* length */
+        SC("dynamic-array", 1);
+        v0 = pop(); /* length */
         TC("dynamic-array", 0, v0, type_fixnum);
-        push(g, dynamic_array(FIXNUM_VALUE(v0)));
+        push(dynamic_array(FIXNUM_VALUE(v0)));
         break;
       case op_dynamic_array_get: /* array_ref ( array index -- object ) */
-        SC(g, "dynamic-array-get", 2);
-        v0 = pop(g); /* index */
+        SC("dynamic-array-get", 2);
+        v0 = pop(); /* index */
         TC("dynamic-array-get", 0, v0, type_fixnum);
-        v1 = pop(g); /* array */
+        v1 = pop(); /* array */
         TC("dynamic-array-get", 1, v1, type_dynamic_array);
-        push(g, dynamic_array_get(v1, v0));
+        push(dynamic_array_get(v1, v0));
         break;
       case op_car: /* car ( (cons car cdr) -- car ) */
-        SC(g, "car", 1);
-        push(g, pop(g)->w0.car);
+        SC("car", 1);
+        push(pop()->w0.car);
         break;
       case op_cdr: /* cdr ( (cons car cdr) -- cdr ) */
-        SC(g, "cdr", 1);
-        push(g, pop(g)->w1.cdr);
+        SC("cdr", 1);
+        push(pop()->w1.cdr);
         break;
       case op_add: /* add ( x y -- sum ) */
-        SC(g, "add", 2);
-        push(g, 0); /* TODO */
+        SC("add", 2);
+        push(0); /* TODO */
         break;
       case op_const: /* const ( -- x ) */
         READ_CONST_ARG();
-        push(g, c0);
+        push(c0);
         break;
       default:
         printf("No cases matched\n");
@@ -569,8 +576,8 @@ void eval(struct gis *g, struct object *bc) {
  * Creates the default global interpreter state
  */
 void init() {
-  struct gis *g = gis();
-  g->package = package(string("user"));
+  init_gis();
+  gis->package = package(string("user"));
 }
 
 
@@ -1555,10 +1562,19 @@ char is_digit(char c) {
   return c >= '0' && c <= '9';
 }
 
+char skip_whitespace(struct object *s, char c) {
+    while (c == ' ' || c == '\n' || c == '\r') {
+      byte_stream_read_byte(s);
+      c = byte_stream_peek_byte(s);
+      if (!byte_stream_has(s)) break;
+    }
+    return c;
+}
+
 /* "(1 2 3)" -> (cons 1 (cons 2 (cons 3 nil))) */
 struct object *read(struct object *s) {
   char c;
-  struct object *buf;
+  struct object *buf, *sexpr;
 
   /* for checking if is numeric */
   char is_numeric, is_flo, has_mantissa, has_e, sign, exponent_sign;
@@ -1579,21 +1595,15 @@ struct object *read(struct object *s) {
   }
 
   c = byte_stream_peek_byte(s);
-
-  /* skip whitespace */
-  while (c == ' ' || c == '\n' || c == '\r') {
-    if (!byte_stream_has(s)) {
-      printf("Read was given empty input (only contained whitespace).");
-      exit(1);
-    }
-    byte_stream_read_byte(s);
-    c = byte_stream_peek_byte(s);
+  c = skip_whitespace(s, c);
+  if (!byte_stream_has(s)) {
+    printf("Read was given empty input (only contained whitespace).");
+    exit(1);
   }
 
   if (c == '"') { /* beginning of string */
     byte_stream_read_byte(s); /* throw the quotation mark away */
     buf = dynamic_byte_array(10);
-    /* TODO: support escape chars */
     while ((c = byte_stream_read_byte(s)) != '"' || escape_next) {
       if (!byte_stream_has(s)) {
         printf("Unexpected end of input during read of string.");
@@ -1626,7 +1636,21 @@ struct object *read(struct object *s) {
     OBJECT_TYPE(buf) = type_string;
     return buf;
   } else if (c == '(') { /* beginning of sexpr */
-
+    buf = dynamic_array(10);
+    sexpr = NULL;
+    byte_stream_read_byte(s); /* throw away the opening paren */
+    c = skip_whitespace(s, c);
+    while (byte_stream_has(s) && (c = byte_stream_peek_byte(s)) != ')') {
+      dynamic_array_push(buf, read(s));
+      c = skip_whitespace(s, c);
+    }
+    if (!byte_stream_has(s)) {
+      printf("Unexpected end of input during sexpr.");
+      exit(1);
+    }
+    byte_stream_read_byte(s); /* throw away the closing paren */
+    for (fix = DYNAMIC_ARRAY_LENGTH(buf) - 1; fix > 0; --fix) sexpr = cons(DYNAMIC_ARRAY_VALUES(buf)[fix], sexpr);
+    return sexpr;
   } else if (c == '\'') { /* quoted expression */
     return cons(symbol(string("quote")), cons(read(s), NULL));
   } else { /* either a number or a symbol */
@@ -2163,17 +2187,19 @@ void run_tests() {
   assert(equals(read(string("3.e4")), flonum(3.0e4)));
   assert(equals(read(string("3.e0")), flonum(3.0e0)));
 
+  assert(equals(read(string("()")), NULL));
+  assert(equals(read(string("(1)")), cons(fixnum(1), NULL)));
+
   printf("Tests were successful\n");
 }
 
 int main() {
   struct object *bc, *code, *consts, *file;
-  struct gis *g;
 
   run_tests();
 
-  g = gis();
-  g->package = package(string("user"));
+  init_gis();
+  gis->package = package(string("user"));
 
   code = dynamic_byte_array(100);
   dynamic_byte_array_push_char(code, op_const);
@@ -2186,9 +2212,9 @@ int main() {
 
   bc = bytecode(consts, code);
 
-  eval(g, bc);
+  eval(bc);
 
-  assert(strcmp(bstring_to_cstring(peek(g)), "ab") == 0);
+  assert(strcmp(bstring_to_cstring(peek()), "ab") == 0);
 
   file = open_file(string("file.txt"), string("wb"));
   write_bytecode_file(file, bc);
@@ -2198,7 +2224,7 @@ int main() {
   bc = read_bytecode_file(file);
   close_file(file);
 
-  eval(g, bc);
+  eval(bc);
 
   return 0;
 }

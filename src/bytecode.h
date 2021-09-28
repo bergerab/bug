@@ -13,13 +13,13 @@
 #ifdef RUN_TIME_CHECKS
 #define TC(name, argument, o, type) type_check(name, argument, o, type)
 #define TC2(name, argument, o, type0, type1) type_check_or2(name, argument, o, type0, type1)
-#define SC(g, name, n) stack_check(g, name, n)
+#define SC(name, n) stack_check(name, n)
 #else
 #define TC(name, argument, o, type) \
   {}
 #define TC2(name, argument, o, type0, type1) \
   {}
-#define SC(g, name, n) \
+#define SC(name, n) \
   {}
 #endif
 
