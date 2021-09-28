@@ -455,8 +455,8 @@ void dup() {
 struct gis *init_gis() {
   gis = malloc(sizeof(struct gis));
   NC(gis, "Failed to allocate global interpreter state.");
-  gis->stack = 0;
-  gis->package = 0;
+  gis->stack = NULL;
+  gis->package = package(string("user"));
   return gis;
 }
 
@@ -1756,11 +1756,9 @@ struct object *read(struct object *s) {
   return NULL;
 }
 
-/*
-struct object *compile_expr(struct object *expr) {
-  struct object *constants, *code;  
+struct object *compile(struct object *expr) {
+  return NULL;
 } 
-*/
 
 /*===============================*
  *===============================*
@@ -2216,38 +2214,88 @@ void run_tests() {
   printf("Tests were successful\n");
 }
 
-int main() {
-  struct object *bc, *code, *consts, *file;
+/*
+ * Compile Mode:
+ *   > bug -c myfile.bug -o myfile.bc
+ * Interpret Mode:
+ *   > bug myfile.bc 
+ *     OR
+ *   > bug myfile.bug
+ *     If it is a bytecode file, interpret as bytecode. Otherwise, attempt to compile it, then interpret the results. 
+ * Repl Mode:
+ *   > bug
+ */
+int main(int argc, char **argv) {
+  ufixnum_t i;
+  char interpret_mode, compile_mode, repl_mode;
+  struct object *bc, *input_file, *output_file, *input_filepath, *output_filepath;
+  char **cursor;
 
-  run_tests();
+  interpret_mode = compile_mode = repl_mode = 0;
+
+  if (argc == 1) {
+    repl_mode = 1;
+  } else if (argc == 2) {
+    interpret_mode = 1;
+
+    if (strcmp(argv[1], "--help") == 0) {
+      printf("Bug LISP\n");
+      printf("  --run-tests\tRuns the interpreter and compiler's test suite.\n");
+      printf("  -c\tCompiles the given file.\n");
+      printf("  -o\tChooses a name for the compiled file.\n");
+      return 0;
+    }
+
+    if (strcmp(argv[1], "--run-tests") == 0) {
+      run_tests();
+      return 0;
+    }
+
+    if (strcmp(argv[1], "-c") == 0) {
+      printf("You must provide a file name to the -c parameter (the source file to compile).");
+      return 0;
+    }
+    if (strcmp(argv[1], "-o") == 0) {
+      printf("You may only use the -o parameter when compiling a source file.");
+      return 0;
+    }
+
+    if (argv[1][0] == '-') {
+      printf("Invalid command argument \"%s\". Use --help flag to see options.", argv[1]);
+      return 0;
+    }
+
+    input_filepath = string(argv[1]);
+  } else {
+    compile_mode = 1;
+    i = 1;
+    while (i < argc) {
+      *cursor++;
+      i++;
+    }
+    if (strcmp(argv[1], "-c") == 0) {
+      printf("help message");
+      return 0;
+    }
+  }
 
   init_gis();
-  gis->package = package(string("user"));
 
-  code = dynamic_byte_array(100);
-  dynamic_byte_array_push_char(code, op_const);
-  dynamic_byte_array_push_char(code, 0);
-
-  consts = dynamic_array(100);
-  dynamic_array_push(consts, string("ab"));
-  dynamic_array_push(consts, cons(string("F"), cons(string("E"), NULL)));
-  dynamic_array_push(consts, flonum(8));
-
-  bc = bytecode(consts, code);
-
-  eval(bc);
-
-  assert(strcmp(bstring_to_cstring(peek()), "ab") == 0);
-
-  file = open_file(string("file.txt"), string("wb"));
-  write_bytecode_file(file, bc);
-  close_file(file);
-
-  file = open_file(string("file.txt"), string("r"));
-  bc = read_bytecode_file(file);
-  close_file(file);
-
-  eval(bc);
+  if (compile_mode) {
+    input_file = open_file(input_filepath, string("r"));
+    output_file = open_file(output_filepath, string("wb"));
+    bc = compile(read(input_file));
+    close_file(input_file);
+    write_bytecode_file(output_file, bc);
+    close_file(output_file);
+  } else if (interpret_mode) { /* add logic to compile the file if given a source file */
+    input_file = open_file(input_filepath, string("r"));
+    bc = read_bytecode_file(input_file);
+    eval(bc);
+    close_file(input_file);
+  } else if (repl_mode) {
+    printf("REPL mode not implemented");
+  }
 
   return 0;
 }
