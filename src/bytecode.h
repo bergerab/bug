@@ -113,6 +113,12 @@ typedef double flonum_t;
 #define ENUMERATOR_INDEX(o)\
  o->w1.value.enumerator->index
 
+#define PACKAGE_NAME(o)\
+ o->w1.value.package->name
+
+#define PACKAGE_SYMBOLS(o)\
+ o->w1.value.package->symbols
+
 #define BC_VERSION 2
 
 enum ops {

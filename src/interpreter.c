@@ -8,7 +8,7 @@
 /**
  * The global interpreter state
  * 
- * Initialized using init_gis()
+ * Initialized using init()
  */
 struct gis *gis;
 
@@ -157,11 +157,6 @@ struct object *flonum(flonum_t flo) {
   return o;
 }
 
-struct object *intern(struct object *string) {
-  TC("intern", 0, string, type_string);
-  return 0;
-}
-
 struct object *dynamic_array(fixnum_t initial_capacity) {
   struct object *o = object(type_dynamic_array);
   NC(o, "Failed to allocate dynamic-array object.");
@@ -210,16 +205,6 @@ struct object *string(char *contents) {
   return o;
 }
 
-struct object *symbol(struct object *name) {
-  struct object *o = object(type_symbol);
-  NC(o, "Failed to allocate symbol object.");
-  o->w1.value.symbol = malloc(sizeof(struct symbol));
-  NC(o->w1.value.symbol, "Failed to allocate symbol.");
-  SYMBOL_NAME(o) = name;
-  SYMBOL_VALUES(o) = NULL;
-  return o;
-}
-
 struct object *enumerator(struct object *source) {
   struct object *o;
   o = object(type_enumerator);
@@ -237,8 +222,8 @@ struct object *package(struct object *name) {
   NC(o, "Failed to allocate package object.");
   o->w1.value.package = malloc(sizeof(struct package));
   NC(o->w1.value.package, "Failed to allocate package object.");
-  o->w1.value.package->name = name;
-  o->w1.value.package->symbols = 0;
+  PACKAGE_NAME(o) = name;
+  PACKAGE_SYMBOLS(o) = NULL;
   return o;
 }
 
@@ -246,6 +231,17 @@ struct object *cons(struct object *car, struct object *cdr) {
   struct object *o = object(type_cons);
   o->w0.car = car;
   o->w1.cdr = cdr;
+  return o;
+}
+
+/* Creates a new symbol. Does NOT intern or add to the current package. */
+struct object *symbol(struct object *name) {
+  struct object *o = object(type_symbol);
+  NC(o, "Failed to allocate symbol object.");
+  o->w1.value.symbol = malloc(sizeof(struct symbol));
+  NC(o->w1.value.symbol, "Failed to allocate symbol.");
+  SYMBOL_NAME(o) = name;
+  SYMBOL_VALUES(o) = NULL;
   return o;
 }
 
@@ -426,160 +422,6 @@ struct object *dynamic_byte_array_from_array(ufixnum_t length, unsigned char *ar
   memcpy(DYNAMIC_BYTE_ARRAY_BYTES(dba), arr, sizeof(unsigned char));
   return dba;
 }
-
-/* 
- * Bytecode Interpreter 
- */
-void push(struct object *object) {
-  gis->stack = cons(object, gis->stack);
-}
-
-struct object *pop() {
-  struct object *value;
-  SC("pop", 1);
-  value = gis->stack->w0.car;
-  gis->stack = CONS_CDR(gis->stack);
-  return value;
-}
-
-struct object *peek() {
-  SC("peek", 1);
-  return CONS_CAR(gis->stack);
-}
-
-void dup() {
-  SC("dup", 1);
-  gis->stack = cons(CONS_CAR(gis->stack), gis->stack);
-}
-
-struct gis *init_gis() {
-  gis = malloc(sizeof(struct gis));
-  NC(gis, "Failed to allocate global interpreter state.");
-  gis->stack = NULL;
-  gis->package = package(string("user"));
-  return gis;
-}
-
-/* (7F)_16 is (0111 1111)_2, it extracts the numerical value from the temporary
- */
-/* (80)_16 is (1000 0000)_2, it extracts the flag from the temporary */
-#define READ_OP_ARG()                                                  \
-  if (i >= byte_count) {                                               \
-    printf("BC: expected an op code argument, but bytecode ended.\n"); \
-    break;                                                             \
-  }                                                                    \
-  t0 = code->bytes[++i];                                               \
-  a0 = t0 & 0x7F;                                                      \
-  while (t0 & 0x80) {                                                  \
-    if (i >= byte_count) {                                             \
-      printf(                                                          \
-          "BC: expected an extended op code argument, but bytecode "   \
-          "ended.\n");                                                 \
-      break;                                                           \
-    }                                                                  \
-    t0 = code->bytes[++i];                                             \
-    a0 = (a0 << 7) | (t0 & 0x7F);                                      \
-  }
-
-#define READ_CONST_ARG()                                             \
-  READ_OP_ARG()                                                      \
-  if (a0 >= constants_length) {                                      \
-    printf(                                                          \
-        "BC: bytecode attempted to access an out of bounds index "   \
-        "%ld in the constants vector, but only have %ld constants.\n", \
-        a0, constants_length);                                       \
-    break;                                                           \
-  }                                                                  \
-  c0 = constants->values[a0];
-
-void eval(struct object *bc) {
-  unsigned long i,        /* the current byte being evaluated */
-      byte_count;         /* number of  bytes in this bytecode */
-  unsigned char t0;       /* temporary for reading bytecode arguments */
-  unsigned long a0;       /* the arguments for bytecode parameters */
-  struct object *v0, *v1; /* temps for values popped off the stack */
-  struct object *c0; /* temps for constants (used for bytecode arguments) */
-  struct dynamic_byte_array
-      *code; /* the byte array containing the bytes in the bytecode */
-  struct dynamic_array *constants; /* the constants array */
-  unsigned long constants_length;  /* the length of the constants array */
-
-  TC("eval", 1, bc, type_bytecode);
-  i = 0;
-  code = bc->w1.value.bytecode->code->w1.value.dynamic_byte_array;
-  constants = bc->w1.value.bytecode->constants->w1.value.dynamic_array;
-  constants_length = constants->length;
-  byte_count = code->length;
-
-  while (i < byte_count) {
-    switch (code->bytes[i]) {
-      case op_drop: /* drop ( x -- ) */
-        SC("drop", 1);
-        pop();
-        break;
-      case op_dup: /* dup ( x -- x x ) */
-        SC("dup", 1);
-        dup();
-        break;
-      case op_cons: /* cons ( car cdr -- (cons car cdr) ) */
-        SC("cons", 2);
-        v1 = pop(); /* cdr */
-        v0 = pop(); /* car */
-        push(cons(v0, v1));
-        break;
-      case op_intern: /* intern ( string -- symbol ) */
-        SC("intern", 1);
-        v0 = pop();
-        TC("intern", 0, v0, type_string);
-        push(intern(pop()));
-        break;
-      case op_dynamic_array: /* dynamic-array ( length -- array[length] ) */
-        SC("dynamic-array", 1);
-        v0 = pop(); /* length */
-        TC("dynamic-array", 0, v0, type_fixnum);
-        push(dynamic_array(FIXNUM_VALUE(v0)));
-        break;
-      case op_dynamic_array_get: /* array_ref ( array index -- object ) */
-        SC("dynamic-array-get", 2);
-        v0 = pop(); /* index */
-        TC("dynamic-array-get", 0, v0, type_fixnum);
-        v1 = pop(); /* array */
-        TC("dynamic-array-get", 1, v1, type_dynamic_array);
-        push(dynamic_array_get(v1, v0));
-        break;
-      case op_car: /* car ( (cons car cdr) -- car ) */
-        SC("car", 1);
-        push(pop()->w0.car);
-        break;
-      case op_cdr: /* cdr ( (cons car cdr) -- cdr ) */
-        SC("cdr", 1);
-        push(pop()->w1.cdr);
-        break;
-      case op_add: /* add ( x y -- sum ) */
-        SC("add", 2);
-        push(0); /* TODO */
-        break;
-      case op_const: /* const ( -- x ) */
-        READ_CONST_ARG();
-        push(c0);
-        break;
-      default:
-        printf("No cases matched\n");
-        exit(1);
-        break;
-    }
-    ++i;
-  }
-}
-
-/*
- * Creates the default global interpreter state
- */
-void init() {
-  init_gis();
-  gis->package = package(string("user"));
-}
-
 
 /*===============================*
  *===============================*
@@ -1555,6 +1397,36 @@ struct object *read_bytecode_file(struct object *s) {
 
 /*===============================*
  *===============================*
+ * Symbol Interning              *
+ *===============================*
+ *===============================*/
+
+struct object *intern(struct object *string, struct object *package) {
+  struct object *cursor, *sym;
+
+  TC("intern", 0, string, type_string);
+  TC2("intern", 1, package, type_package, type_nil);
+
+  /* use the global GIS if not given one */
+  if (package == NULL)
+    package = gis->package;
+
+  cursor = PACKAGE_SYMBOLS(package);
+  while (cursor != NULL) {
+    sym = CONS_CAR(cursor);
+    if (equals(SYMBOL_NAME(sym), string)) return sym;
+    cursor = CONS_CDR(cursor);
+  }
+
+  /* If no existing symbol was found, create a new one and add it to the current package. */
+  sym = symbol(string);
+  PACKAGE_SYMBOLS(package) = cons(sym, PACKAGE_SYMBOLS(package));
+
+  return sym;
+}
+
+/*===============================*
+ *===============================*
  * Read                          *
  *===============================*
  *===============================*/
@@ -1760,6 +1632,158 @@ struct object *compile(struct object *expr) {
   return NULL;
 } 
 
+/* 
+ * Bytecode Interpreter 
+ */
+void push(struct object *object) {
+  gis->stack = cons(object, gis->stack);
+}
+
+struct object *pop() {
+  struct object *value;
+  SC("pop", 1);
+  value = gis->stack->w0.car;
+  gis->stack = CONS_CDR(gis->stack);
+  return value;
+}
+
+struct object *peek() {
+  SC("peek", 1);
+  return CONS_CAR(gis->stack);
+}
+
+void dup() {
+  SC("dup", 1);
+  gis->stack = cons(CONS_CAR(gis->stack), gis->stack);
+}
+
+struct gis *alloc_gis() {
+  struct gis *gis = malloc(sizeof(struct gis));
+  NC(gis, "Failed to allocate global interpreter state.");
+  gis->stack = NULL;
+  gis->package = package(string("user"));
+  return gis;
+}
+
+/* (7F)_16 is (0111 1111)_2, it extracts the numerical value from the temporary
+ */
+/* (80)_16 is (1000 0000)_2, it extracts the flag from the temporary */
+#define READ_OP_ARG()                                                  \
+  if (i >= byte_count) {                                               \
+    printf("BC: expected an op code argument, but bytecode ended.\n"); \
+    break;                                                             \
+  }                                                                    \
+  t0 = code->bytes[++i];                                               \
+  a0 = t0 & 0x7F;                                                      \
+  while (t0 & 0x80) {                                                  \
+    if (i >= byte_count) {                                             \
+      printf(                                                          \
+          "BC: expected an extended op code argument, but bytecode "   \
+          "ended.\n");                                                 \
+      break;                                                           \
+    }                                                                  \
+    t0 = code->bytes[++i];                                             \
+    a0 = (a0 << 7) | (t0 & 0x7F);                                      \
+  }
+
+#define READ_CONST_ARG()                                             \
+  READ_OP_ARG()                                                      \
+  if (a0 >= constants_length) {                                      \
+    printf(                                                          \
+        "BC: bytecode attempted to access an out of bounds index "   \
+        "%ld in the constants vector, but only have %ld constants.\n", \
+        a0, constants_length);                                       \
+    break;                                                           \
+  }                                                                  \
+  c0 = constants->values[a0];
+
+void eval(struct object *bc) {
+  unsigned long i,        /* the current byte being evaluated */
+      byte_count;         /* number of  bytes in this bytecode */
+  unsigned char t0;       /* temporary for reading bytecode arguments */
+  unsigned long a0;       /* the arguments for bytecode parameters */
+  struct object *v0, *v1; /* temps for values popped off the stack */
+  struct object *c0; /* temps for constants (used for bytecode arguments) */
+  struct dynamic_byte_array
+      *code; /* the byte array containing the bytes in the bytecode */
+  struct dynamic_array *constants; /* the constants array */
+  unsigned long constants_length;  /* the length of the constants array */
+
+  TC("eval", 1, bc, type_bytecode);
+  i = 0;
+  code = bc->w1.value.bytecode->code->w1.value.dynamic_byte_array;
+  constants = bc->w1.value.bytecode->constants->w1.value.dynamic_array;
+  constants_length = constants->length;
+  byte_count = code->length;
+
+  while (i < byte_count) {
+    switch (code->bytes[i]) {
+      case op_drop: /* drop ( x -- ) */
+        SC("drop", 1);
+        pop();
+        break;
+      case op_dup: /* dup ( x -- x x ) */
+        SC("dup", 1);
+        dup();
+        break;
+      case op_cons: /* cons ( car cdr -- (cons car cdr) ) */
+        SC("cons", 2);
+        v1 = pop(); /* cdr */
+        v0 = pop(); /* car */
+        push(cons(v0, v1));
+        break;
+      case op_intern: /* intern ( string -- symbol ) */
+        SC("intern", 1);
+        v0 = pop();
+        TC("intern", 0, v0, type_string);
+        push(intern(pop(), NULL));
+        break;
+      case op_dynamic_array: /* dynamic-array ( length -- array[length] ) */
+        SC("dynamic-array", 1);
+        v0 = pop(); /* length */
+        TC("dynamic-array", 0, v0, type_fixnum);
+        push(dynamic_array(FIXNUM_VALUE(v0)));
+        break;
+      case op_dynamic_array_get: /* array_ref ( array index -- object ) */
+        SC("dynamic-array-get", 2);
+        v0 = pop(); /* index */
+        TC("dynamic-array-get", 0, v0, type_fixnum);
+        v1 = pop(); /* array */
+        TC("dynamic-array-get", 1, v1, type_dynamic_array);
+        push(dynamic_array_get(v1, v0));
+        break;
+      case op_car: /* car ( (cons car cdr) -- car ) */
+        SC("car", 1);
+        push(pop()->w0.car);
+        break;
+      case op_cdr: /* cdr ( (cons car cdr) -- cdr ) */
+        SC("cdr", 1);
+        push(pop()->w1.cdr);
+        break;
+      case op_add: /* add ( x y -- sum ) */
+        SC("add", 2);
+        push(0); /* TODO */
+        break;
+      case op_const: /* const ( -- x ) */
+        READ_CONST_ARG();
+        push(c0);
+        break;
+      default:
+        printf("No cases matched\n");
+        exit(1);
+        break;
+    }
+    ++i;
+  }
+}
+
+/*
+ * Creates the default global interpreter state
+ */
+void init() {
+  gis = alloc_gis();
+}
+
 /*===============================*
  *===============================*
  * Tests                         *
@@ -1767,6 +1791,7 @@ struct object *compile(struct object *expr) {
  *===============================*/
 void run_tests() {
   struct object *darr, *o0, *o1, *dba, *dba1, *bc, *da, *code0, *consts0, *code1, *consts1;
+  struct gis *g;
 
   printf("Running tests...\n");
 
@@ -2211,6 +2236,16 @@ void run_tests() {
   /* ensure special characters have priority */
   assert(equals(read(string("(1\"b\")")), cons(fixnum(1), cons(string("b"), NULL))));
 
+  /********* symbol interning ************/ 
+  g = alloc_gis();
+  assert(count(PACKAGE_SYMBOLS(g->package)) == 0);
+  o0 = intern(string("a"), g->package); /* this should create a new symbol and add it to the package */
+  assert(count(PACKAGE_SYMBOLS(g->package)) == 1);
+  assert(equals(SYMBOL_NAME(CONS_CAR(PACKAGE_SYMBOLS(g->package))), string("a")));
+  assert(o0 == intern(string("a"), g->package)); /* intern should find the existing symbol */
+  o0 = intern(string("b"), g->package); /* this should create a new symbol and add it to the package */
+  assert(count(PACKAGE_SYMBOLS(g->package)) == 2);
+
   printf("Tests were successful\n");
 }
 
@@ -2226,12 +2261,11 @@ void run_tests() {
  *   > bug
  */
 int main(int argc, char **argv) {
-  ufixnum_t i;
   char interpret_mode, compile_mode, repl_mode;
   struct object *bc, *input_file, *output_file, *input_filepath, *output_filepath;
-  char **cursor;
 
   interpret_mode = compile_mode = repl_mode = 0;
+  output_filepath = input_filepath = NULL;
 
   if (argc == 1) {
     repl_mode = 1;
@@ -2268,18 +2302,14 @@ int main(int argc, char **argv) {
     input_filepath = string(argv[1]);
   } else {
     compile_mode = 1;
-    i = 1;
-    while (i < argc) {
-      *cursor++;
-      i++;
-    }
+    /* TODO */
     if (strcmp(argv[1], "-c") == 0) {
       printf("help message");
       return 0;
     }
   }
 
-  init_gis();
+  init();
 
   if (compile_mode) {
     input_file = open_file(input_filepath, string("r"));
