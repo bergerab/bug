@@ -1564,16 +1564,12 @@ struct object *read(struct object *s) {
   char is_numeric, is_flo, has_mantissa, has_e, sign, exponent_sign;
   fixnum_t fix;
   flonum_t flo;
-  ufixnum_t exponent;
   ufixnum_t byte_count;
   ufixnum_t i;
   char escape_next;
   struct object *integral_part;
   struct object *exponent_part;
   struct object *mantissa_part;
-
-  /* for string to float */
-  char is_mantissa;
 
   s = byte_stream_lift(s);
 
@@ -1632,7 +1628,7 @@ struct object *read(struct object *s) {
   } else if (c == '(') { /* beginning of sexpr */
 
   } else if (c == '\'') { /* quoted expression */
-    return cons(symbol("quote"), cons(read(s), NULL));
+    return cons(symbol(string("quote")), cons(read(s), NULL));
   } else { /* either a number or a symbol */
     buf = dynamic_byte_array(10);
     is_numeric = 1; /* assume it is numeric unless proven otherwise */
@@ -1643,7 +1639,6 @@ struct object *read(struct object *s) {
     exponent_sign = 0;
     fix = 0;
     flo = 0;
-    exponent = 0; /* the exponent part of the flonum */
     byte_count = 0;
     while (byte_stream_has(s) &&
           (c = byte_stream_read_byte(s)) != ' ' && c != '\n') {
@@ -1740,8 +1735,6 @@ struct object *compile_expr(struct object *expr) {
  *===============================*
  *===============================*/
 void run_tests() {
-  fixnum_t fix;
-  flonum_t flo;
   struct object *darr, *o0, *o1, *dba, *dba1, *bc, *da, *code0, *consts0, *code1, *consts1;
 
   printf("Running tests...\n");
