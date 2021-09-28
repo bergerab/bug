@@ -1,9 +1,9 @@
 #include <assert.h>
-#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include <float.h>
 
 #define RUN_TIME_CHECKS
@@ -46,6 +46,12 @@ typedef double flonum_t;
 
 #define FLONUM_VALUE(o)\
  o->w1.value.flonum
+
+#define SYMBOL_NAME(o)\
+  o->w1.value.symbol->name
+
+#define SYMBOL_VALUES(o)\
+  o->w1.value.symbol->values
 
 #define ARRAY_LENGTH(o)\
   o->w1.value.array->length

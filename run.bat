@@ -1,1 +1,1 @@
-gcc src\interpreter.c -pedantic -std=c89 -Wall && a
+gcc src\interpreter.c -pedantic -std=c89 -Wall -lm && a

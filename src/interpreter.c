@@ -167,7 +167,7 @@ struct object *dynamic_array(fixnum_t initial_capacity) {
   return o;
 }
 
-struct object *dynamic_byte_array(fixnum_t initial_capacity) {
+struct object *dynamic_byte_array(ufixnum_t initial_capacity) {
   struct object *o;
   o = object(type_dynamic_byte_array);
   NC(o, "Failed to allocate dynamic-byte-array object.");
@@ -188,18 +188,28 @@ struct object *bytecode(struct object *constants, struct object *code) {
   NC(o, "Failed to allocate bytecode object.");
   o->w1.value.bytecode = malloc(sizeof(struct bytecode));
   NC(o->w1.value.bytecode, "Failed to allocate bytecode.");
-  o->w1.value.bytecode->code = code;
-  o->w1.value.bytecode->constants = constants;
+  BYTECODE_CODE(o) = code;
+  BYTECODE_CONSTANTS(o) = constants;
   return o;
 }
 
 struct object *string(char *contents) {
   struct object *o;
-  fixnum_t length = strlen(contents);
+  ufixnum_t length = strlen(contents);
   o = dynamic_byte_array(length);
   OBJECT_TYPE(o) = type_string;
   memcpy(DYNAMIC_BYTE_ARRAY_BYTES(o), contents, length);
   DYNAMIC_BYTE_ARRAY_LENGTH(o) = length;
+  return o;
+}
+
+struct object *symbol(struct object *name) {
+  struct object *o = object(type_symbol);
+  NC(o, "Failed to allocate symbol object.");
+  o->w1.value.symbol = malloc(sizeof(struct symbol));
+  NC(o->w1.value.symbol, "Failed to allocate symbol.");
+  SYMBOL_NAME(o) = name;
+  SYMBOL_VALUES(o) = NULL;
   return o;
 }
 
@@ -768,6 +778,21 @@ struct object *to_repr(struct object *o) {
 
 /*===============================*
  *===============================*
+ * Print                         *
+ *===============================*
+ *===============================*/
+void print(struct object *o, char newline) {
+  ufixnum_t i;
+  o = to_string(o);
+  for (i = 0; i < STRING_LENGTH(o); ++i) {
+    printf("%c", STRING_CONTENTS(o)[i]);
+  }
+  if (newline)
+    printf("\n");
+}
+
+/*===============================*
+ *===============================*
  * Equality                      *
  *     Structural equality
  *===============================*
@@ -872,6 +897,27 @@ struct object *byte_stream_do_read(struct object *e, fixnum_t n, char peek) {
     }
   }
   return ret;
+}
+
+char byte_stream_has(struct object *e) {
+  char c;
+  TC2("byte_steam_has", 0, e, type_enumerator, type_file);
+  if (get_object_type(e) == type_file) {
+    c = fgetc(FILE_FP(e));
+    ungetc(c, FILE_FP(e));
+    return c == EOF;
+  } else {
+    switch (get_object_type(ENUMERATOR_SOURCE(e))) {
+      case type_dynamic_byte_array:
+      case type_string:
+        return ENUMERATOR_INDEX(e) < DYNAMIC_BYTE_ARRAY_LENGTH(ENUMERATOR_SOURCE(e));
+      default:
+        printf("BC: byte stream has is not implemented for type %s.",
+               get_object_type_name(ENUMERATOR_SOURCE(e)));
+        exit(1);
+    }
+  }
+  return c;
 }
 
 char byte_stream_do_read_byte(struct object *e, char peek) {
@@ -1502,11 +1548,201 @@ struct object *read_bytecode_file(struct object *s) {
 
 /*===============================*
  *===============================*
+ * Read                          *
+ *===============================*
+ *===============================*/
+char is_digit(char c) {
+  return c >= '0' && c <= '9';
+}
+
+/* "(1 2 3)" -> (cons 1 (cons 2 (cons 3 nil))) */
+struct object *read(struct object *s) {
+  char c;
+  struct object *buf;
+
+  /* for checking if is numeric */
+  char is_numeric, is_flo, has_mantissa, has_e, sign, exponent_sign;
+  fixnum_t fix;
+  flonum_t flo;
+  ufixnum_t exponent;
+  ufixnum_t byte_count;
+  ufixnum_t i;
+  char escape_next;
+  struct object *integral_part;
+  struct object *exponent_part;
+  struct object *mantissa_part;
+
+  /* for string to float */
+  char is_mantissa;
+
+  s = byte_stream_lift(s);
+
+  if (!byte_stream_has(s)) {
+    printf("Read was given empty input.");
+    exit(1);
+  }
+
+  c = byte_stream_peek_byte(s);
+
+  /* skip whitespace */
+  while (c == ' ' || c == '\n' || c == '\r') {
+    if (!byte_stream_has(s)) {
+      printf("Read was given empty input (only contained whitespace).");
+      exit(1);
+    }
+    byte_stream_read_byte(s);
+    c = byte_stream_peek_byte(s);
+  }
+
+  if (c == '"') { /* beginning of string */
+    byte_stream_read_byte(s); /* throw the quotation mark away */
+    buf = dynamic_byte_array(10);
+    /* TODO: support escape chars */
+    while ((c = byte_stream_read_byte(s)) != '"' || escape_next) {
+      if (!byte_stream_has(s)) {
+        printf("Unexpected end of input during read of string.");
+        exit(1);
+      }
+      if (escape_next) {
+        if (c == '\\' || c == '"') {
+          dynamic_byte_array_push_char(buf, c);
+        } else if (c == 'n') {
+          dynamic_byte_array_push_char(buf, '\n');
+        } else if (c == 'r') {
+          dynamic_byte_array_push_char(buf, '\r');
+        } else if (c == 't') {
+          dynamic_byte_array_push_char(buf, '\t');
+        } else {
+          printf("Invalid escape sequence \"\\%c\".", c);
+          exit(1);
+        }
+        escape_next = 0;
+      } else if (c == '\\') {
+        escape_next = 1;
+      } else {
+        dynamic_byte_array_push_char(buf, c);
+      }
+    }
+    if (escape_next) {
+      printf("Expected escape sequence, but string ended.");
+      exit(1);
+    }
+    OBJECT_TYPE(buf) = type_string;
+    return buf;
+  } else if (c == '(') { /* beginning of sexpr */
+
+  } else if (c == '\'') { /* quoted expression */
+    return cons(symbol("quote"), cons(read(s), NULL));
+  } else { /* either a number or a symbol */
+    buf = dynamic_byte_array(10);
+    is_numeric = 1; /* assume it is numeric unless proven otherwise */
+    has_mantissa = 0; /* this is flipped to true when a period is found */
+    is_flo = 0; /* assume the number is a fixnum unless proven otherwise */
+    has_e = 0; /* indicates if we are in the exponent section of a flonum (e.g. 1e9) */
+    sign = 0; /* assume the number is positive unless proven otherwise */
+    exponent_sign = 0;
+    fix = 0;
+    flo = 0;
+    exponent = 0; /* the exponent part of the flonum */
+    byte_count = 0;
+    while (byte_stream_has(s) &&
+          (c = byte_stream_read_byte(s)) != ' ' && c != '\n') {
+      if (is_numeric) { /* if we still believe we are parsing a number */
+        if (byte_count == 0 && c == '+') { /* TODO: allow for signs in exponent part of flonum */
+          /* pass */
+        } else if (byte_count == 0 && c == '-') {
+          sign = 1;
+        } else if (has_e && STRING_LENGTH(exponent_part) == 0 && c == '-') {
+          exponent_sign = 1;
+        } else if (has_e && STRING_LENGTH(exponent_part) == 0 && c == '+') {
+          /* pass */
+        } else if (!is_digit(c)) { /* if this isn't a digit, then either it is 'e' or '.' (so long as we haven't alerady seen those). otherwise it isn't a number at all */
+          if (c == '.') {
+            if (has_e) {
+              is_numeric = 0; /* no decimal numbers for exponents (e.g. 1e3.4) */
+            } else if (has_mantissa == 0) {
+              has_mantissa = is_flo = 1;
+              integral_part = dynamic_byte_array_concat(buf, string(""));
+              OBJECT_TYPE(integral_part) = type_string;
+              exponent_part = string("");
+              mantissa_part = string("");
+            } else {
+              is_numeric = 0; /* this isn't a number -- continue as a symbol */
+            }
+          } else if (c == 'e') {
+            if (has_e == 0) {
+              has_e = is_flo = 1;
+              exponent_part = string("");
+              if (!has_mantissa) {
+                integral_part = dynamic_byte_array_concat(buf, string(""));
+                OBJECT_TYPE(integral_part) = type_string;
+                mantissa_part = string("");
+              }
+            } else {
+              is_numeric = 0; /* this isn't a number -- continue as a symbol */
+            }
+          } else {
+            is_numeric = 0; /* this isn't a number -- continue as a symbol */
+          }
+        } else {
+          if (is_flo) {
+            if (has_e) {
+              dynamic_byte_array_push_char(exponent_part, c);
+            } else if (has_mantissa) {
+              dynamic_byte_array_push_char(mantissa_part, c);
+            }
+          }
+        }
+      }
+      dynamic_byte_array_push_char(buf, c);
+      ++byte_count;
+    }
+    /* check for dot -- don't mistake a lone dot for a float */
+    if (STRING_LENGTH(buf) == 1 && STRING_CONTENTS(buf)[0] == '.')
+      is_numeric = 0;
+    if (is_numeric) {
+      if (is_flo) {
+        /* error prone way of converting to convert string to float 
+           bad because each multiplication introduces more and more error */
+        for (i = 0; i < STRING_LENGTH(integral_part); ++i)
+          flo += (STRING_CONTENTS(integral_part)[i] - '0') * pow(10, STRING_LENGTH(integral_part) - i - 1);
+        for (i = 0; i < STRING_LENGTH(mantissa_part); ++i) {
+          flo += (STRING_CONTENTS(mantissa_part)[i] - '0') * pow(10, -((fixnum_t)i) - 1);
+        }
+        if (STRING_LENGTH(exponent_part) > 0) {
+          for (i = 0; i < STRING_LENGTH(exponent_part); ++i)
+            fix += (STRING_CONTENTS(exponent_part)[i] - '0') *
+                   pow(10, STRING_LENGTH(exponent_part) - i - 1);
+          flo = (exponent_sign ? 1/pow(10, fix) : pow(10, fix)) * flo;
+        }
+        return flonum(sign ? -flo : flo);
+      } else {
+        for (i = 0; i < DYNAMIC_BYTE_ARRAY_LENGTH(buf); ++i)
+          fix += (DYNAMIC_BYTE_ARRAY_BYTES(buf)[i] - '0') * pow(10, DYNAMIC_BYTE_ARRAY_LENGTH(buf) - i - 1);
+        return fixnum(sign ? -fix : fix);
+      }
+    }
+    OBJECT_TYPE(buf) = type_string;
+    return symbol(buf);
+  }
+  return NULL;
+}
+
+/*
+struct object *compile_expr(struct object *expr) {
+  struct object *constants, *code;  
+} 
+*/
+
+/*===============================*
+ *===============================*
  * Tests                         *
  *===============================*
  *===============================*/
 void run_tests() {
-  struct object *darr, *o0, *o1, *dba, *dba1, *bc, *da, *code, *consts;
+  fixnum_t fix;
+  flonum_t flo;
+  struct object *darr, *o0, *o1, *dba, *dba1, *bc, *da, *code0, *consts0, *code1, *consts1;
 
   printf("Running tests...\n");
 
@@ -1780,8 +2016,10 @@ void run_tests() {
   assert(equals(ufixnum(242344238L), ufixnum(242344238L)));
   assert(!equals(ufixnum(242344231L), ufixnum(242344238L)));
   /* flonum */
+  assert(equals(flonum(1.2), flonum(1.2)));
   assert(equals(flonum(1.234), flonum(1.234)));
   assert(!equals(flonum(-1.234), flonum(1.234)));
+  assert(equals(flonum(1e-3), flonum(0.001)));
   /* string */
   assert(equals(string("abcdefghi"), string("abcdefghi")));
   assert(!equals(string("e"), string("")));
@@ -1839,20 +2077,98 @@ void run_tests() {
   /* TODO: add equals tests for package, symbol and file */
 
   /* bytecode */
-  code = dynamic_byte_array(100);
-  dynamic_byte_array_push_char(code, op_const);
-  dynamic_byte_array_push_char(code, 0);
-  consts = dynamic_array(100);
-  dynamic_array_push(consts, string("ab"));
-  dynamic_array_push(consts, cons(string("F"), cons(string("E"), NULL)));
-  dynamic_array_push(consts, flonum(8));
+  code0 = dynamic_byte_array(100);
+  dynamic_byte_array_push_char(code0, op_const);
+  dynamic_byte_array_push_char(code0, 0);
+  consts0 = dynamic_array(100);
+  dynamic_array_push(consts0, string("ab"));
+  dynamic_array_push(consts0, cons(string("F"), cons(string("E"), NULL)));
+  dynamic_array_push(consts0, flonum(8));
+  o0 = bytecode(consts0, code0);
 
-  bc = bytecode(consts, code);
+  code1 = dynamic_byte_array(100);
+  dynamic_byte_array_push_char(code1, op_const);
+  dynamic_byte_array_push_char(code1, 0);
+  consts1 = dynamic_array(100);
+  dynamic_array_push(consts1, string("ab"));
+  dynamic_array_push(consts1, cons(string("F"), cons(string("E"), NULL)));
+  dynamic_array_push(consts1, flonum(8));
+  o1 = bytecode(consts1, code1);
+  assert(equals(o0, o1));
+
+  dynamic_array_push(consts1, flonum(10));
+  assert(!equals(o0, o1));
+
+  dynamic_array_push(consts0, flonum(10));
+  assert(equals(o0, o1));
+
+  dynamic_byte_array_push_char(code1, 9);
+  assert(!equals(o0, o1));
+
+  dynamic_byte_array_push_char(code0, 9);
+  assert(equals(o0, o1));
 
   /* To be equal the types must be the same */
   assert(!equals(NULL, fixnum(2)));
   assert(!equals(fixnum(8), string("g")));
 
+  /******* read ***********/
+  /* reading fixnums */
+  assert(equals(read(string("3")), fixnum(3)));
+  assert(equals(read(string("12345")), fixnum(12345)));
+  assert(equals(read(string("   \r\n12345")), fixnum(12345)));
+  /* reading strings */
+  assert(equals(read(string("\"a\"")), string("a")));
+  assert(equals(read(string("\"\"")), string("")));
+  assert(equals(read(string("\"12\\n34\"")), string("12\n34")));
+  assert(equals(read(string("\"\\r\\n\\t\"")), string("\r\n\t")));
+  assert(equals(read(string("\"\\\"abcd\\\"\"")), string("\"abcd\"")));
+  /* reading symbols */
+  assert(equals(SYMBOL_NAME(read(string("1.2."))), string("1.2.")));
+  assert(equals(SYMBOL_NAME(read(string("1ee"))), string("1ee")));
+  assert(equals(SYMBOL_NAME(read(string("a"))), string("a")));
+  assert(equals(SYMBOL_NAME(read(string("abc"))), string("abc")));
+  assert(equals(SYMBOL_NAME(read(string("abc "))), string("abc")));
+  assert(equals(SYMBOL_NAME(read(string("    abc "))), string("abc")));
+  /* symbols that could be mistaken for floats */
+  assert(equals(SYMBOL_NAME(read(string("    1ee "))), string("1ee")));
+  assert(equals(SYMBOL_NAME(read(string("    1e3e "))), string("1e3e")));
+  assert(equals(SYMBOL_NAME(read(string("    1e1.2 "))), string("1e1.2")));
+  assert(equals(SYMBOL_NAME(read(string("    1.2.3e3 "))), string("1.2.3e3")));
+  assert(equals(SYMBOL_NAME(read(string("    ++1 "))), string("++1")));
+  assert(equals(SYMBOL_NAME(read(string("    1+ "))), string("1+")));
+  assert(equals(SYMBOL_NAME(read(string("    -+3 "))), string("-+3")));
+  assert(equals(SYMBOL_NAME(read(string("    . "))), string(".")));
+  /* reading flonums */
+  assert(equals(read(string("1.2")), flonum(1.2)));
+  assert(equals(read(string("1.234567")), flonum(1.234567)));
+  assert(equals(read(string("1e9")), flonum(1e9)));
+  assert(equals(read(string("1.2345e9")), flonum(1.2345e9)));
+
+  /* there was something bizarre going on for this test where:
+    
+      double x = -3;
+      assert(pow(10, -3) == pow(10, x));
+
+     was failing. Apparently this is because pow(10, -3) is handled at compile time (by GCC)
+     and converted to the precise constant 0.001 (the closest number to 0.001 that can
+     be represented in floating point). But the pow(10, x) was calling the linked math library's
+     pow on my Windows machine which apparently is imprecise pow(10, x) returned a number larger than
+     0.001. 
+
+     To fix this, instead of doing pow(10, -3), I now do 1/pow(10, 3). this gives the same result even
+     if a variable is used (to force the linked library to be called). To ensure the math library is linked
+     , I also added the '-lm' compile flag.
+  */
+  assert(equals(read(string("1e-3")), flonum(0.001)));
+  assert(equals(read(string("1e-5")), flonum(0.00001)));
+  assert(equals(read(string("1e-8")), flonum(0.00000001)));
+  assert(equals(read(string("1.234e-8")), flonum(0.00000001234)));
+  assert(equals(read(string(".1")), flonum(0.1)));
+  assert(equals(read(string(".93")), flonum(0.93)));
+  assert(equals(read(string("3.")), flonum(3.0)));
+  assert(equals(read(string("3.e4")), flonum(3.0e4)));
+  assert(equals(read(string("3.e0")), flonum(3.0e0)));
 
   printf("Tests were successful\n");
 }
