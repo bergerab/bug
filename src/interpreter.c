@@ -1562,13 +1562,19 @@ char is_digit(char c) {
   return c >= '0' && c <= '9';
 }
 
-char skip_whitespace(struct object *s, char c) {
-    while (c == ' ' || c == '\n' || c == '\r') {
-      byte_stream_read_byte(s);
-      c = byte_stream_peek_byte(s);
-      if (!byte_stream_has(s)) break;
-    }
-    return c;
+char is_whitespace(char c) {
+  return c == ' ' || c == '\n' || c == '\r' || c == '\t';
+}
+
+char is_priority_character(char c) {
+  return c == '"' || c == ')';
+}
+
+char skip_whitespace(struct object *s) {
+  char c;
+  while (byte_stream_has(s) && is_whitespace(c = byte_stream_peek_byte(s)))
+    byte_stream_read_byte(s); /* throw away the whitespace */
+  return c;
 }
 
 /* "(1 2 3)" -> (cons 1 (cons 2 (cons 3 nil))) */
@@ -1594,8 +1600,7 @@ struct object *read(struct object *s) {
     exit(1);
   }
 
-  c = byte_stream_peek_byte(s);
-  c = skip_whitespace(s, c);
+  c = skip_whitespace(s);
   if (!byte_stream_has(s)) {
     printf("Read was given empty input (only contained whitespace).");
     exit(1);
@@ -1639,17 +1644,17 @@ struct object *read(struct object *s) {
     buf = dynamic_array(10);
     sexpr = NULL;
     byte_stream_read_byte(s); /* throw away the opening paren */
-    c = skip_whitespace(s, c);
+    c = skip_whitespace(s);
     while (byte_stream_has(s) && (c = byte_stream_peek_byte(s)) != ')') {
       dynamic_array_push(buf, read(s));
-      c = skip_whitespace(s, c);
+      c = skip_whitespace(s);
     }
     if (!byte_stream_has(s)) {
       printf("Unexpected end of input during sexpr.");
       exit(1);
     }
     byte_stream_read_byte(s); /* throw away the closing paren */
-    for (fix = DYNAMIC_ARRAY_LENGTH(buf) - 1; fix > 0; --fix) sexpr = cons(DYNAMIC_ARRAY_VALUES(buf)[fix], sexpr);
+    for (fix = DYNAMIC_ARRAY_LENGTH(buf) - 1; fix >= 0; --fix) sexpr = cons(DYNAMIC_ARRAY_VALUES(buf)[fix], sexpr);
     return sexpr;
   } else if (c == '\'') { /* quoted expression */
     return cons(symbol(string("quote")), cons(read(s), NULL));
@@ -1664,8 +1669,11 @@ struct object *read(struct object *s) {
     fix = 0;
     flo = 0;
     byte_count = 0;
-    while (byte_stream_has(s) &&
-          (c = byte_stream_read_byte(s)) != ' ' && c != '\n') {
+    while (byte_stream_has(s) && !is_whitespace(c = byte_stream_peek_byte(s))) {
+      if (is_priority_character(c)) {
+        /* these characters are special and can break the flow of an identifier or number */
+        break;
+      }
       if (is_numeric) { /* if we still believe we are parsing a number */
         if (byte_count == 0 && c == '+') { /* TODO: allow for signs in exponent part of flonum */
           /* pass */
@@ -1715,6 +1723,7 @@ struct object *read(struct object *s) {
       }
       dynamic_byte_array_push_char(buf, c);
       ++byte_count;
+      byte_stream_read_byte(s); /* throw this byte away */
     }
     /* check for dot -- don't mistake a lone dot for a float */
     if (STRING_LENGTH(buf) == 1 && STRING_CONTENTS(buf)[0] == '.')
@@ -2187,8 +2196,22 @@ void run_tests() {
   assert(equals(read(string("3.e4")), flonum(3.0e4)));
   assert(equals(read(string("3.e0")), flonum(3.0e0)));
 
+  /* sexprs */
   assert(equals(read(string("()")), NULL));
+  assert(equals(read(string("(      )")), NULL));
+  assert(equals(read(string("( \t\n\r     )")), NULL));
+  assert(equals(read(string("(         \t1\t    )")), cons(fixnum(1), NULL)));
+  assert(equals(read(string("\n  (         \t1\t    )\n\n  \t")), cons(fixnum(1), NULL)));
   assert(equals(read(string("(1)")), cons(fixnum(1), NULL)));
+  assert(equals(read(string("(1 2 3)")), cons(fixnum(1), cons(fixnum(2), cons(fixnum(3), NULL)))));
+  assert(equals(read(string("(\"dinkle\" 1.234 1e-3)")), cons(string("dinkle"), cons(flonum(1.234), cons(flonum(1e-3), NULL)))));
+  assert(equals(read(string("(())")), cons(NULL, NULL)));
+  assert(equals(read(string("(() ())")), cons(NULL, cons(NULL, NULL))));
+  assert(equals(read(string("((1 2) (\"a\" \"b\"))")), cons(cons(fixnum(1), cons(fixnum(2), NULL)), cons(cons(string("a"), cons(string("b"), NULL)), NULL))));
+  assert(equals(read(string("(((1) (2)))")), cons(cons(cons(fixnum(1), NULL), cons(cons(fixnum(2), NULL), NULL)), NULL)));
+
+  /* ensure special characters have priority */
+  assert(equals(read(string("(1\"b\")")), cons(fixnum(1), cons(string("b"), NULL))));
 
   printf("Tests were successful\n");
 }
