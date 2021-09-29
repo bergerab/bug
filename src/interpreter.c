@@ -245,6 +245,28 @@ struct object *symbol(struct object *name) {
   return o;
 }
 
+struct object *file_stdin() {
+  struct object *o;
+  o = object(type_file);
+  o->w1.value.file = malloc(sizeof(struct file));
+  NC(o->w1.value.file, "Failed to allocate file value.");
+  FILE_FP(o) = stdin;
+  FILE_MODE(o) = NULL;
+  FILE_PATH(o) = NULL;
+  return o;
+}
+
+struct object *file_stdout() {
+  struct object *o;
+  o = object(type_file);
+  o->w1.value.file = malloc(sizeof(struct file));
+  NC(o->w1.value.file, "Failed to allocate file value.");
+  FILE_FP(o) = stdout;
+  FILE_MODE(o) = NULL;
+  FILE_PATH(o) = NULL;
+  return o;
+}
+
 struct object *open_file(struct object *path, struct object *mode) {
   FILE *fp;
   struct object *o;
@@ -754,7 +776,7 @@ char byte_stream_has(struct object *e) {
   if (get_object_type(e) == type_file) {
     c = fgetc(FILE_FP(e));
     ungetc(c, FILE_FP(e));
-    return c == EOF;
+    return c != EOF;
   } else {
     switch (get_object_type(ENUMERATOR_SOURCE(e))) {
       case type_dynamic_byte_array:
@@ -835,11 +857,11 @@ struct object *marshal_fixnum_t(fixnum_t n) {
   return ba;
 }
 
-struct object *marshal_ufixnum_t(ufixnum_t n) {
-  struct object *ba;
+struct object *marshal_ufixnum_t(ufixnum_t n, struct object *ba) {
   unsigned char byte;
 
-  ba = dynamic_byte_array(4);
+  if (ba == NULL)
+    ba = dynamic_byte_array(4);
   dynamic_byte_array_push_char(ba, marshaled_type_integer);
   dynamic_byte_array_push_char(ba, 0);
 
@@ -940,7 +962,7 @@ struct object *marshal_fixnum(struct object *n) {
 
 struct object *marshal_ufixnum(struct object *n) {
   TC("marshal_ufixnum", 0, n, type_ufixnum);
-  return marshal_ufixnum_t(UFIXNUM_VALUE(n));
+  return marshal_ufixnum_t(UFIXNUM_VALUE(n), NULL);
 }
 
 struct object *marshal_flonum(struct object *n) {
@@ -971,7 +993,7 @@ struct object *marshal_flonum(struct object *n) {
   mantissa_fix =
       mantissa *
       pow(2, DBL_MANT_DIG); /* TODO: make it choose between DBL/FLT properly */
-  ba = dynamic_byte_array_concat(ba, marshal_ufixnum_t(mantissa_fix));
+  ba = dynamic_byte_array_concat(ba, marshal_ufixnum_t(mantissa_fix, NULL));
   ba = dynamic_byte_array_concat(ba, marshal_fixnum_t((fixnum_t)exponent));
 
   return ba;
@@ -1332,6 +1354,7 @@ struct object *write_file(struct object *file, struct object *o) {
   return NULL;
 }
 
+/* reads the entire file contents */
 struct object *read_file(struct object *file) {
   struct object *dba;
   long file_size;
@@ -1344,7 +1367,6 @@ struct object *read_file(struct object *file) {
 
   dba = dynamic_byte_array(file_size);
   fread(DYNAMIC_BYTE_ARRAY_BYTES(dba), 1, file_size, FILE_FP(file));
-  fclose(FILE_FP(file));
   return dba;
 }
 
@@ -1628,7 +1650,74 @@ struct object *read(struct object *s) {
   return NULL;
 }
 
-struct object *compile(struct object *expr) {
+/*===============================*
+ *===============================*
+ * Compile                       *
+ *===============================*
+ *===============================*/
+
+ufixnum_t add_constant(struct object *constants, struct object *value) {
+  dynamic_array_push(constants, value);
+  return DYNAMIC_ARRAY_LENGTH(constants) - 1;
+}
+
+void gen_load_constant(struct object *bc, struct object *value) {
+  TC("gen_load_constant", 0, bc, type_bytecode);
+  dynamic_array_push(BYTECODE_CONSTANTS(bc), value);
+  dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_const);
+  marshal_ufixnum_t(DYNAMIC_ARRAY_LENGTH(BYTECODE_CONSTANTS(bc)) - 1, BYTECODE_CODE(bc));
+}
+
+/*
+ *
+ * Examples:
+ *  (+ 1 2)
+ *  constants=[1 2]
+ *  code=
+ *   load-constant 0
+ *   load-constant 1
+ *   add
+ */
+struct object *compile(struct object *ast, struct object *bc) {
+  struct object *value, *car, *cursor;
+
+  if (bc == NULL) {
+    BYTECODE_CONSTANTS(bc) = dynamic_array(10);
+    BYTECODE_CODE(bc) = dynamic_byte_array(10);
+  }
+
+  value = ast;
+  switch (get_object_type(value)) {
+    case type_nil:
+    case type_flonum:
+    case type_fixnum:
+    case type_ufixnum:
+    case type_string:
+    case type_symbol:
+    case type_dynamic_byte_array:
+    case type_package:
+    case type_enumerator:
+      gen_load_constant(bc, value);
+      return bc;
+    case type_file:
+      printf("A object of type file cannot be compiled.");
+      exit(1);
+    case type_cons:
+      car = CONS_CAR(value);
+/*      if (get_object_type(car) !=)*/
+      /* (quote (1 2 3)) */
+      cursor = CONS_CDR(value);
+      while (cursor != NULL) {
+        compile(CONS_CAR(cursor), bc);
+        cursor = CONS_CDR(cursor);
+      }
+      break;
+    case type_dynamic_array:
+    case type_bytecode:
+      /* these need special cases because they could include non-constants */
+      break;
+  }
+
   return NULL;
 } 
 
@@ -1697,7 +1786,8 @@ struct gis *alloc_gis() {
   }                                                                  \
   c0 = constants->values[a0];
 
-void eval(struct object *bc) {
+/* returns the top of the stack for convience */
+struct object *eval(struct object *bc) {
   unsigned long i,        /* the current byte being evaluated */
       byte_count;         /* number of  bytes in this bytecode */
   unsigned char t0;       /* temporary for reading bytecode arguments */
@@ -1775,6 +1865,7 @@ void eval(struct object *bc) {
     }
     ++i;
   }
+  return gis->stack == NULL ? NULL : CONS_CAR(gis->stack);
 }
 
 /*
@@ -2314,7 +2405,7 @@ int main(int argc, char **argv) {
   if (compile_mode) {
     input_file = open_file(input_filepath, string("r"));
     output_file = open_file(output_filepath, string("wb"));
-    bc = compile(read(input_file));
+    bc = compile(read(input_file), NULL);
     close_file(input_file);
     write_bytecode_file(output_file, bc);
     close_file(output_file);
@@ -2324,7 +2415,13 @@ int main(int argc, char **argv) {
     eval(bc);
     close_file(input_file);
   } else if (repl_mode) {
-    printf("REPL mode not implemented");
+    input_file = file_stdin();
+    output_file = file_stdout();
+    while (1) {
+      write_file(output_file, string("b> "));
+      eval(compile(read(input_file), NULL));
+      print(gis->stack == NULL ? NULL : CONS_CAR(gis->stack), 1);
+    }
   }
 
   return 0;
