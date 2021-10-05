@@ -47,6 +47,8 @@ char *get_type_name(enum type t) {
       return "enumerator";
     case type_nil:
       return "nil";
+    case type_record:
+      return "record";
   }
   printf("BC: Given type number has no implemented name %d", t);
   exit(1);
@@ -633,6 +635,15 @@ struct object *do_to_string(struct object *o, char repr) {
       return to_string_dynamic_byte_array(o);
     case type_dynamic_array:
       return to_string_dynamic_array(o);
+    case type_bytecode: /* TODO */
+      str = string("#[");
+      str = dynamic_byte_array_concat(str, do_to_string(BYTECODE_CONSTANTS(o), 1));
+      dynamic_byte_array_push_char(str, ' ');
+      str = dynamic_byte_array_concat(str, do_to_string(BYTECODE_CODE(o), 1));
+      dynamic_byte_array_push_char(str, ']');
+      return str;
+    case type_record: /* TODO */
+      return string("<record>");
     default:
       printf("Type doesn't support to-string\n");
       exit(1);
@@ -712,6 +723,9 @@ char equals(struct object *o0, struct object *o1) {
     case type_bytecode:
       return equals(BYTECODE_CONSTANTS(o0), BYTECODE_CONSTANTS(o1)) &&
              equals(BYTECODE_CODE(o0), BYTECODE_CODE(o1));
+    case type_record:
+      /* TODO */
+      return 0;
   }
   printf("Unhandled equals");
   exit(1);
@@ -857,13 +871,16 @@ struct object *marshal_fixnum_t(fixnum_t n) {
   return ba;
 }
 
-struct object *marshal_ufixnum_t(ufixnum_t n, struct object *ba) {
+struct object *marshal_ufixnum_t(ufixnum_t n, struct object *ba, char include_header) {
   unsigned char byte;
 
   if (ba == NULL)
     ba = dynamic_byte_array(4);
-  dynamic_byte_array_push_char(ba, marshaled_type_integer);
-  dynamic_byte_array_push_char(ba, 0);
+  
+  if (include_header) {
+    dynamic_byte_array_push_char(ba, marshaled_type_integer);
+    dynamic_byte_array_push_char(ba, 0);
+  }
 
   do {
     byte = n & 0x7F;
@@ -962,7 +979,7 @@ struct object *marshal_fixnum(struct object *n) {
 
 struct object *marshal_ufixnum(struct object *n) {
   TC("marshal_ufixnum", 0, n, type_ufixnum);
-  return marshal_ufixnum_t(UFIXNUM_VALUE(n), NULL);
+  return marshal_ufixnum_t(UFIXNUM_VALUE(n), NULL, 1);
 }
 
 struct object *marshal_flonum(struct object *n) {
@@ -993,7 +1010,7 @@ struct object *marshal_flonum(struct object *n) {
   mantissa_fix =
       mantissa *
       pow(2, DBL_MANT_DIG); /* TODO: make it choose between DBL/FLT properly */
-  ba = dynamic_byte_array_concat(ba, marshal_ufixnum_t(mantissa_fix, NULL));
+  ba = dynamic_byte_array_concat(ba, marshal_ufixnum_t(mantissa_fix, NULL, 1));
   ba = dynamic_byte_array_concat(ba, marshal_fixnum_t((fixnum_t)exponent));
 
   return ba;
@@ -1652,20 +1669,41 @@ struct object *read(struct object *s) {
 
 /*===============================*
  *===============================*
+ * alist                         *
+ *===============================*
+ *===============================*/
+struct object *alist_get_slot(struct object *alist, struct object *key) {
+  TC2("alist_get", 0, alist, type_cons, type_nil);
+  while (alist != NULL) {
+    if (equals(CONS_CAR(CONS_CAR(alist)), key))
+      return CONS_CAR(alist);
+    alist = CONS_CDR(alist);
+  }
+  return NULL;
+}
+
+struct object *alist_get_value(struct object *alist, struct object *key) {
+  alist = alist_get_slot(alist, key);
+  if (alist == NULL)
+    return NULL;
+  return CONS_CDR(alist);
+}
+
+struct object *alist_extend(struct object *alist, struct object *key, struct object *value) {
+  TC2("alist_extend", 0, alist, type_cons, type_nil);
+  return cons(cons(key, value), alist);
+}
+
+/*===============================*
+ *===============================*
  * Compile                       *
  *===============================*
  *===============================*/
-
-ufixnum_t add_constant(struct object *constants, struct object *value) {
-  dynamic_array_push(constants, value);
-  return DYNAMIC_ARRAY_LENGTH(constants) - 1;
-}
-
 void gen_load_constant(struct object *bc, struct object *value) {
   TC("gen_load_constant", 0, bc, type_bytecode);
   dynamic_array_push(BYTECODE_CONSTANTS(bc), value);
   dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_const);
-  marshal_ufixnum_t(DYNAMIC_ARRAY_LENGTH(BYTECODE_CONSTANTS(bc)) - 1, BYTECODE_CODE(bc));
+  marshal_ufixnum_t(DYNAMIC_ARRAY_LENGTH(BYTECODE_CONSTANTS(bc)) - 1, BYTECODE_CODE(bc), 0);
 }
 
 /*
@@ -1678,12 +1716,13 @@ void gen_load_constant(struct object *bc, struct object *value) {
  *   load-constant 1
  *   add
  */
-struct object *compile(struct object *ast, struct object *bc) {
-  struct object *value, *car, *cursor;
+struct object *compile(struct object *ast, struct object *bc, struct object *st) {
+  struct object *value, *car, *cursor, *constants, *code;
 
   if (bc == NULL) {
-    BYTECODE_CONSTANTS(bc) = dynamic_array(10);
-    BYTECODE_CODE(bc) = dynamic_byte_array(10);
+    constants = dynamic_array(10);
+    code = dynamic_byte_array(10);
+    bc = bytecode(constants, code);
   }
 
   value = ast;
@@ -1704,13 +1743,25 @@ struct object *compile(struct object *ast, struct object *bc) {
       exit(1);
     case type_cons:
       car = CONS_CAR(value);
-/*      if (get_object_type(car) !=)*/
-      /* (quote (1 2 3)) */
+      if (get_object_type(car) == type_symbol) {
+        if (alist_get_value(st, car) != NULL) { /* if the value exists in the symbol table */
+        } else { /* either it is undefined or a special form */
+          /* TODO: */
+          if (equals(SYMBOL_NAME(car), string("cons"))) {
+            
+          } else {
+            printf("Undefined symbol\n");
+            exit(1);
+          }
+        }
+      }
       cursor = CONS_CDR(value);
       while (cursor != NULL) {
-        compile(CONS_CAR(cursor), bc);
+        compile(CONS_CAR(cursor), bc, NULL);
         cursor = CONS_CDR(cursor);
       }
+      break;
+    case type_record:
       break;
     case type_dynamic_array:
     case type_bytecode:
@@ -1750,7 +1801,7 @@ struct gis *alloc_gis() {
   struct gis *gis = malloc(sizeof(struct gis));
   NC(gis, "Failed to allocate global interpreter state.");
   gis->stack = NULL;
-  gis->package = package(string("user"));
+  gis->package = package(string("main"));
   return gis;
 }
 
@@ -1881,7 +1932,7 @@ void init() {
  *===============================*
  *===============================*/
 void run_tests() {
-  struct object *darr, *o0, *o1, *dba, *dba1, *bc, *da, *code0, *consts0, *code1, *consts1;
+  struct object *darr, *o0, *o1, *dba, *dba1, *bc, *bc0, *bc1, *da, *code, *constants, *code0, *consts0, *code1, *consts1;
   struct gis *g;
 
   printf("Running tests...\n");
@@ -2337,6 +2388,67 @@ void run_tests() {
   o0 = intern(string("b"), g->package); /* this should create a new symbol and add it to the package */
   assert(count(PACKAGE_SYMBOLS(g->package)) == 2);
 
+  /********* alist ***************/
+  o0 = NULL;
+  assert(alist_get_slot(o0, string("a")) == NULL);
+  assert(alist_get_value(o0, string("a")) == NULL);
+  o0 = alist_extend(o0, string("b"), fixnum(4));
+  assert(equals(alist_get_value(o0, string("b")), fixnum(4)));
+  o0 = alist_extend(o0, string("b"), fixnum(11));
+  assert(equals(alist_get_value(o0, string("b")), fixnum(11)));
+  o0 = alist_extend(o0, string("v"), string("abc"));
+  assert(equals(alist_get_value(o0, string("v")), string("abc")));
+
+  /********** compilation ****************/
+  bc0 = compile(read(string("3")), NULL, NULL);
+  code = dynamic_byte_array(10);
+  dynamic_byte_array_push_char(code, op_const);
+  dynamic_byte_array_push_char(code, 0);
+  constants = dynamic_array(10);
+  dynamic_array_push(constants, fixnum(3));
+  bc1 = bytecode(constants, code);
+  assert(equals(bc0, bc1));
+  
+  bc0 = compile(read(string("\"dink\"")), NULL, NULL);
+  code = dynamic_byte_array(10);
+  dynamic_byte_array_push_char(code, op_const);
+  dynamic_byte_array_push_char(code, 0);
+  constants = dynamic_array(10);
+  dynamic_array_push(constants, string("dink"));
+  bc1 = bytecode(constants, code);
+  assert(equals(bc0, bc1));
+
+/*
+  bc0 = compile(read(string("(cons 1 2.3)")), NULL, NULL);
+  code = dynamic_byte_array(10);
+  dynamic_byte_array_push_char(code, op_const);
+  dynamic_byte_array_push_char(code, 0);
+  dynamic_byte_array_push_char(code, op_const);
+  dynamic_byte_array_push_char(code, 1);
+  dynamic_byte_array_push_char(code, op_cons);
+  constants = dynamic_array(10);
+  dynamic_array_push(constants, fixnum(1));
+  dynamic_array_push(constants, flonum(2.3));
+  bc1 = bytecode(constants, code);
+  assert(equals(bc0, bc1));
+
+  bc0 = compile(read(string("(cons 1 (cons \"a\" 9))")), NULL, NULL);
+  code = dynamic_byte_array(10);
+  dynamic_byte_array_push_char(code, op_const);
+  dynamic_byte_array_push_char(code, 0);
+  dynamic_byte_array_push_char(code, op_const);
+  dynamic_byte_array_push_char(code, 1);
+  dynamic_byte_array_push_char(code, op_const);
+  dynamic_byte_array_push_char(code, 2);
+  dynamic_byte_array_push_char(code, op_cons);
+  dynamic_byte_array_push_char(code, op_cons);
+  constants = dynamic_array(10);
+  dynamic_array_push(constants, fixnum(1));
+  dynamic_array_push(constants, string("a"));
+  dynamic_array_push(constants, fixnum(9));
+  bc1 = bytecode(constants, code);
+  assert(equals(bc0, bc1));
+*/
   printf("Tests were successful\n");
 }
 
@@ -2405,7 +2517,7 @@ int main(int argc, char **argv) {
   if (compile_mode) {
     input_file = open_file(input_filepath, string("r"));
     output_file = open_file(output_filepath, string("wb"));
-    bc = compile(read(input_file), NULL);
+    bc = compile(read(input_file), NULL, NULL);
     close_file(input_file);
     write_bytecode_file(output_file, bc);
     close_file(output_file);
@@ -2419,7 +2531,7 @@ int main(int argc, char **argv) {
     output_file = file_stdout();
     while (1) {
       write_file(output_file, string("b> "));
-      eval(compile(read(input_file), NULL));
+      eval(compile(read(input_file), NULL, NULL));
       print(gis->stack == NULL ? NULL : CONS_CAR(gis->stack), 1);
     }
   }

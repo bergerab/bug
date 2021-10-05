@@ -973,3 +973,16 @@ struct marshaled_string {
   uint32_t type; /** type_string */
   struct marshaled_byte_array length;
 };
+
+
+(constructor person (name age)
+  (cons name age))
+(getter person name
+  (car p))
+(getter person age
+  (cdr p))
+(setter person name
+  (set-car this value))
+(setter person age
+  (set-cdr this value))
+

@@ -148,7 +148,6 @@ enum ops {
 
 /* The types defined below are not the same as the types that will
    be defined within the language. */
-/* keeps the two right most bits as 0 to keep it as a flag */
 enum type {
   type_cons = 0,    /* ... 0000 0000 */
   type_fixnum = 2,  /* ... 0000 0010 */
@@ -163,8 +162,9 @@ enum type {
   type_bytecode = 34,
   type_file = 38,
   type_enumerator = 42,
-  type_nil = 46 /* type_nil won't appear on an object, only from calls to
+  type_nil = 46, /* type_nil won't appear on an object, only from calls to
                    get_object_type(...) */
+  type_record = 50
 };
 
 union value {
@@ -178,6 +178,7 @@ union value {
   struct package *package;
   struct enumerator *enumerator;
   struct file *file;
+  struct record *record;
 };
 
 union w0 { /** The first word of an object. */
@@ -232,6 +233,11 @@ struct enumerator {
   struct object *source;
   struct object *value;
   fixnum_t index;
+};
+
+struct record {
+  struct object *type; /** a type descriptor */
+  struct object **fields;
 };
 
 /**
