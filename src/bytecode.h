@@ -29,6 +29,13 @@
     return NULL;       \
   }
 
+#define SF_REQ_N(n, cons)                                                      \
+  if (count(CONS_CDR(cons)) < n) {                                             \
+    printf("Special form \"%s\" takes %d arguments, but was given %d.",        \
+           bstring_to_cstring(SYMBOL_NAME(CONS_CAR(cons))), n, (int)count(CONS_CDR(cons))); \
+    exit(1);                                                                   \
+  }
+
 typedef int64_t fixnum_t;
 typedef uint64_t ufixnum_t;
 typedef double flonum_t;
@@ -143,7 +150,8 @@ enum ops {
   op_sub,
   op_mul,
   op_div,
-  op_const
+  op_const,
+  op_print
 };
 
 /* The types defined below are not the same as the types that will

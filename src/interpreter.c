@@ -644,6 +644,8 @@ struct object *do_to_string(struct object *o, char repr) {
       return str;
     case type_record: /* TODO */
       return string("<record>");
+    case type_symbol:
+      return SYMBOL_NAME(o);
     default:
       printf("Type doesn't support to-string\n");
       exit(1);
@@ -1489,7 +1491,7 @@ char skip_whitespace(struct object *s) {
 }
 
 /* "(1 2 3)" -> (cons 1 (cons 2 (cons 3 nil))) */
-struct object *read(struct object *s) {
+struct object *read(struct object *s, struct object *package) {
   char c;
   struct object *buf, *sexpr;
 
@@ -1503,6 +1505,9 @@ struct object *read(struct object *s) {
   struct object *integral_part;
   struct object *exponent_part;
   struct object *mantissa_part;
+
+  if (package == NULL)
+    package = gis->package;
 
   s = byte_stream_lift(s);
 
@@ -1557,7 +1562,7 @@ struct object *read(struct object *s) {
     byte_stream_read_byte(s); /* throw away the opening paren */
     c = skip_whitespace(s);
     while (byte_stream_has(s) && (c = byte_stream_peek_byte(s)) != ')') {
-      dynamic_array_push(buf, read(s));
+      dynamic_array_push(buf, read(s, package));
       c = skip_whitespace(s);
     }
     if (!byte_stream_has(s)) {
@@ -1568,7 +1573,7 @@ struct object *read(struct object *s) {
     for (fix = DYNAMIC_ARRAY_LENGTH(buf) - 1; fix >= 0; --fix) sexpr = cons(DYNAMIC_ARRAY_VALUES(buf)[fix], sexpr);
     return sexpr;
   } else if (c == '\'') { /* quoted expression */
-    return cons(symbol(string("quote")), cons(read(s), NULL));
+    return cons(symbol(string("quote")), cons(read(s, package), NULL));
   } else { /* either a number or a symbol */
     buf = dynamic_byte_array(10);
     is_numeric = 1; /* assume it is numeric unless proven otherwise */
@@ -1636,8 +1641,8 @@ struct object *read(struct object *s) {
       ++byte_count;
       byte_stream_read_byte(s); /* throw this byte away */
     }
-    /* check for dot -- don't mistake a lone dot for a float */
-    if (STRING_LENGTH(buf) == 1 && STRING_CONTENTS(buf)[0] == '.')
+    /* check for dot, plus, minus -- don't mistake a lone dot for a float when it should really be a symbol */
+    if (STRING_LENGTH(buf) == 1 && (STRING_CONTENTS(buf)[0] == '.' || STRING_CONTENTS(buf)[0] == '+' || STRING_CONTENTS(buf)[0] == '-' || STRING_CONTENTS(buf)[0] == 'e'))
       is_numeric = 0;
     if (is_numeric) {
       if (is_flo) {
@@ -1662,7 +1667,7 @@ struct object *read(struct object *s) {
       }
     }
     OBJECT_TYPE(buf) = type_string;
-    return symbol(buf);
+    return intern(buf, package);
   }
   return NULL;
 }
@@ -1718,11 +1723,62 @@ void gen_load_constant(struct object *bc, struct object *value) {
  */
 struct object *compile(struct object *ast, struct object *bc, struct object *st) {
   struct object *value, *car, *cursor, *constants, *code;
+  ufixnum_t length;
 
   if (bc == NULL) {
     constants = dynamic_array(10);
     code = dynamic_byte_array(10);
     bc = bytecode(constants, code);
+  }
+
+/* compiles each item in the cons list, and runs "f" after each is compiled 
+ * 
+ * Good for compiling things like "print":
+ * 
+ * (print "a" "b" "c")
+ * 
+ *    load 0
+ *    print
+ *    load 1
+ *    print
+ *    load 2
+ *    print
+ * 
+ * It could also have loaded then printed.
+ * 
+ */
+#define COMPILE_DO_EACH(f)               \
+  cursor = CONS_CDR(value);              \
+  while (cursor != NULL) {               \
+    compile(CONS_CAR(cursor), bc, NULL); \
+    cursor = CONS_CDR(cursor);           \
+    f;                                   \
+  }
+
+/* compiles each item in the cons list, starting with the first two, then after each item. 
+ * 
+ * Good for compiling operators like + and -.
+ * 
+ * (- 1 2 3 4)
+ * 
+ *    load 0
+ *    load 1
+ *    subtract
+ *    load 2
+ *    subtract
+ *    load 3
+ *    subtract 
+ */
+#define COMPILE_DO_AGG_EACH(f)           \
+  length = 0;                            \
+  cursor = CONS_CDR(value);              \
+  while (cursor != NULL) {               \
+    compile(CONS_CAR(cursor), bc, NULL); \
+    cursor = CONS_CDR(cursor);           \
+    ++length;                            \
+    if (length >= 2) {                   \
+      f;                                 \
+    }                                    \
   }
 
   value = ast;
@@ -1737,7 +1793,7 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
     case type_package:
     case type_enumerator:
       gen_load_constant(bc, value);
-      return bc;
+      break;
     case type_file:
       printf("A object of type file cannot be compiled.");
       exit(1);
@@ -1748,18 +1804,36 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
         } else { /* either it is undefined or a special form */
           /* TODO: */
           if (equals(SYMBOL_NAME(car), string("cons"))) {
-            
+            SF_REQ_N(2, value);
+            compile(CONS_CAR(CONS_CDR(value)), bc, st);
+            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
+            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_cons);
+            break;
+          } else if (equals(SYMBOL_NAME(car), string("print"))) {
+            COMPILE_DO_EACH(
+                { dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_print); });
+            break;
+          } else if (equals(SYMBOL_NAME(car), string("+"))) {
+            COMPILE_DO_AGG_EACH(
+                { dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_add); });
+            break;
+          } else if (equals(SYMBOL_NAME(car), string("-"))) {
+            COMPILE_DO_AGG_EACH(
+                { dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_sub); });
+            break;
           } else {
             printf("Undefined symbol\n");
             exit(1);
           }
         }
       }
+      /*
       cursor = CONS_CDR(value);
       while (cursor != NULL) {
         compile(CONS_CAR(cursor), bc, NULL);
         cursor = CONS_CDR(cursor);
       }
+      */
       break;
     case type_record:
       break;
@@ -1769,7 +1843,7 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
       break;
   }
 
-  return NULL;
+  return bc;
 } 
 
 /* 
@@ -1903,11 +1977,17 @@ struct object *eval(struct object *bc) {
         break;
       case op_add: /* add ( x y -- sum ) */
         SC("add", 2);
-        push(0); /* TODO */
+        v1 = pop(); /* y */
+        v0 = pop(); /* x */
+        push(fixnum()); /* TODO: support flonum/ufixnum */
         break;
       case op_const: /* const ( -- x ) */
         READ_CONST_ARG();
         push(c0);
+        break;
+      case op_print: /* print ( x -- ) */
+        SC("print", 1);
+        print(pop(), 0);
         break;
       default:
         printf("No cases matched\n");
@@ -1939,6 +2019,10 @@ void run_tests() {
 
 #define assert_string_eq(str1, str2) \
   assert(strcmp(bstring_to_cstring(str1), bstring_to_cstring(str2)) == 0);
+
+#define END_TESTS()                  \
+  printf("Tests were successful\n"); \
+  return;
 
   /*
    * String - bug string to c string
@@ -2179,6 +2263,9 @@ void run_tests() {
   assert_string_eq(to_string(flonum(0.00000000000000000000000000000000000000000000034234234232942362341239123412312348)), string("3.423423423e-46"));
   assert_string_eq(to_string(flonum(0.00000000000000000000000000000000000000000000034234234267942362341239123412312348)), string("3.423423427e-46")); /* should round last digit */
 
+  /* TODO: something is wrong with 1.0003 (try typing it into the REPL) not sure if its an issue during read or to-string. any leading zeros are cut off */
+  /* TODO: something wrong with 23532456346234623462346236. */
+
   dba = dynamic_byte_array(10);
   dynamic_byte_array_push_char(dba, 60);
   dynamic_byte_array_push_char(dba, 71);
@@ -2304,37 +2391,41 @@ void run_tests() {
   assert(!equals(fixnum(8), string("g")));
 
   /******* read ***********/
+#define T_READ_TEST(i, o) assert(equals(read(string(i), g->package), o))
+#define T_SYM(s) intern(string(s), g->package)
+  g = alloc_gis();
   /* reading fixnums */
-  assert(equals(read(string("3")), fixnum(3)));
-  assert(equals(read(string("12345")), fixnum(12345)));
-  assert(equals(read(string("   \r\n12345")), fixnum(12345)));
+  T_READ_TEST("3", fixnum(3));
+  T_READ_TEST("12345", fixnum(12345));
+  T_READ_TEST("   \r\n12345", fixnum(12345));
   /* reading strings */
-  assert(equals(read(string("\"a\"")), string("a")));
-  assert(equals(read(string("\"\"")), string("")));
-  assert(equals(read(string("\"12\\n34\"")), string("12\n34")));
-  assert(equals(read(string("\"\\r\\n\\t\"")), string("\r\n\t")));
-  assert(equals(read(string("\"\\\"abcd\\\"\"")), string("\"abcd\"")));
+  T_READ_TEST("\"a\"", string("a"));
+  T_READ_TEST("\"\"", string(""));
+  T_READ_TEST("\"12\\n34\"", string("12\n34"));
+  T_READ_TEST("\"\\r\\n\\t\"", string("\r\n\t"));
+  T_READ_TEST("\"\\\"abcd\\\"\"", string("\"abcd\""));
   /* reading symbols */
-  assert(equals(SYMBOL_NAME(read(string("1.2."))), string("1.2.")));
-  assert(equals(SYMBOL_NAME(read(string("1ee"))), string("1ee")));
-  assert(equals(SYMBOL_NAME(read(string("a"))), string("a")));
-  assert(equals(SYMBOL_NAME(read(string("abc"))), string("abc")));
-  assert(equals(SYMBOL_NAME(read(string("abc "))), string("abc")));
-  assert(equals(SYMBOL_NAME(read(string("    abc "))), string("abc")));
+  T_READ_TEST("1.2.", T_SYM("1.2."));
+  T_READ_TEST("1ee", T_SYM("1ee"));
+  T_READ_TEST("a", T_SYM("a"));
+  T_READ_TEST("abc", T_SYM("abc"));
+  T_READ_TEST("abc ", T_SYM("abc"));
+  T_READ_TEST("    abc ", T_SYM("abc"));
   /* symbols that could be mistaken for floats */
-  assert(equals(SYMBOL_NAME(read(string("    1ee "))), string("1ee")));
-  assert(equals(SYMBOL_NAME(read(string("    1e3e "))), string("1e3e")));
-  assert(equals(SYMBOL_NAME(read(string("    1e1.2 "))), string("1e1.2")));
-  assert(equals(SYMBOL_NAME(read(string("    1.2.3e3 "))), string("1.2.3e3")));
-  assert(equals(SYMBOL_NAME(read(string("    ++1 "))), string("++1")));
-  assert(equals(SYMBOL_NAME(read(string("    1+ "))), string("1+")));
-  assert(equals(SYMBOL_NAME(read(string("    -+3 "))), string("-+3")));
-  assert(equals(SYMBOL_NAME(read(string("    . "))), string(".")));
+  T_READ_TEST("    1ee ", T_SYM("1ee"));
+  T_READ_TEST("    1e3e ", T_SYM("1e3e"));
+  T_READ_TEST("    1e1.2 ", T_SYM("1e1.2"));
+  T_READ_TEST("    1.2.3e3 ", T_SYM("1.2.3e3"));
+  T_READ_TEST("    ++1 ", T_SYM("++1"));
+  T_READ_TEST("    1+ ", T_SYM("1+"));
+  T_READ_TEST("    -+3 ", T_SYM("-+3"));
+  T_READ_TEST("    . ", T_SYM("."));
+  T_READ_TEST("+", T_SYM("+"));
   /* reading flonums */
-  assert(equals(read(string("1.2")), flonum(1.2)));
-  assert(equals(read(string("1.234567")), flonum(1.234567)));
-  assert(equals(read(string("1e9")), flonum(1e9)));
-  assert(equals(read(string("1.2345e9")), flonum(1.2345e9)));
+  T_READ_TEST("1.2", flonum(1.2));
+  T_READ_TEST("1.234567", flonum(1.234567));
+  T_READ_TEST("1e9", flonum(1e9));
+  T_READ_TEST("1.2345e9", flonum(1.2345e9));
 
   /* there was something bizarre going on for this test where:
     
@@ -2351,32 +2442,32 @@ void run_tests() {
      if a variable is used (to force the linked library to be called). To ensure the math library is linked
      , I also added the '-lm' compile flag.
   */
-  assert(equals(read(string("1e-3")), flonum(0.001)));
-  assert(equals(read(string("1e-5")), flonum(0.00001)));
-  assert(equals(read(string("1e-8")), flonum(0.00000001)));
-  assert(equals(read(string("1.234e-8")), flonum(0.00000001234)));
-  assert(equals(read(string(".1")), flonum(0.1)));
-  assert(equals(read(string(".93")), flonum(0.93)));
-  assert(equals(read(string("3.")), flonum(3.0)));
-  assert(equals(read(string("3.e4")), flonum(3.0e4)));
-  assert(equals(read(string("3.e0")), flonum(3.0e0)));
+  T_READ_TEST("1e-3", flonum(0.001));
+  T_READ_TEST("1e-5", flonum(0.00001));
+  T_READ_TEST("1e-8", flonum(0.00000001));
+  T_READ_TEST("1.234e-8", flonum(0.00000001234));
+  T_READ_TEST(".1", flonum(0.1));
+  T_READ_TEST(".93", flonum(0.93));
+  T_READ_TEST("3.", flonum(3.0));
+  T_READ_TEST("3.e4", flonum(3.0e4));
+  T_READ_TEST("3.e0", flonum(3.0e0));
 
   /* sexprs */
-  assert(equals(read(string("()")), NULL));
-  assert(equals(read(string("(      )")), NULL));
-  assert(equals(read(string("( \t\n\r     )")), NULL));
-  assert(equals(read(string("(         \t1\t    )")), cons(fixnum(1), NULL)));
-  assert(equals(read(string("\n  (         \t1\t    )\n\n  \t")), cons(fixnum(1), NULL)));
-  assert(equals(read(string("(1)")), cons(fixnum(1), NULL)));
-  assert(equals(read(string("(1 2 3)")), cons(fixnum(1), cons(fixnum(2), cons(fixnum(3), NULL)))));
-  assert(equals(read(string("(\"dinkle\" 1.234 1e-3)")), cons(string("dinkle"), cons(flonum(1.234), cons(flonum(1e-3), NULL)))));
-  assert(equals(read(string("(())")), cons(NULL, NULL)));
-  assert(equals(read(string("(() ())")), cons(NULL, cons(NULL, NULL))));
-  assert(equals(read(string("((1 2) (\"a\" \"b\"))")), cons(cons(fixnum(1), cons(fixnum(2), NULL)), cons(cons(string("a"), cons(string("b"), NULL)), NULL))));
-  assert(equals(read(string("(((1) (2)))")), cons(cons(cons(fixnum(1), NULL), cons(cons(fixnum(2), NULL), NULL)), NULL)));
+  T_READ_TEST("()", NULL);
+  T_READ_TEST("(      )", NULL);
+  T_READ_TEST("( \t\n\r     )", NULL);
+  T_READ_TEST("(         \t1\t    )", cons(fixnum(1), NULL));
+  T_READ_TEST("\n  (         \t1\t    )\n\n  \t", cons(fixnum(1), NULL));
+  T_READ_TEST("(1)", cons(fixnum(1), NULL));
+  T_READ_TEST("(1 2 3)", cons(fixnum(1), cons(fixnum(2), cons(fixnum(3), NULL))));
+  T_READ_TEST("(\"dinkle\" 1.234 1e-3)", cons(string("dinkle"), cons(flonum(1.234), cons(flonum(1e-3), NULL))));
+  T_READ_TEST("(())", cons(NULL, NULL));
+  T_READ_TEST("(() ())", cons(NULL, cons(NULL, NULL)));
+  T_READ_TEST("((1 2) (\"a\" \"b\"))", cons(cons(fixnum(1), cons(fixnum(2), NULL)), cons(cons(string("a"), cons(string("b"), NULL)), NULL)));
+  T_READ_TEST("(((1) (2)))", cons(cons(cons(fixnum(1), NULL), cons(cons(fixnum(2), NULL), NULL)), NULL));
 
   /* ensure special characters have priority */
-  assert(equals(read(string("(1\"b\")")), cons(fixnum(1), cons(string("b"), NULL))));
+  T_READ_TEST("(1\"b\")", cons(fixnum(1), cons(string("b"), NULL)));
 
   /********* symbol interning ************/ 
   g = alloc_gis();
@@ -2400,56 +2491,96 @@ void run_tests() {
   assert(equals(alist_get_value(o0, string("v")), string("abc")));
 
   /********** compilation ****************/
-  bc0 = compile(read(string("3")), NULL, NULL);
-  code = dynamic_byte_array(10);
-  dynamic_byte_array_push_char(code, op_const);
-  dynamic_byte_array_push_char(code, 0);
+#define BEGIN_BC_TEST(input_string)                      \
+  bc0 = compile(read(string(input_string), g->package), NULL, NULL); \
+  code = dynamic_byte_array(10);                         \
   constants = dynamic_array(10);
-  dynamic_array_push(constants, fixnum(3));
-  bc1 = bytecode(constants, code);
+#define END_BC_TEST()              \
+  bc1 = bytecode(constants, code); \
   assert(equals(bc0, bc1));
-  
-  bc0 = compile(read(string("\"dink\"")), NULL, NULL);
-  code = dynamic_byte_array(10);
-  dynamic_byte_array_push_char(code, op_const);
-  dynamic_byte_array_push_char(code, 0);
-  constants = dynamic_array(10);
-  dynamic_array_push(constants, string("dink"));
-  bc1 = bytecode(constants, code);
+#define DEBUG_END_BC_TEST()        \
+  bc1 = bytecode(constants, code); \
+  print(bc0, 1);                      \
+  print(bc1, 1);                      \
   assert(equals(bc0, bc1));
+#define T_BYTE(op) dynamic_byte_array_push_char(code, op);
+#define T_CONST(c) dynamic_array_push(constants, c);
 
-/*
-  bc0 = compile(read(string("(cons 1 2.3)")), NULL, NULL);
-  code = dynamic_byte_array(10);
-  dynamic_byte_array_push_char(code, op_const);
-  dynamic_byte_array_push_char(code, 0);
-  dynamic_byte_array_push_char(code, op_const);
-  dynamic_byte_array_push_char(code, 1);
-  dynamic_byte_array_push_char(code, op_cons);
-  constants = dynamic_array(10);
-  dynamic_array_push(constants, fixnum(1));
-  dynamic_array_push(constants, flonum(2.3));
-  bc1 = bytecode(constants, code);
-  assert(equals(bc0, bc1));
+  g = alloc_gis();
 
-  bc0 = compile(read(string("(cons 1 (cons \"a\" 9))")), NULL, NULL);
-  code = dynamic_byte_array(10);
-  dynamic_byte_array_push_char(code, op_const);
-  dynamic_byte_array_push_char(code, 0);
-  dynamic_byte_array_push_char(code, op_const);
-  dynamic_byte_array_push_char(code, 1);
-  dynamic_byte_array_push_char(code, op_const);
-  dynamic_byte_array_push_char(code, 2);
-  dynamic_byte_array_push_char(code, op_cons);
-  dynamic_byte_array_push_char(code, op_cons);
-  constants = dynamic_array(10);
-  dynamic_array_push(constants, fixnum(1));
-  dynamic_array_push(constants, string("a"));
-  dynamic_array_push(constants, fixnum(9));
-  bc1 = bytecode(constants, code);
-  assert(equals(bc0, bc1));
-*/
-  printf("Tests were successful\n");
+  BEGIN_BC_TEST("3");
+  T_BYTE(op_const); T_BYTE(0);
+  T_CONST(fixnum(3));  
+  END_BC_TEST();
+
+  BEGIN_BC_TEST("\"dink\"");
+  T_BYTE(op_const); T_BYTE(0);
+  T_CONST(string("dink"));  
+  END_BC_TEST();
+
+  BEGIN_BC_TEST("(cons 1 2.3)");
+  T_BYTE(op_const); T_BYTE(0);
+  T_BYTE(op_const); T_BYTE(1);
+  T_BYTE(op_cons);
+  T_CONST(fixnum(1)); T_CONST(flonum(2.3));  
+  END_BC_TEST();
+
+  BEGIN_BC_TEST("(cons 1 (cons \"a\" 9))");
+  T_BYTE(op_const); T_BYTE(0);
+  T_BYTE(op_const); T_BYTE(1);
+  T_BYTE(op_const); T_BYTE(2);
+  T_BYTE(op_cons);
+  T_BYTE(op_cons);
+  T_CONST(fixnum(1)); T_CONST(string("a"));  
+  T_CONST(fixnum(9));
+  END_BC_TEST();
+
+  BEGIN_BC_TEST("(print \"a\" \"b\" \"c\")");
+  T_BYTE(op_const); T_BYTE(0);
+  T_BYTE(op_print);
+  T_BYTE(op_const); T_BYTE(1);
+  T_BYTE(op_print);
+  T_BYTE(op_const); T_BYTE(2);
+  T_BYTE(op_print);
+  T_CONST(string("a")); T_CONST(string("b"));  
+  T_CONST(string("c"));
+  END_BC_TEST();
+
+  BEGIN_BC_TEST("(+ 1 2 3 4 5)");
+  T_BYTE(op_const); T_BYTE(0);
+  T_BYTE(op_const); T_BYTE(1);
+  T_BYTE(op_add);
+  T_BYTE(op_const); T_BYTE(2);
+  T_BYTE(op_add);
+  T_BYTE(op_const); T_BYTE(3);
+  T_BYTE(op_add);
+  T_BYTE(op_const); T_BYTE(4);
+  T_BYTE(op_add);
+  T_CONST(fixnum(1)); T_CONST(fixnum(2));
+  T_CONST(fixnum(3)); T_CONST(fixnum(4));
+  T_CONST(fixnum(5));
+  END_BC_TEST();
+
+  BEGIN_BC_TEST("(+ 1 (- 8 9 33) 4 5)");
+  T_BYTE(op_const); T_BYTE(0);
+  T_BYTE(op_const); T_BYTE(1);
+  T_BYTE(op_const); T_BYTE(2);
+  T_BYTE(op_sub);
+  T_BYTE(op_const); T_BYTE(3);
+  T_BYTE(op_sub);
+  T_BYTE(op_add);
+  T_BYTE(op_const); T_BYTE(4);
+  T_BYTE(op_add);
+  T_BYTE(op_const); T_BYTE(5);
+  T_BYTE(op_add);
+  T_CONST(fixnum(1)); T_CONST(fixnum(8));
+  T_CONST(fixnum(9)); T_CONST(fixnum(33));
+  T_CONST(fixnum(4)); T_CONST(fixnum(5));
+  END_BC_TEST();
+
+  eval(compile(read(string("(print \"IT WORKS\")"), g->package), NULL, NULL));
+
+  END_TESTS();
 }
 
 /*
@@ -2517,7 +2648,7 @@ int main(int argc, char **argv) {
   if (compile_mode) {
     input_file = open_file(input_filepath, string("r"));
     output_file = open_file(output_filepath, string("wb"));
-    bc = compile(read(input_file), NULL, NULL);
+    bc = compile(read(input_file, gis->package), NULL, NULL);
     close_file(input_file);
     write_bytecode_file(output_file, bc);
     close_file(output_file);
@@ -2531,7 +2662,7 @@ int main(int argc, char **argv) {
     output_file = file_stdout();
     while (1) {
       write_file(output_file, string("b> "));
-      eval(compile(read(input_file), NULL, NULL));
+      eval(compile(read(input_file, gis->package), NULL, NULL));
       print(gis->stack == NULL ? NULL : CONS_CAR(gis->stack), 1);
     }
   }
