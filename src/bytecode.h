@@ -30,7 +30,7 @@
   }
 
 #define SF_REQ_N(n, cons)                                                      \
-  if (count(CONS_CDR(cons)) < n) {                                             \
+  if (count(CONS_CDR(cons)) != n) {                                             \
     printf("Special form \"%s\" takes %d arguments, but was given %d.",        \
            bstring_to_cstring(SYMBOL_NAME(CONS_CAR(cons))), n, (int)count(CONS_CDR(cons))); \
     exit(1);                                                                   \
@@ -151,7 +151,11 @@ enum ops {
   op_mul,
   op_div,
   op_const,
-  op_print
+  op_print,
+  op_eq,
+  op_and,
+  op_or,
+  op_not
 };
 
 /* The types defined below are not the same as the types that will

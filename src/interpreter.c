@@ -1788,11 +1788,14 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
     case type_fixnum:
     case type_ufixnum:
     case type_string:
-    case type_symbol:
     case type_dynamic_byte_array:
     case type_package:
     case type_enumerator:
       gen_load_constant(bc, value);
+      break;
+    case type_symbol:
+      printf("TODO: symbol should be looked up in global lexical environment. Compiler should generate code to do this.");
+      exit(1);
       break;
     case type_file:
       printf("A object of type file cannot be compiled.");
@@ -1820,6 +1823,35 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
           } else if (equals(SYMBOL_NAME(car), string("-"))) {
             COMPILE_DO_AGG_EACH(
                 { dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_sub); });
+            break;
+          } else if (equals(SYMBOL_NAME(car), string("*"))) {
+            COMPILE_DO_AGG_EACH(
+                { dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_mul); });
+            break;
+          } else if (equals(SYMBOL_NAME(car), string("/"))) {
+            COMPILE_DO_AGG_EACH(
+                { dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_div); });
+            break;
+          } else if (equals(SYMBOL_NAME(car), string("and"))) {
+            /* TODO: AND, OR, and EQ should short circuit. currently only allowing
+             * two arguments, because later this could be impelmented as a macro
+             */
+            SF_REQ_N(2, value);
+            compile(CONS_CAR(CONS_CDR(value)), bc, st);
+            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
+            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_and); 
+            break;
+          } else if (equals(SYMBOL_NAME(car), string("or"))) {
+            SF_REQ_N(2, value);
+            compile(CONS_CAR(CONS_CDR(value)), bc, st);
+            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
+            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_or); 
+            break;
+          } else if (equals(SYMBOL_NAME(car), string("="))) {
+            SF_REQ_N(2, value);
+            compile(CONS_CAR(CONS_CDR(value)), bc, st);
+            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
+            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_eq); 
             break;
           } else {
             printf("Undefined symbol\n");
@@ -1975,11 +2007,43 @@ struct object *eval(struct object *bc) {
         SC("cdr", 1);
         push(pop()->w1.cdr);
         break;
-      case op_add: /* add ( x y -- sum ) */
+      case op_add: /* add ( x y -- x+y ) */
         SC("add", 2);
         v1 = pop(); /* y */
         v0 = pop(); /* x */
-        push(fixnum()); /* TODO: support flonum/ufixnum */
+        push(fixnum(FIXNUM_VALUE(v0) + FIXNUM_VALUE(v1))); /* TODO: support flonum/ufixnum */
+        break;
+      case op_sub: /* sub ( x y -- x-y ) */
+        SC("sub", 2);
+        v1 = pop(); /* y */
+        v0 = pop(); /* x */
+        push(fixnum(FIXNUM_VALUE(v0) - FIXNUM_VALUE(v1))); /* TODO: support flonum/ufixnum */
+        break;
+      case op_mul: /* mul ( x y -- x*y ) */
+        SC("mul", 2);
+        v1 = pop(); /* y */
+        v0 = pop(); /* x */
+        push(fixnum(FIXNUM_VALUE(v0) * FIXNUM_VALUE(v1))); /* TODO: support flonum/ufixnum */
+        break;
+      case op_div: /* div ( x y -- x/y ) */
+        SC("div", 2);
+        v1 = pop(); /* y */
+        v0 = pop(); /* x */
+        push(fixnum(FIXNUM_VALUE(v0) / FIXNUM_VALUE(v1))); /* TODO: support flonum/ufixnum */
+        break;
+      case op_eq: /* eq ( x y -- z ) */
+        SC("eq", 2);
+        v1 = pop(); /* y */
+        v0 = pop(); /* x */
+        /* TODO: add t */
+        push(equals(v0, v1) ? fixnum(1) : NULL);
+        break;
+      case op_and: /* and ( x y -- z ) */
+        SC("and", 2);
+        v1 = pop(); /* y */
+        v0 = pop(); /* x */
+        if (v0 != NULL && v1 != NULL) push(v1);
+        else push(NULL);
         break;
       case op_const: /* const ( -- x ) */
         READ_CONST_ARG();
@@ -2578,7 +2642,9 @@ void run_tests() {
   T_CONST(fixnum(4)); T_CONST(fixnum(5));
   END_BC_TEST();
 
+/*
   eval(compile(read(string("(print \"IT WORKS\")"), g->package), NULL, NULL));
+  */
 
   END_TESTS();
 }
@@ -2663,7 +2729,7 @@ int main(int argc, char **argv) {
     while (1) {
       write_file(output_file, string("b> "));
       eval(compile(read(input_file, gis->package), NULL, NULL));
-      print(gis->stack == NULL ? NULL : CONS_CAR(gis->stack), 1);
+      print(gis->stack == NULL ? NULL : pop(), 1);
     }
   }
 
