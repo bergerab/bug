@@ -2045,6 +2045,15 @@ struct object *eval(struct object *bc) {
         if (v0 != NULL && v1 != NULL) push(v1);
         else push(NULL);
         break;
+      case op_or: /* or ( x y -- z ) */
+        SC("or", 2);
+        v1 = pop(); /* y */
+        v0 = pop(); /* x */
+        if (v0 != NULL && v1 != NULL) push(v1);
+        else if (v0 != NULL) push(v0);
+        else if (v1 != NULL) push(v1);
+        else push(NULL);
+        break;
       case op_const: /* const ( -- x ) */
         READ_CONST_ARG();
         push(c0);
@@ -2702,11 +2711,19 @@ int main(int argc, char **argv) {
     input_filepath = string(argv[1]);
   } else {
     compile_mode = 1;
-    /* TODO */
-    if (strcmp(argv[1], "-c") == 0) {
+    if (strcmp(argv[1], "-c") != 0) {
+      /* TODO */
       printf("help message");
       return 0;
     }
+    input_filepath = string(argv[2]);
+
+    if (argc < 5 || strcmp(argv[3], "-o") != 0) {
+      /* TODO */
+      printf("You must specify an output file name with the -o argument.");
+      return 0;
+    }
+    output_filepath = string(argv[4]);
   }
 
   init();
