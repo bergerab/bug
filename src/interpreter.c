@@ -756,6 +756,16 @@ char equals(struct object *o0, struct object *o1) {
  * alist                         *
  *===============================*
  *===============================*/
+struct object *cons_reverse(struct object *cursor) {
+  struct object *ret;
+  ret = NULL;
+  while (cursor != NULL) {
+    ret = cons(CONS_CAR(cursor), ret);
+    cursor = CONS_CDR(cursor);
+  }
+  return ret;
+}
+
 struct object *alist_get_slot(struct object *alist, struct object *key) {
   TC2("alist_get", 0, alist, type_cons, type_nil);
   while (alist != NULL) {
@@ -1633,7 +1643,6 @@ struct object *read_bytecode_file(struct object *s, struct gis *g) {
         get_object_type_name(bc));
     exit(1);
   }
-
   return bc;
 }
 
@@ -1991,6 +2000,16 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
             compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
             dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_cons);
             break;
+          } else if (equals(SYMBOL_NAME(car), string("progn"))) {
+            cursor = CONS_CDR(value);
+            while (cursor != NULL) {
+              compile(CONS_CAR(cursor), bc, st);
+              cursor = CONS_CDR(cursor);
+              if (cursor != NULL) {
+                dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_drop);
+              }
+            }
+            break;
           } else if (equals(SYMBOL_NAME(car), string("quote"))) {
             SF_REQ_N(1, value);
             gen_load_constant(bc, CONS_CAR(CONS_CDR(value)));
@@ -2271,6 +2290,7 @@ struct object *eval(struct object *bc) {
         v0 = pop(); /* sym */
         TC("set-symbol-value", 0, v0, type_symbol);
         symbol_set(v0, gis->value_keyword, v1);
+        push(NULL);
         break;
       default:
         printf("No cases matched\n");
@@ -2894,7 +2914,7 @@ void run_tests() {
  */
 int main(int argc, char **argv) {
   char interpret_mode, compile_mode, repl_mode;
-  struct object *bc, *input_file, *output_file, *input_filepath, *output_filepath;
+  struct object *bc, *input_file, *output_file, *input_filepath, *output_filepath, *temp;
 
   interpret_mode = compile_mode = repl_mode = 0;
   output_filepath = input_filepath = NULL;
@@ -2954,7 +2974,14 @@ int main(int argc, char **argv) {
   if (compile_mode) {
     input_file = open_file(input_filepath, string("r"));
     output_file = open_file(output_filepath, string("wb"));
-    bc = compile(read(gis, input_file, gis->package), NULL, NULL);
+    temp = NULL;
+    while (byte_stream_has(input_file)) {
+      temp = cons(read(gis, input_file, gis->package), temp);
+    }
+    temp = cons_reverse(temp);
+    temp = cons(intern(string("progn"), gis, gis->lisp_package), temp);
+    print(temp, 1);
+    bc = compile(temp, NULL, NULL);
     close_file(input_file);
     write_bytecode_file(output_file, bc);
     close_file(output_file);
