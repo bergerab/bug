@@ -936,6 +936,41 @@ char byte_stream_peek_byte(struct object *e) {
   return byte_stream_do_read_byte(e, 1);
 }
 
+/** creates a new global interpreter state with one package (called "lisp")
+ *  which is set to the current package.
+ */
+struct gis *gis_alloc() {
+  struct object *lisp_package;
+  struct gis *gis;
+
+  lisp_package = package(string("lisp"), NULL);
+
+  gis = malloc(sizeof(struct gis));
+  NC(gis, "Failed to allocate global interpreter state.");
+  gis->stack = NULL;
+  gis->call_stack = NULL;
+  gis->sp = ufixnum(0);
+  gis->package = lisp_package;
+  gis->packages = cons(lisp_package, NULL);
+
+  return gis;
+}
+
+void add_package(struct gis *g, struct object *package) {
+  g->packages = cons(package, g->packages);
+}
+
+struct object *find_package(struct gis *g, struct object *name) {
+  struct object *package = g->packages;
+  while (package != NULL) {
+    if (equals(PACKAGE_NAME(CONS_CAR(package)), name)) {
+      return CONS_CAR(package);
+    }
+  }
+  return NULL;
+} 
+
+
 /*===============================*
  *===============================*
  * Marshaling                    *
@@ -1007,6 +1042,13 @@ struct object *marshal_symbol(struct object *sym) {
   dynamic_byte_array_push_char(ba, marshaled_type_symbol);
   ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(STRING_LENGTH(SYMBOL_NAME(sym))));
   ba = dynamic_byte_array_concat(ba, SYMBOL_NAME(sym));
+  if (SYMBOL_PACKAGE(sym) != NULL) {
+    dynamic_byte_array_push_char(ba, 1);
+    ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(STRING_LENGTH(PACKAGE_NAME(SYMBOL_PACKAGE(sym)))));
+    ba = dynamic_byte_array_concat(ba, PACKAGE_NAME(SYMBOL_PACKAGE(sym)));
+  } else {
+    dynamic_byte_array_push_char(ba, 0);
+  }
   return ba;
 }
 
@@ -1157,6 +1199,8 @@ struct object *marshal(struct object *o) {
       return marshal_flonum(o);
     case type_string:
       return marshal_string(o);
+    case type_symbol:
+      return marshal_symbol(o);
     case type_bytecode:
       return marshal_bytecode(o);
     default:
@@ -1170,7 +1214,7 @@ struct object *marshal(struct object *o) {
  * Unmarshaling                  *
  *===============================*
  *===============================*/
-struct object *unmarshal(struct object *s, struct object *package);
+struct object *unmarshal(struct object *s, struct gis *g);
 
 struct object *unmarshal_integer(struct object *s) {
   unsigned char t, sign, is_flo, is_init_flo;
@@ -1323,14 +1367,13 @@ struct object *unmarshal_string(struct object *s) {
 /* this won't work, what if you have a symbol in the keyword package, and in the user package?
    like this (:abc 3 'thing 4) ? need to store package name along with it. and have some way
    of looking up packages by name. */
-struct object *unmarshal_symbol(struct object *s, struct object *package) {
-  unsigned char t;
-  struct object *str, *length;
+struct object *unmarshal_symbol(struct object *s, struct gis *g) {
+  unsigned char t, has_home_package;
+  struct object *symbol_name, *package_name, *length;
 
   s = byte_stream_lift(s);
 
   TC2("unmarshal_symbol", 0, s, type_file, type_enumerator);
-  TC("unmarshal_symbol", 1, package, type_package);
 
   t = byte_stream_read_byte(s);
   if (t != marshaled_type_symbol) {
@@ -1345,13 +1388,25 @@ struct object *unmarshal_symbol(struct object *s, struct object *package) {
         "unmarshal");
     exit(1);
   }
-
-  str = byte_stream_read(s, FIXNUM_VALUE(length));
-  OBJECT_TYPE(str) = type_string;
-  return intern(str, package);
+  symbol_name = byte_stream_read(s, FIXNUM_VALUE(length));
+  OBJECT_TYPE(symbol_name) = type_string;
+  has_home_package = byte_stream_do_read_byte(s, 0);
+  if (has_home_package) {
+    length = unmarshal_integer(s);
+    if (get_object_type(length) != type_fixnum) {
+      printf(
+          "BC: expected symbol length to fit into a fixnum during symbol "
+          "unmarshal");
+      exit(1);
+    }
+    package_name = byte_stream_read(s, FIXNUM_VALUE(length));
+    OBJECT_TYPE(package_name) = type_string;
+    return intern(symbol_name, find_package(g, package_name));
+  }
+  return symbol(symbol_name);
 }
 
-struct object *unmarshal_cons(struct object *s, struct object *package) {
+struct object *unmarshal_cons(struct object *s, struct gis *g) {
   unsigned char t;
   struct object *car, *cdr;
 
@@ -1363,8 +1418,8 @@ struct object *unmarshal_cons(struct object *s, struct object *package) {
     exit(1);
   }
 
-  car = unmarshal(s, package);
-  cdr = unmarshal(s, package);
+  car = unmarshal(s, g);
+  cdr = unmarshal(s, g);
   return cons(car, cdr);
 }
 
@@ -1387,7 +1442,7 @@ struct object *unmarshal_dynamic_byte_array(struct object *s) {
   return byte_stream_read(s, UFIXNUM_VALUE(length));
 }
 
-struct object *unmarshal_dynamic_array(struct object *s, struct object *package) {
+struct object *unmarshal_dynamic_array(struct object *s, struct gis *g) {
   unsigned char t;
   struct object *length, *darr;
   ufixnum_t i;
@@ -1409,13 +1464,13 @@ struct object *unmarshal_dynamic_array(struct object *s, struct object *package)
   i = UFIXNUM_VALUE(length);
   /* unmarshal i items: */
   while (i != 0) {
-    dynamic_array_push(darr, unmarshal(s, package));
+    dynamic_array_push(darr, unmarshal(s, g));
     --i;
   }
   return darr;
 }
 
-struct object *unmarshal_bytecode(struct object *s, struct object *package) {
+struct object *unmarshal_bytecode(struct object *s, struct gis *g) {
   unsigned char t;
   struct object *constants, *code;
 
@@ -1426,7 +1481,7 @@ struct object *unmarshal_bytecode(struct object *s, struct object *package) {
     exit(1);
   }
 
-  constants = unmarshal_dynamic_array(s, package);
+  constants = unmarshal_dynamic_array(s, g);
   code = unmarshal_dynamic_byte_array(s);
 
   return bytecode(constants, code);
@@ -1443,7 +1498,7 @@ struct object *unmarshal_nil(struct object *s) {
   return NULL;
 }
 
-struct object *unmarshal(struct object *s, struct object *package) {
+struct object *unmarshal(struct object *s, struct gis *g) {
   enum marshaled_type t;
 
   s = byte_stream_lift(s);
@@ -1453,9 +1508,9 @@ struct object *unmarshal(struct object *s, struct object *package) {
     case marshaled_type_dynamic_byte_array:
       return unmarshal_dynamic_byte_array(s);
     case marshaled_type_dynamic_array:
-      return unmarshal_dynamic_array(s, package);
+      return unmarshal_dynamic_array(s, g);
     case marshaled_type_cons:
-      return unmarshal_cons(s, package);
+      return unmarshal_cons(s, g);
     case marshaled_type_nil:
       return unmarshal_nil(s);
     case marshaled_type_integer:
@@ -1465,9 +1520,9 @@ struct object *unmarshal(struct object *s, struct object *package) {
     case marshaled_type_string:
       return unmarshal_string(s);
     case marshaled_type_symbol:
-      return unmarshal_symbol(s, package);
+      return unmarshal_symbol(s, g);
     case marshaled_type_bytecode:
-      return unmarshal_bytecode(s, package);
+      return unmarshal_bytecode(s, g);
     default:
       printf("BC: cannot unmarshal marshaled type %d.", t);
       return NULL;
@@ -1539,13 +1594,13 @@ struct object *write_bytecode_file(struct object *file, struct object *bc) {
   return NULL;
 }
 
-struct object *read_bytecode_file(struct object *s, struct object *package) {
+struct object *read_bytecode_file(struct object *s, struct gis *g) {
   struct object *version, *bc;
 
   s = byte_stream_lift(s);
 
-  if (package == NULL)
-    package = gis->package;
+  if (g == NULL)
+    g = gis;
 
   if (byte_stream_read_byte(s) != 'b' || byte_stream_read_byte(s) != 'u' ||
       byte_stream_read_byte(s) != 'g') {
@@ -1562,7 +1617,7 @@ struct object *read_bytecode_file(struct object *s, struct object *package) {
     exit(1);
   }
 
-  bc = unmarshal_bytecode(s, package);
+  bc = unmarshal_bytecode(s, g);
 
   if (get_object_type(bc) != type_bytecode) {
     printf(
@@ -2014,38 +2069,6 @@ void dup() {
   gis->stack = cons(CONS_CAR(gis->stack), gis->stack);
 }
 
-/** creates a new global interpreter state with one package (called "lisp")
- *  which is set to the current package.
- */
-struct gis *gis_alloc() {
-  struct object *lisp_package;
-  struct gis *gis;
-
-  lisp_package = package(string("lisp"), NULL);
-
-  gis = malloc(sizeof(struct gis));
-  NC(gis, "Failed to allocate global interpreter state.");
-  gis->stack = NULL;
-  gis->call_stack = NULL;
-  gis->sp = ufixnum(0);
-  gis->package = lisp_package;
-  gis->packages = cons(lisp_package, NULL);
-
-  return gis;
-}
-
-void add_package(struct gis *gis, struct object *package) {
-  gis->package = cons(package, gis->package);
-}
-
-struct object *find_package(struct gis *gis, struct object *name) {
-  struct object *package = gis->packages;
-  while (package != NULL)
-    if (equals(PACKAGE_NAME(package), name))
-      return package;
-  return NULL;
-} 
-
 /* (7F)_16 is (0111 1111)_2, it extracts the numerical value from the temporary
  */
 /* (80)_16 is (1000 0000)_2, it extracts the flag from the temporary */
@@ -2335,7 +2358,7 @@ void run_tests() {
   assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(9)))) == 9);
   assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(-23)))) == -23);
   assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(-76)))) == -76);
-  assert(FIXNUM_VALUE(unmarshal(marshal_fixnum(fixnum(-76)), g->package)) == -76);
+  assert(FIXNUM_VALUE(unmarshal(marshal_fixnum(fixnum(-76)), g)) == -76);
   /* two bytes */
   assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(256)))) == 256);
   assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(257)))) == 257);
@@ -2383,22 +2406,29 @@ void run_tests() {
              "") == 0);
 
   g = gis_alloc();
-  assert(unmarshal_symbol(marshal_symbol(symbol(string("abcdef"))), g->package) ==
+  assert(unmarshal_symbol(marshal_symbol(intern(string("abcdef"), g->package)), g) ==
                    intern(string("abcdef"), g->package));
+  o0 = unmarshal_symbol(marshal_symbol(symbol(string("fwe"))), g);
+  assert(SYMBOL_PACKAGE(o0) == NULL);
+  add_package(g, package(string("peep"), NULL));
+  assert(unmarshal_symbol(marshal_symbol(intern(string("dinkle"), find_package(g, string("peep")))), g) ==
+                   intern(string("dinkle"), find_package(g, string("peep"))));
+  assert(unmarshal_symbol(marshal_symbol(intern(string("dinkle"), find_package(g, string("peep")))), g) !=
+                   intern(string("dinkle"), g->package));
 
   /* nil marshaling */
   assert(unmarshal_nil(marshal_nil()) == NULL);
 
   /* cons filled with nils */
-  o0 = unmarshal_cons(marshal_cons(cons(NULL, NULL)), g->package);
+  o0 = unmarshal_cons(marshal_cons(cons(NULL, NULL)), g);
   assert(CONS_CAR(o0) == NULL);
   assert(CONS_CDR(o0) == NULL);
   /* cons with strings */
-  o0 = unmarshal_cons(marshal_cons(cons(string("A"), string("B"))), g->package);
+  o0 = unmarshal_cons(marshal_cons(cons(string("A"), string("B"))), g);
   assert(strcmp(bstring_to_cstring(CONS_CAR(o0)), "A") == 0);
   assert(strcmp(bstring_to_cstring(CONS_CDR(o0)), "B") == 0);
   /* cons list with fixnums */
-  o0 = unmarshal_cons(marshal_cons(cons(fixnum(35), cons(fixnum(99), NULL))), g->package);
+  o0 = unmarshal_cons(marshal_cons(cons(fixnum(35), cons(fixnum(99), NULL))), g);
   assert(FIXNUM_VALUE(CONS_CAR(o0)) == 35);
   assert(FIXNUM_VALUE(CONS_CAR(CONS_CDR(o0))) == 99);
   assert(CONS_CDR(CONS_CDR(o0)) == NULL);
@@ -2418,7 +2448,7 @@ void run_tests() {
   dynamic_array_push(darr, fixnum(3));
   dynamic_array_push(darr, string("e2"));
   dynamic_array_push(darr, NULL);
-  o0 = unmarshal_dynamic_array(marshal_dynamic_array(darr), g->package);
+  o0 = unmarshal_dynamic_array(marshal_dynamic_array(darr), g);
   assert(DYNAMIC_ARRAY_LENGTH(darr) == DYNAMIC_ARRAY_LENGTH(o0));
   assert(FIXNUM_VALUE(DYNAMIC_ARRAY_VALUES(darr)[0]) == 3);
   assert(strcmp(bstring_to_cstring(DYNAMIC_ARRAY_VALUES(darr)[1]), "e2") == 0);
@@ -2435,7 +2465,7 @@ void run_tests() {
   dynamic_byte_array_push_char(dba, 0x13);
   dynamic_byte_array_push_char(dba, 0x23);
   bc = bytecode(darr, dba);
-  o0 = unmarshal_bytecode(marshal_bytecode(bc), g->package);
+  o0 = unmarshal_bytecode(marshal_bytecode(bc), g);
   /* check constants vector */
   assert(DYNAMIC_ARRAY_LENGTH(darr) ==
          DYNAMIC_ARRAY_LENGTH(BYTECODE_CONSTANTS(o0)));
