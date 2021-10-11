@@ -60,6 +60,9 @@ typedef double flonum_t;
 #define SYMBOL_VALUES(o)\
   o->w1.value.symbol->values
 
+#define SYMBOL_PACKAGE(o)\
+  o->w1.value.symbol->package
+
 #define ARRAY_LENGTH(o)\
   o->w1.value.array->length
 
@@ -126,7 +129,22 @@ typedef double flonum_t;
 #define PACKAGE_SYMBOLS(o)\
  o->w1.value.package->symbols
 
-#define BC_VERSION 2
+#define PACKAGE_PACKAGES(o)\
+ o->w1.value.package->packages
+
+#define FUNCTION_NAME(o)\
+  o->w1.value.function->name
+
+#define FUNCTION_BYTECODE(o)\
+  o->w1.value.function->bytecode
+
+#define FUNCTION_CONSTANTS(o)\
+  o->w1.value.function->bytecode->constants
+
+#define FUNCTION_CODE(o)\
+  o->w1.value.function->bytecode->code
+
+#define BC_VERSION 1
 
 enum ops {
   op_drop,
@@ -155,7 +173,9 @@ enum ops {
   op_eq,
   op_and,
   op_or,
-  op_not
+  op_not,
+  op_var_set,
+  op_var_get
 };
 
 /* The types defined below are not the same as the types that will
@@ -176,7 +196,8 @@ enum type {
   type_enumerator = 42,
   type_nil = 46, /* type_nil won't appear on an object, only from calls to
                    get_object_type(...) */
-  type_record = 50
+  type_record = 50,
+  type_function = 54
 };
 
 union value {
@@ -191,6 +212,7 @@ union value {
   struct enumerator *enumerator;
   struct file *file;
   struct record *record;
+  struct function *function;
 };
 
 union w0 { /** The first word of an object. */
@@ -222,17 +244,24 @@ struct dynamic_byte_array {
 
 struct symbol {
   struct object *name; /** the name of the symbol (a string) */
+  struct object *package; /** the package this symbol is defined in (the "home package") */
   struct object *values; /** an alist that maps from namespace name to value (a cons list) */
 };
 
 struct package {
   struct object *name; /** the name of the package (a string) */
   struct object *symbols; /** all top-level symbols the package has created (a cons list) */
+  struct object *packages; /** packages this package uses */
 };
 
 struct bytecode {
   struct object *code; /** the code (a byte-array) */
   struct object *constants; /** an array of constants used within the code (an array) */
+};
+
+struct function {
+  struct object *name; /** a symbol */
+  struct object *bytecode; /** bytecode */
 };
 
 struct file {
@@ -257,7 +286,10 @@ struct record {
  */
 struct gis {
   struct object *stack; /** the data stack (a cons list) */
+  struct object *call_stack; /** stack for saving stack pointers and values for function calls (a cons list) */
+  struct object *sp; /** the call stack pointer (a ufixnum) */
   struct object *package; /** the current package being evaluated */
+  struct object *packages; /** all packages */
 };
 
 enum marshaled_type {
