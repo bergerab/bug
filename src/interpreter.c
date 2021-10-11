@@ -1594,6 +1594,7 @@ struct object *read_file(struct object *file) {
 
   dba = dynamic_byte_array(file_size);
   fread(DYNAMIC_BYTE_ARRAY_BYTES(dba), 1, file_size, FILE_FP(file));
+  DYNAMIC_BYTE_ARRAY_LENGTH(dba) = file_size;
   return dba;
 }
 
@@ -2973,6 +2974,12 @@ int main(int argc, char **argv) {
 
   if (compile_mode) {
     input_file = open_file(input_filepath, string("r"));
+    temp = read_file(input_file);
+    OBJECT_TYPE(temp) = type_string;
+    printf("%ld\n", DYNAMIC_BYTE_ARRAY_LENGTH(temp));
+    print(temp, 1);
+    close_file(input_file);
+    input_file = byte_stream_lift(temp); /* read the full file, otherwise a unclosed paren will just cause this to hang like the REPL would */
     output_file = open_file(output_filepath, string("wb"));
     temp = NULL;
     while (byte_stream_has(input_file)) {
@@ -2982,7 +2989,6 @@ int main(int argc, char **argv) {
     temp = cons(intern(string("progn"), gis, gis->lisp_package), temp);
     print(temp, 1);
     bc = compile(temp, NULL, NULL);
-    close_file(input_file);
     write_bytecode_file(output_file, bc);
     close_file(output_file);
   } else if (interpret_mode) { /* add logic to compile the file if given a source file */
