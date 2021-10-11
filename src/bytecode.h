@@ -174,8 +174,8 @@ enum ops {
   op_and,
   op_or,
   op_not,
-  op_var_set,
-  op_var_get
+  op_set_symbol_value,
+  op_symbol_value
 };
 
 /* The types defined below are not the same as the types that will
@@ -290,6 +290,13 @@ struct gis {
   struct object *sp; /** the call stack pointer (a ufixnum) */
   struct object *package; /** the current package being evaluated */
   struct object *packages; /** all packages */
+
+  struct object *keyword_package;
+  struct object *lisp_package;
+  struct object *user_package;
+
+  struct object *value_keyword;
+  struct object *function_keyword;
 };
 
 enum marshaled_type {

@@ -940,18 +940,22 @@ char byte_stream_peek_byte(struct object *e) {
  *  which is set to the current package.
  */
 struct gis *gis_alloc() {
-  struct object *lisp_package;
   struct gis *gis;
-
-  lisp_package = package(string("lisp"), NULL);
 
   gis = malloc(sizeof(struct gis));
   NC(gis, "Failed to allocate global interpreter state.");
   gis->stack = NULL;
   gis->call_stack = NULL;
   gis->sp = ufixnum(0);
-  gis->package = lisp_package;
-  gis->packages = cons(lisp_package, NULL);
+  gis->lisp_package = package(string("lisp"), NULL);
+  gis->keyword_package = package(string("keyword"), NULL);
+  gis->user_package = package(string("user"), cons(gis->lisp_package, NULL));
+  gis->package = gis->user_package;
+  gis->packages = cons(gis->user_package, cons(gis->lisp_package, cons(gis->keyword_package, NULL)));
+
+  /* initialize keywords that are used internally */
+  gis->value_keyword = intern(string("value"), gis->keyword_package);
+  gis->function_keyword = intern(string("function"), gis->keyword_package);
 
   return gis;
 }
@@ -1737,7 +1741,8 @@ struct object *read(struct object *s, struct object *package) {
     for (fix = DYNAMIC_ARRAY_LENGTH(buf) - 1; fix >= 0; --fix) sexpr = cons(DYNAMIC_ARRAY_VALUES(buf)[fix], sexpr);
     return sexpr;
   } else if (c == '\'') { /* quoted expression */
-    return cons(symbol(string("quote")), cons(read(s, package), NULL));
+    byte_stream_read_byte(s); /* throw away the quote */
+    return cons(intern(string("quote"), package), cons(read(s, package), NULL));
   } else { /* either a number or a symbol */
     buf = dynamic_byte_array(10);
     is_numeric = 1; /* assume it is numeric unless proven otherwise */
@@ -1953,8 +1958,10 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
       gen_load_constant(bc, value);
       break;
     case type_symbol:
-      printf("TODO: symbol should be looked up in global lexical environment. Compiler should generate code to do this.");
-      exit(1);
+      dynamic_array_push(BYTECODE_CONSTANTS(bc), value);
+      dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_const);
+      marshal_ufixnum_t(DYNAMIC_ARRAY_LENGTH(BYTECODE_CONSTANTS(bc)) - 1, BYTECODE_CODE(bc), 0);
+      dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_symbol_value);
       break;
     case type_file:
       printf("A object of type file cannot be compiled.");
@@ -1973,6 +1980,18 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
             compile(CONS_CAR(CONS_CDR(value)), bc, st);
             compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
             dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_cons);
+            break;
+          } else if (equals(SYMBOL_NAME(car), string("quote"))) {
+            SF_REQ_N(1, value);
+            gen_load_constant(bc, CONS_CAR(CONS_CDR(value)));
+            break;
+          } else if (equals(SYMBOL_NAME(car), string("set"))) {
+            /* if this is lexical, set the variable on the stack
+               otherwise, set the symbol value slot */
+            SF_REQ_N(2, value);
+            gen_load_constant(bc, CONS_CAR(CONS_CDR(value)));
+            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
+            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_set_symbol_value);
             break;
           } else if (equals(SYMBOL_NAME(car), string("print"))) {
             COMPILE_DO_EACH(
@@ -2107,7 +2126,7 @@ struct object *eval(struct object *bc) {
       byte_count;         /* number of  bytes in this bytecode */
   unsigned char t0;       /* temporary for reading bytecode arguments */
   unsigned long a0;       /* the arguments for bytecode parameters */
-  struct object *v0, *v1; /* temps for values popped off the stack */
+  struct object *v0, *v1, *temp0; /* temps for values popped off the stack */
   struct object *c0; /* temps for constants (used for bytecode arguments) */
   struct dynamic_byte_array
       *code; /* the byte array containing the bytes in the bytecode */
@@ -2220,17 +2239,28 @@ struct object *eval(struct object *bc) {
         SC("print", 1);
         print(pop(), 0);
         break;
-      case op_var_get: /* var-get ( sym -- ) */
-        SC("var-get", 1);
+      case op_symbol_value: /* symbol-value ( sym -- ) */
+        SC("symbol-value", 1);
         v0 = pop(); /* sym */
-        /*push(symbol_get_slot(v0, ));*/
+        temp0 = symbol_get_slot(v0, gis->value_keyword);
+        if (temp0 == NULL) {
+          printf("Symbol ");
+          if (SYMBOL_PACKAGE(v0) != NULL) {
+            print(PACKAGE_NAME(SYMBOL_PACKAGE(v0)), 0);
+            printf(":");
+          }
+          print(SYMBOL_NAME(v0), 0);
+          printf(" has no value.");
+          exit(1);
+        }
+        push(CONS_CDR(temp0));
         break;
-      case op_var_set: /* var-set ( sym val -- ) */
-        SC("var-set", 1);
+      case op_set_symbol_value: /* set-symbol-value ( sym val -- ) */
+        SC("set-symbol-value", 1);
         v1 = pop(); /* val */
         v0 = pop(); /* sym */
-        TC("var-set", 0, v0, type_symbol);
-        /*SYMBOL_VALUES(v0)*/
+        TC("set-symbol-value", 0, v0, type_symbol);
+        symbol_set(v0, gis->value_keyword, v1);
         break;
       default:
         printf("No cases matched\n");
@@ -2408,6 +2438,7 @@ void run_tests() {
   g = gis_alloc();
   assert(unmarshal_symbol(marshal_symbol(intern(string("abcdef"), g->package)), g) ==
                    intern(string("abcdef"), g->package));
+  /* uninterned symbol */
   o0 = unmarshal_symbol(marshal_symbol(symbol(string("fwe"))), g);
   assert(SYMBOL_PACKAGE(o0) == NULL);
   add_package(g, package(string("peep"), NULL));
