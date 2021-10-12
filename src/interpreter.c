@@ -2973,13 +2973,12 @@ int main(int argc, char **argv) {
   init();
 
   if (compile_mode) {
-    input_file = open_file(input_filepath, string("r"));
+    input_file = open_file(input_filepath, string("rb")); /* without binary mode, running on Windows under mingw fseek/fread were out of sync and was getting garbage at end of read */
+    /* read the full file, otherwise a unclosed paren will just cause this to hang like the REPL would */
     temp = read_file(input_file);
     OBJECT_TYPE(temp) = type_string;
-    printf("%ld\n", DYNAMIC_BYTE_ARRAY_LENGTH(temp));
-    print(temp, 1);
     close_file(input_file);
-    input_file = byte_stream_lift(temp); /* read the full file, otherwise a unclosed paren will just cause this to hang like the REPL would */
+    input_file = byte_stream_lift(temp);
     output_file = open_file(output_filepath, string("wb"));
     temp = NULL;
     while (byte_stream_has(input_file)) {
@@ -2987,7 +2986,6 @@ int main(int argc, char **argv) {
     }
     temp = cons_reverse(temp);
     temp = cons(intern(string("progn"), gis, gis->lisp_package), temp);
-    print(temp, 1);
     bc = compile(temp, NULL, NULL);
     write_bytecode_file(output_file, bc);
     close_file(output_file);

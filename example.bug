@@ -1,3 +1,2 @@
 (set 'g (+ 1 2 3 4))
 (print "g = " g "wow it works!" (- 3 2))
-'(1 2 3)
