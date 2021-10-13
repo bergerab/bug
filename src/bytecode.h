@@ -57,11 +57,20 @@ typedef double flonum_t;
 #define SYMBOL_NAME(o)\
   o->w1.value.symbol->name
 
-#define SYMBOL_VALUES(o)\
-  o->w1.value.symbol->values
+#define SYMBOL_PLIST(o)\
+  o->w1.value.symbol->plist
 
 #define SYMBOL_PACKAGE(o)\
   o->w1.value.symbol->package
+
+#define SYMBOL_FLAGS(o)\
+  o->w1.value.symbol->flags
+
+#define SYMBOL_VALUE(o)\
+  o->w1.value.symbol->value
+
+#define SYMBOL_FUNCTION(o)\
+  o->w1.value.symbol->function
 
 #define ARRAY_LENGTH(o)\
   o->w1.value.array->length
@@ -242,16 +251,24 @@ struct dynamic_byte_array {
   char *bytes; /** the contents of the byte-array */
 };
 
+#define SYMBOL_FLAG_INTERNAL 1
+#define SYMBOL_FLAG_EXTERNAL 2
+#define SYMBOL_FLAG_VALUE_ISSET 4
+#define SYMBOL_FLAG_FUNCTION_ISSET 8 
+
 struct symbol {
   struct object *name; /** the name of the symbol (a string) */
   struct object *package; /** the package this symbol is defined in (the "home package") */
-  struct object *values; /** an alist that maps from namespace name to value (a cons list) */
+  struct object *value; /** the value slot */
+  struct object *function; /** the function value slot */
+  struct object *plist; /** a plist that maps from namespace name to value */
+  ufixnum_t flags; /** for storing visibility, and flags for if value/function slots are set */
 };
 
 struct package {
   struct object *name; /** the name of the package (a string) */
   struct object *symbols; /** all top-level symbols the package has created (a cons list) */
-  struct object *packages; /** packages this package uses */
+  struct object *packages; /** packages this package uses -- all external symbols of these packages become internal symbols (can be exported) */
 };
 
 struct bytecode {
@@ -294,9 +311,37 @@ struct gis {
   struct object *keyword_package;
   struct object *lisp_package;
   struct object *user_package;
+  struct object *impl_package;
 
+  /* keywords */
   struct object *value_keyword;
   struct object *function_keyword;
+  struct object *internal_keyword;
+  struct object *external_keyword;
+  struct object *inherited_keyword;
+
+  /* symbols from lisp package */
+  struct object *car_symbol;
+  struct object *cdr_symbol;
+  struct object *symbol_value_symbol;
+  struct object *set_symbol;
+  struct object *quote_symbol;
+  struct object *cons_symbol;
+  struct object *progn_symbol;
+  struct object *add_symbol;
+  struct object *sub_symbol;
+  struct object *mul_symbol;
+  struct object *div_symbol;
+  struct object *print_symbol;
+  struct object *and_symbol;
+  struct object *or_symbol;
+  struct object *equals_symbol;
+  struct object *function_symbol;
+
+  /* symbols from impl package */
+  struct object *push_symbol;
+  struct object *drop_symbol;
+  struct object *pop_symbol;
 };
 
 enum marshaled_type {

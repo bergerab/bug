@@ -257,8 +257,11 @@ struct object *symbol(struct object *name) {
   o->w1.value.symbol = malloc(sizeof(struct symbol));
   NC(o->w1.value.symbol, "Failed to allocate symbol.");
   SYMBOL_NAME(o) = name;
-  SYMBOL_VALUES(o) = NULL;
+  SYMBOL_PLIST(o) = NULL;
   SYMBOL_PACKAGE(o) = NULL;
+  SYMBOL_FLAGS(o) = SYMBOL_FLAG_INTERNAL;
+  SYMBOL_FUNCTION(o) = NULL;
+  SYMBOL_VALUE(o) = NULL;
   return o;
 }
 
@@ -628,9 +631,18 @@ struct object *do_to_string(struct object *o, char repr) {
     case type_cons:
       str = string("(");
       str = dynamic_byte_array_concat(str, do_to_string(CONS_CAR(o), 1));
-      str = dynamic_byte_array_concat(str, string(" "));
-      str = dynamic_byte_array_concat(str, do_to_string(CONS_CDR(o), 1));
-      dynamic_byte_array_push_char(str, ')');
+      while (get_object_type(CONS_CDR(o)) == type_cons) {
+        o = CONS_CDR(o);
+        str = dynamic_byte_array_concat(str, string(" "));
+        str = dynamic_byte_array_concat(str, do_to_string(CONS_CAR(o), 1));
+      }
+      if (CONS_CDR(o) == NULL) {
+        dynamic_byte_array_push_char(str, ')');
+      } else {
+        str = dynamic_byte_array_concat(str, string(" "));
+        str = dynamic_byte_array_concat(str, do_to_string(CONS_CDR(o), 1));
+        dynamic_byte_array_push_char(str, ')');
+      }
       return str;
     case type_string:
       if (repr) {
@@ -795,34 +807,70 @@ struct object *alist_extend(struct object *alist, struct object *key, struct obj
  *===============================*
  *===============================*/
 
-struct object *symbol_get_slot(struct object *sym, struct object* slot_name) {
-  return alist_get_slot(SYMBOL_VALUES(sym), slot_name);
-}
-
-void symbol_set(struct object *sym, struct object* slot_name, struct object *value) {
-  struct object *slot = symbol_get_slot(sym, slot_name);
-  if (slot == NULL) {
-    SYMBOL_VALUES(sym) = alist_extend(SYMBOL_VALUES(sym), slot_name, value);
+struct object *symbol_get_value(struct object *sym) {
+  if (SYMBOL_FLAGS(sym) & SYMBOL_FLAG_VALUE_ISSET) {
+    return SYMBOL_VALUE(sym);
   } else {
-    CONS_CDR(slot) = value;
+    printf("Symbol ");
+    if (SYMBOL_PACKAGE(sym) != NULL) {
+      print(PACKAGE_NAME(SYMBOL_PACKAGE(sym)), 0);
+      if (SYMBOL_FLAGS(sym) & SYMBOL_FLAG_EXTERNAL)
+        printf(":");
+      else
+        printf("::");
+    }
+    print(SYMBOL_NAME(sym), 0);
+    printf(" has no value.");
+    exit(1);
   }
 }
 
+void symbol_set_value(struct object *sym, struct object *value) {
+  SYMBOL_VALUE(sym) = value;
+  SYMBOL_FLAGS(sym) |= SYMBOL_FLAG_VALUE_ISSET;
+}
+
+void symbol_export(struct object *sym) {
+  SYMBOL_FLAGS(sym) |= SYMBOL_FLAG_EXTERNAL;
+}
+
 struct object *intern(struct object *string, struct gis *g, struct object *package) {
-  struct object *cursor, *sym;
+  struct object *cursor, *package_cursor, *pack, *sym;
 
   TC("intern", 0, string, type_string);
   TC2("intern", 2, package, type_package, type_nil);
 
   /* use the global GIS if not given one */
-  if (package == NULL)
-    package = gis->package;
+  if (g == NULL)
+    g = gis;
 
+  if (package == NULL)
+    package = g->package;
+
+  /* look in current package for the symbol */
   cursor = PACKAGE_SYMBOLS(package);
   while (cursor != NULL) {
     sym = CONS_CAR(cursor);
     if (equals(SYMBOL_NAME(sym), string)) return sym;
     cursor = CONS_CDR(cursor);
+  }
+
+  /* look in all exported symbols of used packages */
+  package_cursor = PACKAGE_PACKAGES(package);
+  while (package_cursor != NULL) {
+    pack = CONS_CAR(package_cursor);
+
+    /* look in all exported symbols */
+    cursor = PACKAGE_SYMBOLS(pack);
+    while (cursor != NULL) {
+      sym = CONS_CAR(cursor);
+      if (SYMBOL_FLAGS(sym) & SYMBOL_FLAG_EXTERNAL &&
+          equals(SYMBOL_NAME(sym), string))
+        return sym;
+      cursor = CONS_CDR(cursor);
+    }
+
+    package_cursor = CONS_CDR(package_cursor);
   }
 
   /* If no existing symbol was found, create a new one and add it to the current package. */
@@ -831,7 +879,8 @@ struct object *intern(struct object *string, struct gis *g, struct object *packa
   PACKAGE_SYMBOLS(package) = cons(sym, PACKAGE_SYMBOLS(package));
   if (package == g->keyword_package) { /* all symbols in keyword package have
                                           the value of themselves*/
-    symbol_set(sym, g->value_keyword, sym);
+    symbol_set_value(sym, sym);
+    symbol_export(sym); /* all symbols in the keyword package are exported */
   }
 
   return sym;
@@ -963,12 +1012,42 @@ struct gis *gis_alloc() {
   g->lisp_package = package(string("lisp"), NULL);
   g->keyword_package = package(string("keyword"), NULL);
   g->user_package = package(string("user"), cons(g->lisp_package, NULL));
+  g->impl_package = package(string("impl"), NULL);
   g->package = g->user_package;
-  g->packages = cons(g->user_package, cons(g->lisp_package, cons(g->keyword_package, NULL)));
+  g->packages = cons(g->user_package, cons(g->lisp_package, cons(g->keyword_package, cons(g->impl_package, NULL))));
+
+#define GIS_SYM(id, str, pack)             \
+  g->id = intern(string(str), g, g->pack); \
+  symbol_export(g->id);
 
   /* initialize keywords that are used internally */
-  g->value_keyword = intern(string("value"), g, g->keyword_package);
-  g->function_keyword = intern(string("function"), g, g->keyword_package);
+  GIS_SYM(value_keyword, "value", keyword_package);
+  GIS_SYM(function_keyword, "function", keyword_package);
+  GIS_SYM(internal_keyword, "internal", keyword_package);
+  GIS_SYM(external_keyword, "external", keyword_package);
+  GIS_SYM(inherited_keyword, "function", keyword_package);
+
+  GIS_SYM(cons_symbol, "cons", lisp_package);
+  GIS_SYM(car_symbol, "car", lisp_package);
+  GIS_SYM(cdr_symbol, "cdr", lisp_package);
+  GIS_SYM(symbol_value_symbol, "symbol-value", lisp_package);
+  GIS_SYM(set_symbol, "set", lisp_package);
+  GIS_SYM(quote_symbol, "quote", lisp_package);
+  GIS_SYM(add_symbol, "+", lisp_package);
+  GIS_SYM(sub_symbol, "-", lisp_package);
+  GIS_SYM(mul_symbol, "*", lisp_package);
+  GIS_SYM(div_symbol, "/", lisp_package);
+  GIS_SYM(print_symbol, "print", lisp_package);
+  GIS_SYM(and_symbol, "and", lisp_package);
+  GIS_SYM(or_symbol, "or", lisp_package);
+  GIS_SYM(equals_symbol, "=", lisp_package);
+  GIS_SYM(progn_symbol, "progn", lisp_package);
+  GIS_SYM(or_symbol, "or", lisp_package);
+  GIS_SYM(function_symbol, "function", lisp_package);
+
+  GIS_SYM(pop_symbol, "pop", impl_package);
+  GIS_SYM(push_symbol, "push", impl_package);
+  GIS_SYM(drop_symbol, "drop", impl_package);
 
   return g;
 }
@@ -1866,7 +1945,7 @@ struct object *read(struct gis *g, struct object *s, struct object *package) {
  * Compile                       *
  *===============================*
  *===============================*/
-struct object *compile(struct object *ast, struct object *bc, struct object *st);
+struct object *compile(struct object *ast, struct object *bc, struct object *st, struct gis *g);
 
 void gen_load_constant(struct object *bc, struct object *value) {
   TC("gen_load_constant", 0, bc, type_bytecode);
@@ -1905,7 +1984,7 @@ struct object *compile_function(struct object *ast, struct object *bc, struct ob
  *   load-constant 1
  *   add
  */
-struct object *compile(struct object *ast, struct object *bc, struct object *st) {
+struct object *compile(struct object *ast, struct object *bc, struct object *st, struct gis *g) {
   struct object *value, *car, *cursor, *constants, *code;
   ufixnum_t length;
 
@@ -1914,6 +1993,9 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
     code = dynamic_byte_array(10);
     bc = bytecode(constants, code);
   }
+
+  if (g == NULL)
+    g = gis;
 
 /* compiles each item in the cons list, and runs "f" after each is compiled 
  * 
@@ -1934,7 +2016,7 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
 #define COMPILE_DO_EACH(f)               \
   cursor = CONS_CDR(value);              \
   while (cursor != NULL) {               \
-    compile(CONS_CAR(cursor), bc, NULL); \
+    compile(CONS_CAR(cursor), bc, st, g); \
     cursor = CONS_CDR(cursor);           \
     f;                                   \
   }
@@ -1957,7 +2039,7 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
   length = 0;                            \
   cursor = CONS_CDR(value);              \
   while (cursor != NULL) {               \
-    compile(CONS_CAR(cursor), bc, NULL); \
+    compile(CONS_CAR(cursor), bc, st, g); \
     cursor = CONS_CDR(cursor);           \
     ++length;                            \
     if (length >= 2) {                   \
@@ -1994,82 +2076,87 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
       if (get_object_type(car) == type_symbol) {
         if (alist_get_value(st, car) != NULL) { /* if the value exists in the symbol table */
         } else { /* either it is undefined or a special form */
-          /* TODO: */
-          if (equals(SYMBOL_NAME(car), string("cons"))) {
+          if (car == g->cons_symbol) {
             SF_REQ_N(2, value);
-            compile(CONS_CAR(CONS_CDR(value)), bc, st);
-            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
+            compile(CONS_CAR(CONS_CDR(value)), bc, st, g);
+            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st, g);
             dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_cons);
             break;
-          } else if (equals(SYMBOL_NAME(car), string("progn"))) {
+          } else if (car == g->progn_symbol) {
             cursor = CONS_CDR(value);
             while (cursor != NULL) {
-              compile(CONS_CAR(cursor), bc, st);
+              compile(CONS_CAR(cursor), bc, st, g);
               cursor = CONS_CDR(cursor);
-              if (cursor != NULL) {
+              if (cursor != NULL)
                 dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_drop);
-              }
             }
             break;
-          } else if (equals(SYMBOL_NAME(car), string("quote"))) {
+          } else if (car == g->drop_symbol) {
+            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_drop);
+            break;
+          } else if (car == g->symbol_value_symbol) {
+            SF_REQ_N(1, value);
+            compile(CONS_CAR(CONS_CDR(value)), bc, st, g);
+            break;
+          } else if (car == g->quote_symbol) {
             SF_REQ_N(1, value);
             gen_load_constant(bc, CONS_CAR(CONS_CDR(value)));
             break;
-          } else if (equals(SYMBOL_NAME(car), string("set"))) {
+          } else if (car == g->set_symbol) {
             /* if this is lexical, set the variable on the stack
                otherwise, set the symbol value slot */
             SF_REQ_N(2, value);
-            compile(CONS_CAR(CONS_CDR(value)), bc, st);
-            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
+            compile(CONS_CAR(CONS_CDR(value)), bc, st, g);
+            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st, g);
             dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_set_symbol_value);
             break;
-          } else if (equals(SYMBOL_NAME(car), string("print"))) {
+          } else if (car == g->print_symbol) {
             COMPILE_DO_EACH(
                 { dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_print); });
             break;
-          } else if (equals(SYMBOL_NAME(car), string("+"))) {
+          } else if (car == g->add_symbol) {
             COMPILE_DO_AGG_EACH(
                 { dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_add); });
             break;
-          } else if (equals(SYMBOL_NAME(car), string("-"))) {
+          } else if (car == g->sub_symbol) {
             COMPILE_DO_AGG_EACH(
                 { dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_sub); });
             break;
-          } else if (equals(SYMBOL_NAME(car), string("*"))) {
+          } else if (car == g->mul_symbol) {
             COMPILE_DO_AGG_EACH(
                 { dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_mul); });
             break;
-          } else if (equals(SYMBOL_NAME(car), string("/"))) {
+          } else if (car == g->div_symbol) {
             COMPILE_DO_AGG_EACH(
                 { dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_div); });
             break;
-          } else if (equals(SYMBOL_NAME(car), string("and"))) {
+          } else if (car == g->and_symbol) {
             /* TODO: AND, OR, and EQ should short circuit. currently only allowing
              * two arguments, because later this could be impelmented as a macro
              */
             SF_REQ_N(2, value);
-            compile(CONS_CAR(CONS_CDR(value)), bc, st);
-            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
+            compile(CONS_CAR(CONS_CDR(value)), bc, st, g);
+            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st, g);
             dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_and); 
             break;
-          } else if (equals(SYMBOL_NAME(car), string("or"))) {
+          } else if (car == g->or_symbol) {
             SF_REQ_N(2, value);
-            compile(CONS_CAR(CONS_CDR(value)), bc, st);
-            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
+            compile(CONS_CAR(CONS_CDR(value)), bc, st, g);
+            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st, g);
             dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_or); 
             break;
-          } else if (equals(SYMBOL_NAME(car), string("="))) {
+          } else if (car == g->equals_symbol) {
             SF_REQ_N(2, value);
-            compile(CONS_CAR(CONS_CDR(value)), bc, st);
-            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
+            compile(CONS_CAR(CONS_CDR(value)), bc, st, g);
+            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st, g);
             dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_eq); 
             break;
-          } else if (equals(SYMBOL_NAME(car), string("function"))) {
+          } else if (car == g->function_symbol) {
             /* (function asdf () ) */
             /*compile_function(value, bc, st);*/
             break;
           } else {
-            printf("Undefined symbol\n");
+            printf("Undefined symbol %s\n", bstring_to_cstring(SYMBOL_NAME(car)));
             exit(1);
           }
         }
@@ -2156,7 +2243,7 @@ struct object *eval(struct object *bc) {
       byte_count;         /* number of  bytes in this bytecode */
   unsigned char t0;       /* temporary for reading bytecode arguments */
   unsigned long a0;       /* the arguments for bytecode parameters */
-  struct object *v0, *v1, *temp0; /* temps for values popped off the stack */
+  struct object *v0, *v1; /* temps for values popped off the stack */
   struct object *c0; /* temps for constants (used for bytecode arguments) */
   struct dynamic_byte_array
       *code; /* the byte array containing the bytes in the bytecode */
@@ -2272,25 +2359,14 @@ struct object *eval(struct object *bc) {
       case op_symbol_value: /* symbol-value ( sym -- ) */
         SC("symbol-value", 1);
         v0 = pop(); /* sym */
-        temp0 = symbol_get_slot(v0, gis->value_keyword);
-        if (temp0 == NULL) {
-          printf("Symbol ");
-          if (SYMBOL_PACKAGE(v0) != NULL) {
-            print(PACKAGE_NAME(SYMBOL_PACKAGE(v0)), 0);
-            printf(":");
-          }
-          print(SYMBOL_NAME(v0), 0);
-          printf(" has no value.");
-          exit(1);
-        }
-        push(CONS_CDR(temp0));
+        push(symbol_get_value(v0));
         break;
       case op_set_symbol_value: /* set-symbol-value ( sym val -- ) */
         SC("set-symbol-value", 1);
         v1 = pop(); /* val */
         v0 = pop(); /* sym */
         TC("set-symbol-value", 0, v0, type_symbol);
-        symbol_set(v0, gis->value_keyword, v1);
+        symbol_set_value(v0, v1);
         push(NULL);
         break;
       default:
@@ -2559,7 +2635,7 @@ void run_tests() {
                    string("(\"ABC\" 43)"));
   assert_string_eq(
       to_string(cons(string("ABC"), cons(ufixnum(24234234), NULL))),
-      string("(\"ABC\" (24234234 nil))"));
+      string("(\"ABC\" 24234234)"));
 
   assert_string_eq(to_string(flonum(0.0)), string("0.0"));
   assert_string_eq(to_string(flonum(1)), string("1.0"));
@@ -2809,7 +2885,7 @@ void run_tests() {
 
   /********** compilation ****************/
 #define BEGIN_BC_TEST(input_string)                      \
-  bc0 = compile(read(g, string(input_string), g->package), NULL, NULL); \
+  bc0 = compile(read(g, string(input_string), g->package), NULL, NULL, g); \
   code = dynamic_byte_array(10);                         \
   constants = dynamic_array(10);
 #define END_BC_TEST()              \
@@ -2986,7 +3062,7 @@ int main(int argc, char **argv) {
     }
     temp = cons_reverse(temp);
     temp = cons(intern(string("progn"), gis, gis->lisp_package), temp);
-    bc = compile(temp, NULL, NULL);
+    bc = compile(temp, NULL, NULL, NULL);
     write_bytecode_file(output_file, bc);
     close_file(output_file);
   } else if (interpret_mode) { /* add logic to compile the file if given a source file */
@@ -2999,7 +3075,7 @@ int main(int argc, char **argv) {
     output_file = file_stdout();
     while (1) {
       write_file(output_file, string("b> "));
-      eval(compile(read(gis, input_file, NULL), NULL, NULL));
+      eval(compile(read(gis, input_file, NULL), NULL, NULL, NULL));
       print(gis->stack == NULL ? NULL : pop(), 1);
     }
   }
