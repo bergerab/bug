@@ -23,6 +23,9 @@
   {}
 #endif
 
+#define NIL gis->nil_symbol
+#define T gis->t_symbol
+
 #define NC(x, message) \
   if (x == NULL) {     \
     printf(message);   \
@@ -63,8 +66,14 @@ typedef double flonum_t;
 #define SYMBOL_PACKAGE(o)\
   o->w1.value.symbol->package
 
-#define SYMBOL_FLAGS(o)\
-  o->w1.value.symbol->flags
+#define SYMBOL_IS_EXTERNAL(o)\
+  o->w1.value.symbol->is_external
+
+#define SYMBOL_VALUE_IS_SET(o)\
+  o->w1.value.symbol->value_is_set
+
+#define SYMBOL_FUNCTION_IS_SET(o)\
+  o->w1.value.symbol->function_is_set
 
 #define SYMBOL_VALUE(o)\
   o->w1.value.symbol->value
@@ -251,18 +260,15 @@ struct dynamic_byte_array {
   char *bytes; /** the contents of the byte-array */
 };
 
-#define SYMBOL_FLAG_INTERNAL 1
-#define SYMBOL_FLAG_EXTERNAL 2
-#define SYMBOL_FLAG_VALUE_ISSET 4
-#define SYMBOL_FLAG_FUNCTION_ISSET 8 
-
 struct symbol {
   struct object *name; /** the name of the symbol (a string) */
   struct object *package; /** the package this symbol is defined in (the "home package") */
   struct object *value; /** the value slot */
   struct object *function; /** the function value slot */
   struct object *plist; /** a plist that maps from namespace name to value */
-  ufixnum_t flags; /** for storing visibility, and flags for if value/function slots are set */
+  char is_external;
+  char value_is_set;
+  char function_is_set;
 };
 
 struct package {
@@ -333,15 +339,19 @@ struct gis {
   struct object *mul_symbol;
   struct object *div_symbol;
   struct object *print_symbol;
+  struct object *print_line_symbol;
   struct object *and_symbol;
   struct object *or_symbol;
   struct object *equals_symbol;
   struct object *function_symbol;
+  struct object *nil_symbol;
+  struct object *t_symbol;
 
   /* symbols from impl package */
   struct object *push_symbol;
   struct object *drop_symbol;
   struct object *pop_symbol;
+  struct object *data_stack_symbol;
 };
 
 enum marshaled_type {
