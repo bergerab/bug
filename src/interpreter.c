@@ -392,11 +392,9 @@ char dynamic_byte_array_get(struct object *dba, fixnum_t index) {
   TC2("dynamic_byte_array_get", 0, dba, type_dynamic_byte_array, type_string);
   return DYNAMIC_BYTE_ARRAY_BYTES(dba)[index];
 }
-struct object *dynamic_byte_array_set(struct object *dba, struct object *index, struct object *value) {
+struct object *dynamic_byte_array_set(struct object *dba, ufixnum_t index, char value) {
   TC2("dynamic_byte_array_set", 0, dba, type_dynamic_byte_array, type_string);
-  TC("dynamic_byte_array_set", 1, index, type_fixnum);
-  TC("dynamic_byte_array_set", 2, value, type_fixnum);
-  DYNAMIC_BYTE_ARRAY_BYTES(dba)[FIXNUM_VALUE(index)] = FIXNUM_VALUE(value);
+  DYNAMIC_BYTE_ARRAY_BYTES(dba)[index] = value;
   return NIL;
 }
 struct object *dynamic_byte_array_length(struct object *dba) {
@@ -1082,6 +1080,10 @@ void gis_init() {
   GIS_SYM(sub_symbol, "-", lisp_package);
   GIS_SYM(mul_symbol, "*", lisp_package);
   GIS_SYM(div_symbol, "/", lisp_package);
+  GIS_SYM(lt_symbol, "<", lisp_package);
+  GIS_SYM(lte_symbol, "<=", lisp_package);
+  GIS_SYM(gt_symbol, ">", lisp_package);
+  GIS_SYM(gte_symbol, ">=", lisp_package);
   GIS_SYM(print_symbol, "print", lisp_package);
   GIS_SYM(print_line_symbol, "print-line", lisp_package);
   GIS_SYM(and_symbol, "and", lisp_package);
@@ -1089,15 +1091,14 @@ void gis_init() {
   GIS_SYM(equals_symbol, "=", lisp_package);
   GIS_SYM(progn_symbol, "progn", lisp_package);
   GIS_SYM(or_symbol, "or", lisp_package);
-  GIS_SYM(function_symbol, "function", lisp_package);
+  GIS_SYM(function_symbol, "fun", lisp_package);
   GIS_SYM(t_symbol, "t", lisp_package);
   symbol_set_value(gis->t_symbol, gis->t_symbol); /* t has itself as its value */
+  GIS_SYM(if_symbol, "if", lisp_package);
 
   GIS_SYM(pop_symbol, "pop", impl_package);
   GIS_SYM(push_symbol, "push", impl_package);
   GIS_SYM(drop_symbol, "drop", impl_package);
-  GIS_SYM(data_stack_symbol, "data-stack", impl_package);
-  symbol_set_value(gis->data_stack_symbol, gis->stack);
 }
 
 void add_package(struct object *package) {
@@ -1123,13 +1124,16 @@ struct object *find_package(struct object *name) {
  *===============================*/
 struct object *marshal(struct object *o);
 
-struct object *marshal_fixnum_t(fixnum_t n) {
-  struct object *ba;
+struct object *marshal_fixnum_t(fixnum_t n, struct object *ba, char include_header) {
   unsigned char byte;
 
-  ba = dynamic_byte_array(4);
-  dynamic_byte_array_push_char(ba, marshaled_type_integer);
-  dynamic_byte_array_push_char(ba, n < 0 ? 1 : 0);
+  if (ba == NULL)
+    ba = dynamic_byte_array(4);
+
+  if (include_header) {
+    dynamic_byte_array_push_char(ba, marshaled_type_integer);
+    dynamic_byte_array_push_char(ba, n < 0 ? 1 : 0);
+  }
 
   n = n < 0 ? -n : n; /* abs */
 
@@ -1173,7 +1177,7 @@ struct object *marshal_string(struct object *str) {
 
   ba = dynamic_byte_array(1);
   dynamic_byte_array_push_char(ba, marshaled_type_string);
-  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(STRING_LENGTH(str)));
+  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(STRING_LENGTH(str), NULL, 1));
   ba = dynamic_byte_array_concat(ba, str);
   return ba;
 }
@@ -1185,11 +1189,11 @@ struct object *marshal_symbol(struct object *sym) {
 
   ba = dynamic_byte_array(1);
   dynamic_byte_array_push_char(ba, marshaled_type_symbol);
-  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(STRING_LENGTH(SYMBOL_NAME(sym))));
+  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(STRING_LENGTH(SYMBOL_NAME(sym)), NULL, 1));
   ba = dynamic_byte_array_concat(ba, SYMBOL_NAME(sym));
   if (SYMBOL_PACKAGE(sym) != NIL) {
     dynamic_byte_array_push_char(ba, 1);
-    ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(STRING_LENGTH(PACKAGE_NAME(SYMBOL_PACKAGE(sym)))));
+    ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(STRING_LENGTH(PACKAGE_NAME(SYMBOL_PACKAGE(sym))), NULL, 1));
     ba = dynamic_byte_array_concat(ba, PACKAGE_NAME(SYMBOL_PACKAGE(sym)));
   } else {
     dynamic_byte_array_push_char(ba, 0);
@@ -1205,7 +1209,7 @@ struct object *marshal_dynamic_byte_array(struct object *ba0) {
   ba1 = dynamic_byte_array(1);
   dynamic_byte_array_push_char(ba1, marshaled_type_dynamic_byte_array);
   ba1 = dynamic_byte_array_concat(
-      ba1, marshal_fixnum_t(DYNAMIC_BYTE_ARRAY_LENGTH(ba0)));
+      ba1, marshal_fixnum_t(DYNAMIC_BYTE_ARRAY_LENGTH(ba0), NULL, 1));
   ba1 = dynamic_byte_array_concat(ba1, ba0);
   return ba1;
 }
@@ -1242,7 +1246,7 @@ struct object *marshal_dynamic_array(struct object *arr) {
 
   ba = dynamic_byte_array(1);
   dynamic_byte_array_push_char(ba, marshaled_type_dynamic_array);
-  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(arr_length));
+  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(arr_length, NULL, 1));
 
   for (i = 0; i < arr_length; ++i) {
     ba = dynamic_byte_array_concat(ba, marshal(c_arr[i]));
@@ -1266,7 +1270,7 @@ struct object *marshal_dynamic_array(struct object *arr) {
  */
 struct object *marshal_fixnum(struct object *n) {
   TC("marshal_fixnum", 0, n, type_fixnum);
-  return marshal_fixnum_t(FIXNUM_VALUE(n));
+  return marshal_fixnum_t(FIXNUM_VALUE(n), NULL, 1);
 }
 
 struct object *marshal_ufixnum(struct object *n) {
@@ -1303,7 +1307,7 @@ struct object *marshal_flonum(struct object *n) {
       mantissa *
       pow(2, DBL_MANT_DIG); /* TODO: make it choose between DBL/FLT properly */
   ba = dynamic_byte_array_concat(ba, marshal_ufixnum_t(mantissa_fix, NIL, 1));
-  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t((fixnum_t)exponent));
+  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t((fixnum_t)exponent, NULL, 1));
 
   return ba;
 }
@@ -1684,7 +1688,7 @@ struct object *make_bytecode_file_header() {
   dynamic_byte_array_push_char(ba, 'b');
   dynamic_byte_array_push_char(ba, 'u');
   dynamic_byte_array_push_char(ba, 'g');
-  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(BC_VERSION));
+  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(BC_VERSION, NULL, 1));
   return ba;
 }
 
@@ -1786,7 +1790,7 @@ char is_whitespace(char c) {
 }
 
 char is_priority_character(char c) {
-  return c == '"' || c == ')';
+  return c == '"' || c == ')' || c == '\'';
 }
 
 char skip_whitespace(struct object *s) {
@@ -2050,6 +2054,8 @@ void gen_load_constant(struct object *bc, struct object *value) {
   TC("gen_load_constant", 0, bc, type_bytecode);
   dynamic_array_push(BYTECODE_CONSTANTS(bc), value);
   dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_const);
+  /* bugs could show up when the number of constants exceeds 127 (will make this be > 1 byte).
+     (if jump has issues) */
   marshal_ufixnum_t(DYNAMIC_ARRAY_LENGTH(BYTECODE_CONSTANTS(bc)) - 1, BYTECODE_CODE(bc), 0);
 }
 
@@ -2085,7 +2091,7 @@ struct object *compile_function(struct object *ast, struct object *bc, struct ob
  */
 struct object *compile(struct object *ast, struct object *bc, struct object *st) {
   struct object *value, *car, *cursor, *constants, *code;
-  ufixnum_t length;
+  ufixnum_t length, t0, t1, jump_offset;
 
   if (bc == NIL) {
     constants = dynamic_array(10);
@@ -2198,6 +2204,16 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
             SF_REQ_N(1, value);
             gen_load_constant(bc, CONS_CAR(CONS_CDR(value)));
             break;
+          } else if (car == gis->car_symbol) {
+            SF_REQ_N(1, value);
+            compile(CONS_CAR(CONS_CDR(value)), bc, st);
+            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_car);
+            break;
+          } else if (car == gis->cdr_symbol) {
+            SF_REQ_N(1, value);
+            compile(CONS_CAR(CONS_CDR(value)), bc, st);
+            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_cdr);
+            break;
           } else if (car == gis->set_symbol) {
             /* if this is lexical, set the variable on the stack
                otherwise, set the symbol value slot */
@@ -2205,6 +2221,48 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
             compile(CONS_CAR(CONS_CDR(value)), bc, st);
             compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
             dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_set_symbol_value);
+            break;
+          } else if (car == gis->if_symbol) {
+            /* compile the condition part if the if */
+            compile(CONS_CAR(CONS_CDR(value)), bc, st);
+            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_jump_when_nil);
+            /* dummy arg of zeros for jump -- will be updated below to go to end of if statement */
+            dynamic_byte_array_push_char(BYTECODE_CODE(bc), 0);
+            dynamic_byte_array_push_char(BYTECODE_CODE(bc), 0);
+            t0 = DYNAMIC_BYTE_ARRAY_LENGTH(BYTECODE_CODE(bc)) - 1; /* keep the address of the dummy jump value */
+
+            /* compile the "then" part of the if */
+            if (CONS_CDR(CONS_CDR(value)) == NIL) {
+              printf("\"if\" requires at least 3 arguments was given 1.");
+              exit(1);
+            }
+            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
+
+            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_jump);
+            /* dummy arg of zeros for jump -- will be updated below to go to end of if statement */
+            dynamic_byte_array_push_char(BYTECODE_CODE(bc), 0);
+            dynamic_byte_array_push_char(BYTECODE_CODE(bc), 0);
+            t1 = DYNAMIC_BYTE_ARRAY_LENGTH(BYTECODE_CODE(bc)) - 1; /* keep the address of the dummy jump value */
+
+            /* now we know how far the first jump should have been - update it */ 
+            jump_offset = DYNAMIC_BYTE_ARRAY_LENGTH(BYTECODE_CODE(bc)) - t0;
+            dynamic_byte_array_set(BYTECODE_CODE(bc), t0 - 1, jump_offset << 8);
+            dynamic_byte_array_set(BYTECODE_CODE(bc), t0, jump_offset & 0xFF);
+
+            /* compile the "else" part of the if */
+            cursor = CONS_CDR(CONS_CDR(CONS_CDR(value)));
+            while (cursor != NIL) {
+              compile(CONS_CAR(cursor), bc, st);
+              cursor = CONS_CDR(cursor);
+              if (cursor != NIL)
+                dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_drop);
+            }
+
+            /* now we know how far the first jump should have been - update it */ 
+            jump_offset = DYNAMIC_BYTE_ARRAY_LENGTH(BYTECODE_CODE(bc)) - t1;
+            dynamic_byte_array_set(BYTECODE_CODE(bc), t1 - 1, jump_offset << 8);
+            dynamic_byte_array_set(BYTECODE_CODE(bc), t1, jump_offset & 0xFF);
+
             break;
           } else if (car == gis->print_symbol) {
             COMPILE_DO_EACH(
@@ -2246,6 +2304,30 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
             compile(CONS_CAR(CONS_CDR(value)), bc, st);
             compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
             dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_or); 
+            break;
+          } else if (car == gis->gt_symbol) {
+            SF_REQ_N(2, value);
+            compile(CONS_CAR(CONS_CDR(value)), bc, st);
+            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
+            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_gt); 
+            break;
+          } else if (car == gis->lt_symbol) {
+            SF_REQ_N(2, value);
+            compile(CONS_CAR(CONS_CDR(value)), bc, st);
+            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
+            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_lt); 
+            break;
+          } else if (car == gis->gte_symbol) {
+            SF_REQ_N(2, value);
+            compile(CONS_CAR(CONS_CDR(value)), bc, st);
+            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
+            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_gte); 
+            break;
+          } else if (car == gis->lte_symbol) {
+            SF_REQ_N(2, value);
+            compile(CONS_CAR(CONS_CDR(value)), bc, st);
+            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
+            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_lte); 
             break;
           } else if (car == gis->equals_symbol) {
             SF_REQ_N(2, value);
@@ -2331,6 +2413,10 @@ void dup() {
     a0 = (a0 << 7) | (t0 & 0x7F);                                      \
   }
 
+#define READ_OP_JUMP_ARG()                                             \
+  sa0 = code->bytes[++i] << 8;                                         \
+  sa0 = code->bytes[++i] | sa0;
+
 #define READ_CONST_ARG()                                             \
   READ_OP_ARG()                                                      \
   if (a0 >= constants_length) {                                      \
@@ -2348,6 +2434,7 @@ struct object *eval(struct object *bc) {
       byte_count;         /* number of  bytes in this bytecode */
   unsigned char t0;       /* temporary for reading bytecode arguments */
   unsigned long a0;       /* the arguments for bytecode parameters */
+  long sa0; /* argument for jumps */
   struct object *v0, *v1; /* temps for values popped off the stack */
   struct object *c0; /* temps for constants (used for bytecode arguments) */
   struct dynamic_byte_array
@@ -2400,11 +2487,27 @@ struct object *eval(struct object *bc) {
         break;
       case op_car: /* car ( (cons car cdr) -- car ) */
         SC("car", 1);
-        push(pop()->w0.car);
+        v0 = pop();
+        if (v0 == NIL) {
+          push(NIL);
+        } else if (get_object_type(v0) == type_cons) {
+          push(CONS_CAR(v0));
+        } else {
+          printf("Can only car a list");
+          exit(1);
+        }
         break;
       case op_cdr: /* cdr ( (cons car cdr) -- cdr ) */
         SC("cdr", 1);
-        push(pop()->w1.cdr);
+        v0 = pop();
+        if (v0 == NIL) {
+          push(NIL);
+        } else if (get_object_type(v0) == type_cons) {
+          push(CONS_CDR(v0));
+        } else {
+          printf("Can only cdr a list");
+          exit(1);
+        }
         break;
       case op_add: /* add ( x y -- x+y ) */
         SC("add", 2);
@@ -2412,11 +2515,29 @@ struct object *eval(struct object *bc) {
         v0 = pop(); /* x */
         push(fixnum(FIXNUM_VALUE(v0) + FIXNUM_VALUE(v1))); /* TODO: support flonum/ufixnum */
         break;
-      case op_sub: /* sub ( x y -- x-y ) */
-        SC("sub", 2);
+      case op_gt: /* gt ( x y -- x>y ) */
+        SC("gt", 2);
         v1 = pop(); /* y */
         v0 = pop(); /* x */
-        push(fixnum(FIXNUM_VALUE(v0) - FIXNUM_VALUE(v1))); /* TODO: support flonum/ufixnum */
+        push(FIXNUM_VALUE(v0) > FIXNUM_VALUE(v1) ? T : NIL); /* TODO: support flonum/ufixnum */
+        break;
+      case op_lt: /* lt ( x y -- x<y ) */
+        SC("lt", 2);
+        v1 = pop(); /* y */
+        v0 = pop(); /* x */
+        push(FIXNUM_VALUE(v0) < FIXNUM_VALUE(v1) ? T : NIL); /* TODO: support flonum/ufixnum */
+        break;
+      case op_gte: /* gte ( x y -- x>=y ) */
+        SC("gte", 2);
+        v1 = pop(); /* y */
+        v0 = pop(); /* x */
+        push(FIXNUM_VALUE(v0) >= FIXNUM_VALUE(v1) ? T : NIL); /* TODO: support flonum/ufixnum */
+        break;
+      case op_lte: /* gte ( x y -- x<=y ) */
+        SC("lte", 2);
+        v1 = pop(); /* y */
+        v0 = pop(); /* x */
+        push(FIXNUM_VALUE(v0) <= FIXNUM_VALUE(v1) ? T : NIL); /* TODO: support flonum/ufixnum */
         break;
       case op_mul: /* mul ( x y -- x*y ) */
         SC("mul", 2);
@@ -2457,6 +2578,16 @@ struct object *eval(struct object *bc) {
         READ_CONST_ARG();
         push(c0);
         break;
+      case op_jump: /* jump ( x -- ) */
+        READ_OP_JUMP_ARG();  
+        i += sa0;
+        continue; /* continue so the usual increment to i doesn't happen */
+      case op_jump_when_nil: /* jump_if ( cond -- ) */
+        READ_OP_JUMP_ARG();  
+        v0 = pop(); /* cond */
+        if (v0 == NIL) i += sa0;
+        else ++i;
+        continue; /* continue so the usual increment to i doesn't happen */
       case op_print: /* print ( x -- ) */
         SC("print", 1);
         print(pop(), 0);
@@ -3079,6 +3210,15 @@ void run_tests() {
   T_CONST(fixnum(1)); T_CONST(fixnum(8));
   T_CONST(fixnum(9)); T_CONST(fixnum(33));
   T_CONST(fixnum(4)); T_CONST(fixnum(5));
+  END_BC_TEST();
+
+  BEGIN_BC_TEST("(if 1 2 3)");
+  T_BYTE(op_const); T_BYTE(0);
+  T_BYTE(op_jump_when_nil); T_BYTE(0); T_BYTE(6);
+  T_BYTE(op_const); T_BYTE(1);
+  T_BYTE(op_jump); T_BYTE(0); T_BYTE(3);
+  T_BYTE(op_const); T_BYTE(2);
+  T_CONST(fixnum(1)); T_CONST(fixnum(2)); T_CONST(fixnum(3));
   END_BC_TEST();
 
 /*

@@ -192,8 +192,14 @@ enum ops {
   op_and,
   op_or,
   op_not,
+  op_gt,
+  op_gte,
+  op_lt,
+  op_lte,
   op_set_symbol_value,
-  op_symbol_value
+  op_symbol_value,
+  op_jump,
+  op_jump_when_nil
 };
 
 /* The types defined below are not the same as the types that will
@@ -338,6 +344,10 @@ struct gis {
   struct object *sub_symbol;
   struct object *mul_symbol;
   struct object *div_symbol;
+  struct object *gt_symbol;
+  struct object *lt_symbol;
+  struct object *gte_symbol;
+  struct object *lte_symbol;
   struct object *print_symbol;
   struct object *print_line_symbol;
   struct object *and_symbol;
@@ -346,12 +356,12 @@ struct gis {
   struct object *function_symbol;
   struct object *nil_symbol;
   struct object *t_symbol;
+  struct object *if_symbol;
 
   /* symbols from impl package */
   struct object *push_symbol;
   struct object *drop_symbol;
   struct object *pop_symbol;
-  struct object *data_stack_symbol;
 };
 
 enum marshaled_type {
