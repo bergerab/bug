@@ -118,13 +118,13 @@ fixnum_t count(struct object *list) {
 /**
  * Checks the number of items on the stack (for bytecode interpreter)
  */
-void stack_check(char *name, int n) {
+void stack_check(char *name, int n, unsigned long i) {
   unsigned int stack_count = count(gis->stack);
   if (stack_count < n) {
     printf(
         "BC: Operation \"%s\" was called when the stack had too "
-        "few items. Expected %d items on the stack, but were %d.\n",
-        name, n, stack_count);
+        "few items. Expected %d items on the stack, but were %d (at instruction %lu).\n",
+        name, n, stack_count, i);
     exit(1);
   }
 }
@@ -2385,19 +2385,16 @@ void push(struct object *object) {
 
 struct object *pop() {
   struct object *value;
-  SC("pop", 1);
   value = gis->stack->w0.car;
   gis->stack = CONS_CDR(gis->stack);
   return value;
 }
 
 struct object *peek() {
-  SC("peek", 1);
   return CONS_CAR(gis->stack);
 }
 
 void dup() {
-  SC("dup", 1);
   gis->stack = cons(CONS_CAR(gis->stack), gis->stack);
 }
 
@@ -2846,7 +2843,27 @@ void run_tests() {
   assert(DYNAMIC_BYTE_ARRAY_LENGTH(dba) == DYNAMIC_BYTE_ARRAY_LENGTH(o0));
   assert(strcmp(bstring_to_cstring(dba), bstring_to_cstring(o0)) == 0);
 
+#define T_DBA_PUSH(n) \
+  dynamic_byte_array_push_char(dba, n);
+
+  dba = dynamic_byte_array(10);
+  T_DBA_PUSH(0); T_DBA_PUSH(1); T_DBA_PUSH(2); T_DBA_PUSH(3); T_DBA_PUSH(4);
+  T_DBA_PUSH(5); T_DBA_PUSH(6); T_DBA_PUSH(7); T_DBA_PUSH(8); T_DBA_PUSH(9);
+  T_DBA_PUSH(10); T_DBA_PUSH(0); T_DBA_PUSH(12); T_DBA_PUSH(13); T_DBA_PUSH(14);
+  T_DBA_PUSH(15); T_DBA_PUSH(16); T_DBA_PUSH(17); T_DBA_PUSH(18); T_DBA_PUSH(19);
+  T_DBA_PUSH(20); T_DBA_PUSH(21); T_DBA_PUSH(22); T_DBA_PUSH(23); T_DBA_PUSH(24);
+  T_DBA_PUSH(25); T_DBA_PUSH(26); T_DBA_PUSH(27); T_DBA_PUSH(28); T_DBA_PUSH(29);
+  T_DBA_PUSH(30); T_DBA_PUSH(31); T_DBA_PUSH(32); T_DBA_PUSH(33); T_DBA_PUSH(34);
+  T_DBA_PUSH(35); T_DBA_PUSH(36); T_DBA_PUSH(37); T_DBA_PUSH(38); T_DBA_PUSH(39);
+  T_DBA_PUSH(40);
+  o0 = unmarshal_dynamic_byte_array(marshal_dynamic_byte_array(dba));
+  assert(DYNAMIC_BYTE_ARRAY_LENGTH(dba) == DYNAMIC_BYTE_ARRAY_LENGTH(o0));
+  assert(equals(dba, o0));
+
   /* marshal/unmarshal dynamic array */
+#define T_DA_PUSH(n) \
+  dynamic_array_push(darr, n);
+
   darr = dynamic_array(10);
   dynamic_array_push(darr, fixnum(3));
   dynamic_array_push(darr, string("e2"));
@@ -2856,6 +2873,18 @@ void run_tests() {
   assert(FIXNUM_VALUE(DYNAMIC_ARRAY_VALUES(darr)[0]) == 3);
   assert(strcmp(bstring_to_cstring(DYNAMIC_ARRAY_VALUES(darr)[1]), "e2") == 0);
   assert(DYNAMIC_ARRAY_VALUES(darr)[2] == NIL);
+
+  darr = dynamic_array(10);
+  T_DA_PUSH(fixnum(0)); T_DA_PUSH(fixnum(1)); T_DA_PUSH(fixnum(2)); T_DA_PUSH(fixnum(3));
+  T_DA_PUSH(fixnum(4)); T_DA_PUSH(fixnum(5)); T_DA_PUSH(fixnum(6)); T_DA_PUSH(fixnum(7));
+  T_DA_PUSH(fixnum(8)); T_DA_PUSH(fixnum(9)); T_DA_PUSH(fixnum(10)); T_DA_PUSH(fixnum(11));
+  T_DA_PUSH(fixnum(12)); T_DA_PUSH(fixnum(13)); T_DA_PUSH(fixnum(14)); T_DA_PUSH(fixnum(15));
+  T_DA_PUSH(fixnum(16)); T_DA_PUSH(fixnum(17)); T_DA_PUSH(fixnum(18)); T_DA_PUSH(fixnum(19));
+  T_DA_PUSH(fixnum(20)); T_DA_PUSH(fixnum(21)); T_DA_PUSH(fixnum(22)); T_DA_PUSH(fixnum(23));
+  T_DA_PUSH(fixnum(24)); T_DA_PUSH(fixnum(25)); T_DA_PUSH(fixnum(26)); T_DA_PUSH(fixnum(27));
+  T_DA_PUSH(fixnum(28)); T_DA_PUSH(fixnum(29)); T_DA_PUSH(fixnum(30)); T_DA_PUSH(fixnum(31));
+  o0 = unmarshal_dynamic_array(marshal_dynamic_array(darr));
+  assert(equals(darr, o0));
 
   /* marshal bytecode */
   darr = dynamic_array(10); /* constants vector */
@@ -2884,6 +2913,29 @@ void run_tests() {
          DYNAMIC_BYTE_ARRAY_LENGTH(BYTECODE_CODE(o0)));
   assert(strcmp(bstring_to_cstring(dba),
                 bstring_to_cstring(BYTECODE_CODE(o0))) == 0);
+
+  darr = dynamic_array(10); /* constants vector */
+  T_DA_PUSH(intern(string("g"), gis->user_package)); T_DA_PUSH(fixnum(1));
+  T_DA_PUSH(fixnum(2)); T_DA_PUSH(fixnum(3)); T_DA_PUSH(fixnum(4));
+  T_DA_PUSH(intern(string("t"), gis->lisp_package)); T_DA_PUSH(string("g = "));
+  T_DA_PUSH(intern(string("g"), gis->user_package)); T_DA_PUSH(string("wow it works!"));
+  T_DA_PUSH(fixnum(7)); T_DA_PUSH(fixnum(3)); T_DA_PUSH(fixnum(2));
+  T_DA_PUSH(fixnum(9)); T_DA_PUSH(string("didn't work")); T_DA_PUSH(string("fff"));
+  dba = dynamic_byte_array(10); /* the code vector */
+  T_DBA_PUSH(0x15); T_DBA_PUSH(0x00); T_DBA_PUSH(0x15); T_DBA_PUSH(0x01); T_DBA_PUSH(0x15);
+  T_DBA_PUSH(0x02); T_DBA_PUSH(0x11); T_DBA_PUSH(0x15); T_DBA_PUSH(0x03); T_DBA_PUSH(0x11);
+  T_DBA_PUSH(0x15); T_DBA_PUSH(0x04); T_DBA_PUSH(0x11); T_DBA_PUSH(0x1F); T_DBA_PUSH(0x00);
+  T_DBA_PUSH(0x15); T_DBA_PUSH(0x05); T_DBA_PUSH(0x20); T_DBA_PUSH(0x22); T_DBA_PUSH(0x00);
+  T_DBA_PUSH(0x1A); T_DBA_PUSH(0x15); T_DBA_PUSH(0x06); T_DBA_PUSH(0x16); T_DBA_PUSH(0x15);
+  T_DBA_PUSH(0x07); T_DBA_PUSH(0x20); T_DBA_PUSH(0x16); T_DBA_PUSH(0x15); T_DBA_PUSH(0x08);
+  T_DBA_PUSH(0x16); T_DBA_PUSH(0x15); T_DBA_PUSH(0x09); T_DBA_PUSH(0x15); T_DBA_PUSH(0x0A);
+  T_DBA_PUSH(0x12); T_DBA_PUSH(0x15); T_DBA_PUSH(0x0B); T_DBA_PUSH(0x12); T_DBA_PUSH(0x15);
+  T_DBA_PUSH(0x0C); T_DBA_PUSH(0x12); T_DBA_PUSH(0x16); T_DBA_PUSH(0x21); T_DBA_PUSH(0x00);
+  T_DBA_PUSH(0x08); T_DBA_PUSH(0x15); T_DBA_PUSH(0x0D); T_DBA_PUSH(0x16); T_DBA_PUSH(0x00);
+  T_DBA_PUSH(0x15); T_DBA_PUSH(0x0E);
+  bc = bytecode(darr, dba);
+  o0 = unmarshal_bytecode(marshal_bytecode(bc));
+  assert(equals(bc, o0));
 
   /* to-string */
   assert_string_eq(to_string(fixnum(0)), string("0"));
@@ -3343,16 +3395,15 @@ int main(int argc, char **argv) {
     input_file = byte_stream_lift(temp);
     output_file = open_file(output_filepath, string("wb"));
     temp = NIL;
-    while (byte_stream_has(input_file)) {
+    while (byte_stream_has(input_file))
       temp = cons(read(input_file, gis->package), temp);
-    }
     temp = cons_reverse(temp);
     temp = cons(intern(string("progn"), gis->lisp_package), temp);
     bc = compile(temp, NIL, NIL);
     write_bytecode_file(output_file, bc);
     close_file(output_file);
   } else if (interpret_mode) { /* add logic to compile the file if given a source file */
-    input_file = open_file(input_filepath, string("r"));
+    input_file = open_file(input_filepath, string("rb"));
     bc = read_bytecode_file(input_file);
     eval(bc);
     close_file(input_file);

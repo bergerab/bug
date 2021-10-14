@@ -1,10 +1,6 @@
 (progn
   (set 'g (+ 1 2 3 4))
-  (if nil
-      (print "g = " g "wow it works!")
+  (if t
+      (print "g = " g "wow it works!" (- 7 3 2 9))
     (print "didn't work")
     (print "fff")))
-
-(progn
-  (set 'g (+ 1 2 3 4))
-  (if nil (print 1 g 3) 3 1))

@@ -986,3 +986,47 @@ struct marshaled_string {
 (setter person age
   (set-cdr this value))
 
+
+#+BEGIN_SRC q
+(progn
+  (set 'g (+ 1 2 3 4))
+  (if t
+      (print "g = " g "wow it works!" (- 7 3 2 1))
+    (print "didn't work")
+    (print "fff")))
+
+00: 0x15 0x00      (load g)
+02: 0x15 0x01      (load 1)
+04: 0x15 0x02      (load 2)
+06: 0x11           (+)
+07: 0x15 0x03      (load 3)
+09: 0x11           (+)
+10: 0x15 0x04      (load 4)
+12: 0x11           (+)
+13: 0x1F           (set-symbol-value)
+14: 0x00           (drop)
+15: 0x15 0x05      (load t)
+17: 0x20           (symbol-value)
+18: 0x22 0x00 0x1A (jump-when-nil 26)
+21: 0x15 0x06      (load "g = ")
+23: 0x16           (print)
+24: 0x15 0x07      (load g)
+26: 0x20           (symbol-value)
+27: 0x16           (print)
+28: 0x15 0x08      (load "wow it works!")
+30: 0x16           (print)
+31: 0x15 0x09      (load 7)
+33: 0x15 0x0A      (load 3)
+35: 0x12           (-)
+36: 0x15 0x0B      (load 2)
+38: 0x12           (-)
+39: 0x15 0x0C      (load 1)
+41: 0x12           (-)
+42: 0x16           (print)
+43: 0x21 0x00 0x08 (jump 8)
+46: 0x15 0x0D      (load "didn't work")
+48: 0x16           (print)
+49: 0x00           (drop)
+50: 0x15 0x0E      (load "fff")
+52: 0x16           (print)
+#+END_SRC
