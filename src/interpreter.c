@@ -355,7 +355,7 @@ struct object *dynamic_array_push(struct object *da, struct object *value) {
   TC("dynamic_array_push", 0, da, type_dynamic_array);
   if (DYNAMIC_ARRAY_LENGTH(da) >= DYNAMIC_ARRAY_CAPACITY(da)) {
     DYNAMIC_ARRAY_CAPACITY(da) = (DYNAMIC_ARRAY_LENGTH(da) + 1) * 3/2.0;
-    DYNAMIC_ARRAY_VALUES(da) = realloc(DYNAMIC_ARRAY_VALUES(da), DYNAMIC_ARRAY_CAPACITY(da) * sizeof(char));
+    DYNAMIC_ARRAY_VALUES(da) = realloc(DYNAMIC_ARRAY_VALUES(da), DYNAMIC_ARRAY_CAPACITY(da) * sizeof(struct object*));
     if (DYNAMIC_ARRAY_VALUES(da) == NULL) {
       printf("BC: Failed to realloc dynamic-array.");
       exit(1);
@@ -1091,7 +1091,7 @@ void gis_init() {
   GIS_SYM(equals_symbol, "=", lisp_package);
   GIS_SYM(progn_symbol, "progn", lisp_package);
   GIS_SYM(or_symbol, "or", lisp_package);
-  GIS_SYM(function_symbol, "fun", lisp_package);
+  GIS_SYM(function_symbol, "func", lisp_package);
   GIS_SYM(t_symbol, "t", lisp_package);
   symbol_set_value(gis->t_symbol, gis->t_symbol); /* t has itself as its value */
   GIS_SYM(if_symbol, "if", lisp_package);
@@ -2223,6 +2223,7 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
             dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_set_symbol_value);
             break;
           } else if (car == gis->if_symbol) {
+
             /* compile the condition part if the if */
             compile(CONS_CAR(CONS_CDR(value)), bc, st);
             dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_jump_when_nil);
@@ -2246,6 +2247,10 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
 
             /* now we know how far the first jump should have been - update it */ 
             jump_offset = DYNAMIC_BYTE_ARRAY_LENGTH(BYTECODE_CODE(bc)) - t0;
+            if (jump_offset > 32767) { /* signed 16-bit number */
+              printf("\"then\" part of if special form exceeded maximum jump range.");
+              exit(1);
+            }
             dynamic_byte_array_set(BYTECODE_CODE(bc), t0 - 1, jump_offset << 8);
             dynamic_byte_array_set(BYTECODE_CODE(bc), t0, jump_offset & 0xFF);
 
@@ -2260,6 +2265,10 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
 
             /* now we know how far the first jump should have been - update it */ 
             jump_offset = DYNAMIC_BYTE_ARRAY_LENGTH(BYTECODE_CODE(bc)) - t1;
+            if (jump_offset > 32767) {
+              printf("\"else\" part of if special form exceeded maximum jump range.");
+              exit(1);
+            }
             dynamic_byte_array_set(BYTECODE_CODE(bc), t1 - 1, jump_offset << 8);
             dynamic_byte_array_set(BYTECODE_CODE(bc), t1, jump_offset & 0xFF);
 
@@ -2509,12 +2518,6 @@ struct object *eval(struct object *bc) {
           exit(1);
         }
         break;
-      case op_add: /* add ( x y -- x+y ) */
-        SC("add", 2);
-        v1 = pop(); /* y */
-        v0 = pop(); /* x */
-        push(fixnum(FIXNUM_VALUE(v0) + FIXNUM_VALUE(v1))); /* TODO: support flonum/ufixnum */
-        break;
       case op_gt: /* gt ( x y -- x>y ) */
         SC("gt", 2);
         v1 = pop(); /* y */
@@ -2538,6 +2541,18 @@ struct object *eval(struct object *bc) {
         v1 = pop(); /* y */
         v0 = pop(); /* x */
         push(FIXNUM_VALUE(v0) <= FIXNUM_VALUE(v1) ? T : NIL); /* TODO: support flonum/ufixnum */
+        break;
+      case op_add: /* add ( x y -- x+y ) */
+        SC("add", 2);
+        v1 = pop(); /* y */
+        v0 = pop(); /* x */
+        push(fixnum(FIXNUM_VALUE(v0) + FIXNUM_VALUE(v1))); /* TODO: support flonum/ufixnum */
+        break;
+      case op_sub: /* sub ( x y -- x-y ) */
+        SC("sub", 2);
+        v1 = pop(); /* y */
+        v0 = pop(); /* x */
+        push(fixnum(FIXNUM_VALUE(v0) - FIXNUM_VALUE(v1))); /* TODO: support flonum/ufixnum */
         break;
       case op_mul: /* mul ( x y -- x*y ) */
         SC("mul", 2);
@@ -2579,6 +2594,7 @@ struct object *eval(struct object *bc) {
         push(c0);
         break;
       case op_jump: /* jump ( x -- ) */
+        /* can jump ~32,000 in both directions */
         READ_OP_JUMP_ARG();  
         i += sa0;
         continue; /* continue so the usual increment to i doesn't happen */
@@ -2666,6 +2682,14 @@ void run_tests() {
   assert(FIXNUM_VALUE(dynamic_array_length(darr)) == 3);
   assert(FIXNUM_VALUE(dynamic_array_get(darr, fixnum(2))) == 94);
   assert(DYNAMIC_ARRAY_CAPACITY(darr) == 4);
+  dynamic_array_push(darr, fixnum(111));
+  assert(FIXNUM_VALUE(dynamic_array_length(darr)) == 4);
+  assert(FIXNUM_VALUE(dynamic_array_get(darr, fixnum(3))) == 111);
+  assert(DYNAMIC_ARRAY_CAPACITY(darr) == 4);
+  dynamic_array_push(darr, fixnum(3));
+  assert(FIXNUM_VALUE(dynamic_array_length(darr)) == 5);
+  assert(FIXNUM_VALUE(dynamic_array_get(darr, fixnum(4))) == 3);
+  assert(DYNAMIC_ARRAY_CAPACITY(darr) == 7);
 
   /*
    * Dynamic byte Array
@@ -3221,6 +3245,18 @@ void run_tests() {
   T_CONST(fixnum(1)); T_CONST(fixnum(2)); T_CONST(fixnum(3));
   END_BC_TEST();
 
+  BEGIN_BC_TEST("(if 1 2 3 4)");
+  T_BYTE(op_const); T_BYTE(0);
+  T_BYTE(op_jump_when_nil); T_BYTE(0); T_BYTE(6);
+  T_BYTE(op_const); T_BYTE(1);
+  T_BYTE(op_jump); T_BYTE(0); T_BYTE(6);
+  T_BYTE(op_const); T_BYTE(2);
+  T_BYTE(op_drop);
+  T_BYTE(op_const); T_BYTE(3);
+  T_CONST(fixnum(1)); T_CONST(fixnum(2)); 
+  T_CONST(fixnum(3)); T_CONST(fixnum(4));
+  END_BC_TEST();
+
 /*
   eval(compile(read(string("(print \"IT WORKS\")"), gis->package), NIL, NIL));
   */
@@ -3325,7 +3361,8 @@ int main(int argc, char **argv) {
     output_file = file_stdout();
     while (1) {
       write_file(output_file, string("b> "));
-      eval(compile(read(input_file, NIL), NIL, NIL));
+      bc = compile(read(input_file, NIL), NIL, NIL);
+      eval(bc);
       print(gis->stack == NIL ? NIL : pop(), 1);
     }
   }
