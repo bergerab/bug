@@ -1072,17 +1072,20 @@ void gis_init() {
     exit(1);
   }
 
-#define GIS_SYM(id, str, pack)              \
-  gis->id = intern(string(str), gis->pack); \
+#define GIS_SYM(id, str_id, str, pack) \
+  gis->str_id = string(str);           \
+  gis->id = intern(gis->str_id, gis->pack); \
   symbol_export(gis->id);
 
   /* nil must be boostrapped because other functions relies on it */
-  NIL = symbol(string("nil"));
+  gis->nil_string = string("nil");
+  NIL = symbol(gis->nil_string);
   SYMBOL_PLIST(NIL) = NIL;
   SYMBOL_FUNCTION(NIL) = NIL;
   SYMBOL_VALUE(NIL) = NIL;
 
-  gis->lisp_package = package(string("lisp"), NIL);
+  gis->lisp_string = string("lisp");
+  gis->lisp_package = package(gis->lisp_string, NIL);
 
   /* add nil to the lisp package */
   SYMBOL_PACKAGE(NIL) = gis->lisp_package;
@@ -1094,9 +1097,12 @@ void gis_init() {
   gis->sp = ufixnum(0);
 
   /* initialize packages (note: lisp package is above for nil bootstrap) */
-  gis->keyword_package = package(string("keyword"), NIL);
-  gis->user_package = package(string("user"), cons(gis->lisp_package, NIL));
-  gis->impl_package = package(string("impl"), NIL);
+  gis->keyword_string = string("keyword");
+  gis->keyword_package = package(gis->keyword_string, NIL);
+  gis->user_string = string("user");
+  gis->user_package = package(gis->user_string, cons(gis->lisp_package, NIL));
+  gis->impl_string = string("impl");
+  gis->impl_package = package(gis->impl_string, NIL);
 
   gis->package = gis->user_package;
   gis->packages = cons(gis->user_package, 
@@ -1104,42 +1110,69 @@ void gis_init() {
                       cons(gis->keyword_package, 
                         cons(gis->impl_package, NIL))));
 
+  /* strings that will be re-used. the strings should NEVER be modified */
+  /* TODO */
+  gis->interned_strings = dynamic_array(100);
+
   /* initialize keywords that are used internally */
-  GIS_SYM(value_keyword, "value", keyword_package);
-  GIS_SYM(function_keyword, "function", keyword_package);
-  GIS_SYM(internal_keyword, "internal", keyword_package);
-  GIS_SYM(external_keyword, "external", keyword_package);
-  GIS_SYM(inherited_keyword, "function", keyword_package);
+  GIS_SYM(value_keyword, value_string, "value", keyword_package);
+  GIS_SYM(function_keyword, function_string, "function", keyword_package);
+  GIS_SYM(internal_keyword, internal_string, "internal", keyword_package);
+  GIS_SYM(external_keyword, external_string, "external", keyword_package);
+  GIS_SYM(inherited_keyword, inherited_string, "inherited", keyword_package);
 
-  GIS_SYM(cons_symbol, "cons", lisp_package);
-  GIS_SYM(car_symbol, "car", lisp_package);
-  GIS_SYM(cdr_symbol, "cdr", lisp_package);
-  GIS_SYM(symbol_value_symbol, "symbol-value", lisp_package);
-  GIS_SYM(set_symbol, "set", lisp_package);
-  GIS_SYM(quote_symbol, "quote", lisp_package);
-  GIS_SYM(add_symbol, "+", lisp_package);
-  GIS_SYM(sub_symbol, "-", lisp_package);
-  GIS_SYM(mul_symbol, "*", lisp_package);
-  GIS_SYM(div_symbol, "/", lisp_package);
-  GIS_SYM(lt_symbol, "<", lisp_package);
-  GIS_SYM(lte_symbol, "<=", lisp_package);
-  GIS_SYM(gt_symbol, ">", lisp_package);
-  GIS_SYM(gte_symbol, ">=", lisp_package);
-  GIS_SYM(print_symbol, "print", lisp_package);
-  GIS_SYM(print_line_symbol, "print-line", lisp_package);
-  GIS_SYM(and_symbol, "and", lisp_package);
-  GIS_SYM(or_symbol, "or", lisp_package);
-  GIS_SYM(equals_symbol, "=", lisp_package);
-  GIS_SYM(progn_symbol, "progn", lisp_package);
-  GIS_SYM(or_symbol, "or", lisp_package);
-  GIS_SYM(function_symbol, "func", lisp_package);
-  GIS_SYM(t_symbol, "t", lisp_package);
+  GIS_SYM(cons_symbol, cons_string, "cons", lisp_package);
+  GIS_SYM(car_symbol, car_string, "car", lisp_package);
+  GIS_SYM(cdr_symbol, cdr_string, "cdr", lisp_package);
+  GIS_SYM(symbol_value_symbol, symbol_value_string, "symbol-value", lisp_package);
+  GIS_SYM(set_symbol, set_string, "set", lisp_package);
+  GIS_SYM(quote_symbol, quote_string, "quote", lisp_package);
+  GIS_SYM(add_symbol, add_string, "+", lisp_package);
+  GIS_SYM(sub_symbol, sub_string, "-", lisp_package);
+  GIS_SYM(mul_symbol, mul_string, "*", lisp_package);
+  GIS_SYM(div_symbol, div_string, "/", lisp_package);
+  GIS_SYM(lt_symbol, lt_string, "<", lisp_package);
+  GIS_SYM(lte_symbol, lte_string, "<=", lisp_package);
+  GIS_SYM(gt_symbol, gt_string, ">", lisp_package);
+  GIS_SYM(gte_symbol, gte_string, ">=", lisp_package);
+  GIS_SYM(print_symbol, print_string, "print", lisp_package);
+  GIS_SYM(print_line_symbol, print_line_string, "print-line", lisp_package);
+  GIS_SYM(and_symbol, and_string, "and", lisp_package);
+  GIS_SYM(or_symbol, or_string, "or", lisp_package);
+  GIS_SYM(equals_symbol, equals_string, "=", lisp_package);
+  GIS_SYM(progn_symbol, progn_string, "progn", lisp_package);
+  GIS_SYM(or_symbol, or_string, "or", lisp_package);
+  GIS_SYM(function_symbol, function_string, "func", lisp_package);
+  GIS_SYM(t_symbol, t_string, "t", lisp_package);
   symbol_set_value(gis->t_symbol, gis->t_symbol); /* t has itself as its value */
-  GIS_SYM(if_symbol, "if", lisp_package);
+  GIS_SYM(if_symbol, if_string, "if", lisp_package);
 
-  GIS_SYM(pop_symbol, "pop", impl_package);
-  GIS_SYM(push_symbol, "push", impl_package);
-  GIS_SYM(drop_symbol, "drop", impl_package);
+  GIS_SYM(pop_symbol, pop_string, "pop", impl_package);
+  GIS_SYM(push_symbol, push_string, "push", impl_package);
+  GIS_SYM(drop_symbol, drop_string, "drop", impl_package);
+
+  /* initialize misc strings */
+  gis->x_string = string("x");
+  gis->y_string = string("y");
+  gis->a_string = string("a");
+  gis->b_string = string("b");
+  gis->temp_string = string("temp");
+  gis->var_string = string("var");
+  gis->list_string = string("list");
+}
+
+/* 
+  TODO: this would be nice to have. it might have to take a bug string instead of cstring though.
+        all symbol-names can be in here. 
+
+  Only strings that are known to be immutable should be interned.
+
+  looks up the string in the gis's interned strings - if one already exists, return it
+  otherwise, create a new string and add it to the list.
+   
+  If is_builtin, the cstr must name a builtin. */
+struct object *string_intern(char *cstr, char is_builtin) {
+  return NULL;
 }
 
 void add_package(struct object *package) {
@@ -1157,6 +1190,72 @@ struct object *find_package(struct object *name) {
   return NIL;
 } 
 
+/*===============================*
+ *===============================*
+ * String cache                  *
+ *===============================*
+ *===============================*/
+struct object *string_marshal_cache_get_default() {
+  struct object *cache;
+  cache = dynamic_array(10);
+  /* call out a bunch of names that could be frequently used in the bytecode.
+     if a symbol (used as a value or looked up directly) uses one of the names below
+     for its symbol-name or the home package's name. */
+  dynamic_array_push(cache, gis->user_string);
+  dynamic_array_push(cache, gis->lisp_string);
+  dynamic_array_push(cache, gis->keyword_string);
+  dynamic_array_push(cache, gis->impl_string);
+  dynamic_array_push(cache, gis->x_string);
+  dynamic_array_push(cache, gis->y_string);
+  dynamic_array_push(cache, gis->a_string);
+  dynamic_array_push(cache, gis->b_string);
+  dynamic_array_push(cache, gis->temp_string);
+  dynamic_array_push(cache, gis->var_string);
+  dynamic_array_push(cache, gis->list_string);
+  dynamic_array_push(cache, gis->cons_string);
+  return cache;
+}
+
+struct object *do_string_marshal_cache_intern_cstr(struct object *cache, char *str, ufixnum_t length, ufixnum_t *index, struct object *existing_str) {
+  ufixnum_t i, j;
+  struct object *ostr;
+  for (i = 0; ; ++i) {
+    skip_item:
+    if (i >= DYNAMIC_ARRAY_LENGTH(cache)) break;
+    ostr = DYNAMIC_ARRAY_VALUES(cache)[i];
+    /* if the lengths don't match, the string will never match */
+    if (length == STRING_LENGTH(ostr)) {
+      /* check each byte of the strings */
+      for (j = 0; j < length; ++j) {
+        if (str[j] != STRING_CONTENTS(ostr)[j]) {
+          ++i;
+          goto skip_item;
+        }
+      }
+      *index = i;
+      return ostr;
+    }
+  }
+  /* add to cache */
+  if (existing_str == NULL) { 
+    printf("%s oiwjefoij\n", str);
+    existing_str = dynamic_byte_array(length);
+    memcpy(DYNAMIC_BYTE_ARRAY_BYTES(existing_str), str, length);
+    OBJECT_TYPE(existing_str) = type_string;
+  }
+  printf("adding %I64u %c%c%c%c ", STRING_LENGTH(existing_str), STRING_CONTENTS(existing_str)[0], STRING_CONTENTS(existing_str)[1], STRING_CONTENTS(existing_str)[2], STRING_CONTENTS(existing_str)[3]);
+  dynamic_array_push(cache, existing_str);
+  *index = DYNAMIC_ARRAY_LENGTH(cache) - 1;
+  return existing_str;
+}
+
+struct object *string_marshal_cache_intern_cstr(struct object *cache, char *str, ufixnum_t *index) {
+  return do_string_marshal_cache_intern_cstr(cache, str, strlen(str), index, NULL);
+}
+
+struct object *string_marshal_cache_intern(struct object *cache, struct object *str, ufixnum_t *index) {
+  return do_string_marshal_cache_intern_cstr(cache, STRING_CONTENTS(str), STRING_LENGTH(str), index, str);
+}
 
 /*===============================*
  *===============================*
@@ -1533,9 +1632,7 @@ flonum_t unmarshal_float_t(struct object *s, char includes_header) {
   }
   sign = byte_stream_read_byte(s); /* TODO: this sign byte can be thrown into the exponent fix as a single bit */
   mantissa_fix = unmarshal_ufixnum_t(s);
-  mantissa =
-      (flonum_t)mantissa_fix /
-      pow(2, DBL_MANT_DIG);
+  mantissa = (flonum_t)mantissa_fix / pow(2, DBL_MANT_DIG);
   /* TODO: make it choose between DBL/FLT properly */
   exponent = unmarshal_16_bit_fix(s);
   flo = ldexp(mantissa, exponent);
@@ -1949,7 +2046,7 @@ struct object *read(struct object *s, struct object *package) {
     return read(s, gis->keyword_package);
   } else if (c == '\'') { /* quoted expression */
     byte_stream_read_byte(s); /* throw away the quote */
-    return cons(intern(string("quote"), package), cons(read(s, package), NIL));
+    return cons(gis->quote_symbol, cons(read(s, package), NIL));
   } else { /* either a number or a symbol */
     buf = dynamic_byte_array(10);
     is_numeric = 1; /* assume it is numeric unless proven otherwise */
@@ -2689,7 +2786,7 @@ void init() {
   gis_init();
 }
 void reinit() {
-  free(gis);
+  free(gis); /* TODO: write gis_free */
   gis_init();
 }
 
@@ -2700,6 +2797,7 @@ void reinit() {
  *===============================*/
 void run_tests() {
   struct object *darr, *o0, *o1, *dba, *dba1, *bc, *bc0, *bc1, *da, *code, *constants, *code0, *consts0, *code1, *consts1;
+  ufixnum_t uf0;
 
   printf("Running tests...\n");
 
@@ -2992,6 +3090,13 @@ void run_tests() {
   bc = bytecode(darr, dba);
   o0 = unmarshal_bytecode(marshal_bytecode(bc, NULL, 1), 1);
   assert(equals(bc, o0));
+
+  /* string cache */
+  o0 = string_marshal_cache_get_default();
+  assert(string_marshal_cache_intern_cstr(o0, "lisp", &uf0) == gis->lisp_string);
+  assert(string_marshal_cache_intern_cstr(o0, "lisp", &uf0) != string("lisp"));
+  assert(string_marshal_cache_intern_cstr(o0, "mips", &uf0) == string_marshal_cache_intern_cstr(o0, "mips", &uf0));
+  END_TESTS();
 
   /* to-string */
   assert_string_eq(to_string(fixnum(0)), string("0"));
@@ -3454,7 +3559,7 @@ int main(int argc, char **argv) {
     while (byte_stream_has(input_file))
       temp = cons(read(input_file, gis->package), temp);
     temp = cons_reverse(temp);
-    temp = cons(intern(string("progn"), gis->lisp_package), temp);
+    temp = cons(intern(gis->progn_string, gis->lisp_package), temp);
     bc = compile(temp, NIL, NIL);
     write_bytecode_file(output_file, bc);
     close_file(output_file);

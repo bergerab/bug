@@ -334,6 +334,12 @@ struct gis {
   struct object *package; /** the current package being evaluated */
   struct object *packages; /** all packages */
 
+  struct object *interned_strings; /** maybe it shouldn't be in the global interpreter state (originally for marshaling/unmarshaling), 
+                                       but it was easier to put it here.
+                                       used for any internal strings that shouldn't be repeated in bytecode
+                                       for example, frequent use of the same symbol name, or package name would
+                                       be put here. */
+
   struct object *keyword_package;
   struct object *lisp_package;
   struct object *user_package;
@@ -372,10 +378,58 @@ struct gis {
   struct object *t_symbol;
   struct object *if_symbol;
 
+  /* cached strings that should be used internally */
+  struct object *value_string;
+  struct object *internal_string;
+  struct object *external_string;
+  struct object *inherited_string;
+
+  struct object *user_string;
+  struct object *lisp_string;
+  struct object *keyword_string;
+  struct object *impl_string;
+
+  struct object *car_string;
+  struct object *cdr_string;
+  struct object *symbol_value_string;
+  struct object *set_string;
+  struct object *quote_string;
+  struct object *cons_string;
+  struct object *progn_string;
+  struct object *add_string;
+  struct object *sub_string;
+  struct object *mul_string;
+  struct object *div_string;
+  struct object *gt_string;
+  struct object *lt_string;
+  struct object *gte_string;
+  struct object *lte_string;
+  struct object *print_string;
+  struct object *print_line_string;
+  struct object *and_string;
+  struct object *or_string;
+  struct object *equals_string;
+  struct object *function_string;
+  struct object *nil_string;
+  struct object *t_string;
+  struct object *if_string;
+
+  struct object *var_string;
+  struct object *x_string;
+  struct object *y_string;
+  struct object *a_string;
+  struct object *b_string;
+  struct object *temp_string;
+  struct object *list_string;
+
   /* symbols from impl package */
   struct object *push_symbol;
   struct object *drop_symbol;
   struct object *pop_symbol;
+
+  struct object *push_string;
+  struct object *drop_string;
+  struct object *pop_string;
 };
 
 enum marshaled_type {
