@@ -45,6 +45,8 @@ char *get_type_name(enum type t) {
       return "file";
     case type_enumerator:
       return "enumerator";
+    case type_vec2:
+      return "vec2";
     case type_nil:
       return "nil";
     case type_record:
@@ -158,6 +160,16 @@ struct object *flonum(flonum_t flo) {
   struct object *o = object(type_flonum);
   NC(o, "Failed to allocate flonum object.");
   o->w1.value.flonum = flo;
+  return o;
+}
+
+struct object *vec2(flonum_t x, flonum_t y) {
+  struct object *o = object(type_vec2);
+  NC(o, "Failed to allocate 2d-vector object.");
+  o->w1.value.vec2 = malloc(sizeof(struct vec2));
+  NC(o, "Failed to allocate 2d-vector.");
+  VEC2_X(o) = x;
+  VEC2_Y(o) = y;
   return o;
 }
 
@@ -425,6 +437,16 @@ struct object *dynamic_byte_array_push_char(struct object *dba, char x) {
   DYNAMIC_BYTE_ARRAY_BYTES(dba)[DYNAMIC_BYTE_ARRAY_LENGTH(dba)++] = x;
   return NIL;
 }
+/** pushes all items from dba1 to the end of dba0 */
+struct object *dynamic_byte_array_push_all(struct object *dba0, struct object *dba1) {
+  ufixnum_t i;
+  TC2("dynamic_byte_array_push_all", 0, dba0, type_dynamic_byte_array, type_string);
+  TC2("dynamic_byte_array_push_all", 1, dba1, type_dynamic_byte_array, type_string);
+  for (i = 0; i < DYNAMIC_ARRAY_LENGTH(dba1); ++i)
+    dynamic_byte_array_push_char(dba0, DYNAMIC_BYTE_ARRAY_BYTES(dba1)[i]);
+  return NIL;
+}
+
 struct object *dynamic_byte_array_insert_char(struct object *dba, ufixnum_t i, char x) {
   ufixnum_t j;
 
@@ -582,7 +604,7 @@ struct object *to_string_flonum_t(flonum_t n) {
 struct object *to_string_dynamic_byte_array(struct object *dba) {
   struct object *str;
   ufixnum_t i;
-  char byte, nib0, nib1;
+  unsigned char byte, nib0, nib1;
 
   TC("to_string_dynamic_byte_array", 0, dba, type_dynamic_byte_array);
 
@@ -606,6 +628,21 @@ struct object *to_string_dynamic_byte_array(struct object *dba) {
   dynamic_byte_array_push_char(str, ']');
   return str;
 }
+
+struct object *to_string_vec2(struct object *vec2) {
+  struct object *str;
+
+  TC("to_string_vec2", 0, vec2, type_vec2);
+
+  str = string("<");
+  str = dynamic_array_concat(str, to_string_flonum_t(VEC2_X(vec2)));
+  dynamic_byte_array_push_char(str, ',');
+  dynamic_byte_array_push_char(str, ' ');
+  str = dynamic_array_concat(str, to_string_flonum_t(VEC2_Y(vec2)));
+  dynamic_byte_array_push_char(str, '>');
+  return str;
+}
+
 
 struct object *to_string_dynamic_array(struct object *da) {
   struct object *str;
@@ -660,6 +697,8 @@ struct object *do_to_string(struct object *o, char repr) {
       return to_string_fixnum_t(FIXNUM_VALUE(o));
     case type_dynamic_byte_array:
       return to_string_dynamic_byte_array(o);
+    case type_vec2:
+      return to_string_vec2(o);
     case type_dynamic_array:
       return to_string_dynamic_array(o);
     case type_bytecode: /* TODO */
@@ -738,6 +777,8 @@ char equals(struct object *o0, struct object *o1) {
       return UFIXNUM_VALUE(o0) == UFIXNUM_VALUE(o1);
     case type_fixnum:
       return FIXNUM_VALUE(o0) == FIXNUM_VALUE(o1);
+    case type_vec2:
+      return VEC2_X(o0) == VEC2_X(o1) && VEC2_Y(o0) == VEC2_Y(o1);
     case type_dynamic_array:
       if (DYNAMIC_ARRAY_LENGTH(o0) != DYNAMIC_ARRAY_LENGTH(o1))
         return 0;
@@ -1122,7 +1163,7 @@ struct object *find_package(struct object *name) {
  * Marshaling                    *
  *===============================*
  *===============================*/
-struct object *marshal(struct object *o);
+struct object *marshal(struct object *o, struct object *ba);
 
 struct object *marshal_fixnum_t(fixnum_t n, struct object *ba, char include_header) {
   unsigned char byte;
@@ -1130,10 +1171,9 @@ struct object *marshal_fixnum_t(fixnum_t n, struct object *ba, char include_head
   if (ba == NULL)
     ba = dynamic_byte_array(4);
 
-  if (include_header) {
+  if (include_header)
     dynamic_byte_array_push_char(ba, marshaled_type_integer);
-    dynamic_byte_array_push_char(ba, n < 0 ? 1 : 0);
-  }
+  dynamic_byte_array_push_char(ba, n < 0 ? 1 : 0);
 
   n = n < 0 ? -n : n; /* abs */
 
@@ -1150,15 +1190,12 @@ struct object *marshal_fixnum_t(fixnum_t n, struct object *ba, char include_head
 
 struct object *marshal_ufixnum_t(ufixnum_t n, struct object *ba, char include_header) {
   unsigned char byte;
-
-  if (ba == NIL)
+  if (ba == NULL)
     ba = dynamic_byte_array(4);
-  
   if (include_header) {
     dynamic_byte_array_push_char(ba, marshaled_type_integer);
-    dynamic_byte_array_push_char(ba, 0);
+    dynamic_byte_array_push_char(ba, 0); /* sign bit (always positive for ufixnum) */
   }
-
   do {
     byte = n & 0x7F;
     if (n > 0x7F) /* flip the continuation bit if there are more bytes */
@@ -1166,92 +1203,79 @@ struct object *marshal_ufixnum_t(ufixnum_t n, struct object *ba, char include_he
     dynamic_byte_array_push_char(ba, byte);
     n >>= 7;
   } while (n > 0);
-
   return ba;
 }
 
-struct object *marshal_string(struct object *str) {
-  struct object *ba;
-
+struct object *marshal_string(struct object *str, struct object *ba, char include_header) {
   TC("marshal_string", 0, str, type_string);
-
-  ba = dynamic_byte_array(1);
-  dynamic_byte_array_push_char(ba, marshaled_type_string);
-  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(STRING_LENGTH(str), NULL, 1));
-  ba = dynamic_byte_array_concat(ba, str);
+  if (ba == NULL)
+    ba = dynamic_byte_array(10);
+  if (include_header)
+    dynamic_byte_array_push_char(ba, marshaled_type_string);
+  marshal_ufixnum_t(STRING_LENGTH(str), ba, 0);
+  dynamic_byte_array_push_all(ba, str);
   return ba;
 }
 
-struct object *marshal_symbol(struct object *sym) {
-  struct object *ba;
-
+struct object *marshal_symbol(struct object *sym, struct object *ba, char include_header) {
   TC("marshal_symbol", 0, sym, type_symbol);
-
-  ba = dynamic_byte_array(1);
-  dynamic_byte_array_push_char(ba, marshaled_type_symbol);
-  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(STRING_LENGTH(SYMBOL_NAME(sym)), NULL, 1));
-  ba = dynamic_byte_array_concat(ba, SYMBOL_NAME(sym));
+  if (ba == NULL)
+    ba = dynamic_byte_array(10);
+  if (include_header)
+    dynamic_byte_array_push_char(ba, marshaled_type_symbol);
+  marshal_ufixnum_t(STRING_LENGTH(SYMBOL_NAME(sym)), ba, 0);
+  dynamic_byte_array_push_all(ba, SYMBOL_NAME(sym));
   if (SYMBOL_PACKAGE(sym) != NIL) {
-    dynamic_byte_array_push_char(ba, 1);
-    ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(STRING_LENGTH(PACKAGE_NAME(SYMBOL_PACKAGE(sym))), NULL, 1));
-    ba = dynamic_byte_array_concat(ba, PACKAGE_NAME(SYMBOL_PACKAGE(sym)));
+    dynamic_byte_array_push_char(ba, 1); /* flag indicating this symbol belongs to a package */
+    marshal_ufixnum_t(STRING_LENGTH(PACKAGE_NAME(SYMBOL_PACKAGE(sym))), ba, 0);
+    dynamic_byte_array_push_all(ba, PACKAGE_NAME(SYMBOL_PACKAGE(sym)));
   } else {
-    dynamic_byte_array_push_char(ba, 0);
+    dynamic_byte_array_push_char(ba, 0); /* flag indicating this symbol does not belong in any package */
   }
   return ba;
 }
 
-struct object *marshal_dynamic_byte_array(struct object *ba0) {
-  struct object *ba1;
-
+struct object *marshal_dynamic_byte_array(struct object *ba0, struct object *ba, char include_header) {
   TC("marshal_dynamic_byte_array", 0, ba0, type_dynamic_byte_array);
-
-  ba1 = dynamic_byte_array(1);
-  dynamic_byte_array_push_char(ba1, marshaled_type_dynamic_byte_array);
-  ba1 = dynamic_byte_array_concat(
-      ba1, marshal_fixnum_t(DYNAMIC_BYTE_ARRAY_LENGTH(ba0), NULL, 1));
-  ba1 = dynamic_byte_array_concat(ba1, ba0);
-  return ba1;
+  if (ba == NULL)
+    ba = dynamic_byte_array(10);
+  if (include_header)
+    dynamic_byte_array_push_char(ba, marshaled_type_dynamic_byte_array);
+  marshal_ufixnum_t(DYNAMIC_BYTE_ARRAY_LENGTH(ba0), ba, 0);
+  dynamic_byte_array_push_all(ba, ba0);
+  return ba;
 }
 
-struct object *marshal_nil() {
-  struct object *ba;
-  ba = dynamic_byte_array(1);
+struct object *marshal_nil(struct object *ba) {
+  if (ba == NULL)
+    ba = dynamic_byte_array(1);
   dynamic_byte_array_push_char(ba, marshaled_type_nil);
   return ba;
 }
 
-struct object *marshal_cons(struct object *o) {
-  struct object *ba;
-
+struct object *marshal_cons(struct object *o, struct object *ba, char include_header) {
   TC("marshal_cons", 0, o, type_cons);
-
-  ba = dynamic_byte_array(10);
-  dynamic_byte_array_push_char(ba, marshaled_type_cons);
-  ba = dynamic_byte_array_concat(ba, marshal(CONS_CAR(o)));
-  ba = dynamic_byte_array_concat(ba, marshal(CONS_CDR(o)));
+  if (ba == NULL)
+    ba = dynamic_byte_array(10);
+  if (include_header)
+    dynamic_byte_array_push_char(ba, marshaled_type_cons);
+  marshal(CONS_CAR(o), ba);
+  marshal(CONS_CDR(o), ba);
   return ba;
 }
 
-struct object *marshal_dynamic_array(struct object *arr) {
-  struct object *ba;
-  fixnum_t arr_length;
-  fixnum_t i;
+struct object *marshal_dynamic_array(struct object *arr, struct object *ba, char include_header) {
+  ufixnum_t arr_length, i;
   struct object **c_arr;
-
   TC("marshal_dynamic_array", 0, arr, type_dynamic_array);
-
+  if (ba == NULL)
+    ba = dynamic_byte_array(10);
+  if (include_header)
+    dynamic_byte_array_push_char(ba, marshaled_type_dynamic_array);
   arr_length = DYNAMIC_ARRAY_LENGTH(arr);
   c_arr = DYNAMIC_ARRAY_VALUES(arr);
-
-  ba = dynamic_byte_array(1);
-  dynamic_byte_array_push_char(ba, marshaled_type_dynamic_array);
-  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(arr_length, NULL, 1));
-
-  for (i = 0; i < arr_length; ++i) {
-    ba = dynamic_byte_array_concat(ba, marshal(c_arr[i]));
-  }
-
+  marshal_ufixnum_t(arr_length, ba, 0);
+  for (i = 0; i < arr_length; ++i) marshal(c_arr[i], ba);
   return ba;
 }
 
@@ -1268,28 +1292,34 @@ struct object *marshal_dynamic_array(struct object *arr) {
  * 2s compliment for the marshaling format besides the memory cost of the sign
  * byte (1 byte per number).
  */
-struct object *marshal_fixnum(struct object *n) {
+struct object *marshal_fixnum(struct object *n, struct object *ba, char include_header) {
   TC("marshal_fixnum", 0, n, type_fixnum);
-  return marshal_fixnum_t(FIXNUM_VALUE(n), NULL, 1);
+  return marshal_fixnum_t(FIXNUM_VALUE(n), ba, include_header);
 }
 
-struct object *marshal_ufixnum(struct object *n) {
+struct object *marshal_ufixnum(struct object *n, struct object *ba, char include_header) {
   TC("marshal_ufixnum", 0, n, type_ufixnum);
-  return marshal_ufixnum_t(UFIXNUM_VALUE(n), NIL, 1);
+  return marshal_ufixnum_t(UFIXNUM_VALUE(n), ba, include_header);
 }
 
-struct object *marshal_flonum(struct object *n) {
-  struct object *ba;
+struct object *marshal_16_bit_fix(fixnum_t n, struct object *ba) {
+  if (ba == NULL)
+    ba = dynamic_byte_array(4);
+  dynamic_byte_array_push_char(ba, n >> 8);
+  dynamic_byte_array_push_char(ba, n & 0xFF);
+  return ba;
+}
+
+struct object *marshal_flonum(flonum_t n, struct object *ba, char include_header) {
   ufixnum_t mantissa_fix;
   flonum_t mantissa;
   int exponent;
 
-  TC("marshal_flonum", 0, n, type_flonum);
-
-  ba = dynamic_byte_array(1);
-  dynamic_byte_array_push_char(ba, marshaled_type_float);
-  dynamic_byte_array_push_char(ba, FLONUM_VALUE(n) < 0 ? 1 : 0);
-
+  if (ba == NULL)
+    ba = dynamic_byte_array(10);
+  if (include_header)
+    dynamic_byte_array_push_char(ba, marshaled_type_float);
+  dynamic_byte_array_push_char(ba, n < 0 ? 1 : 0);
   /* Inefficient in both time and space but work short term.
    *
    * The idea was for the marshaled format to be as exact as possible
@@ -1298,32 +1328,40 @@ struct object *marshal_flonum(struct object *n) {
    * (mantissa * 2^exponent = value) using arbitrary long mantissas and
    * exponents. This is probably naive and might not work for NaN or Infinity.
    */
-  mantissa = frexp(FLONUM_VALUE(n), &exponent);
+  mantissa = frexp(n, &exponent);
   /* frexp keeps sign information on the mantissa, we convert it to a unsigned
    * fixnum (hence the abs(...)). */
   /* we already have the sign information in the marshaled flonum */
   mantissa = mantissa < 0 ? -mantissa : mantissa;
-  mantissa_fix =
-      mantissa *
-      pow(2, DBL_MANT_DIG); /* TODO: make it choose between DBL/FLT properly */
-  ba = dynamic_byte_array_concat(ba, marshal_ufixnum_t(mantissa_fix, NIL, 1));
-  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t((fixnum_t)exponent, NULL, 1));
-
+  mantissa_fix = mantissa * pow(2, DBL_MANT_DIG);
+  /* TODO: make it choose between DBL/FLT properly */
+  marshal_ufixnum_t(mantissa_fix, ba, 0);
+  marshal_16_bit_fix(exponent, ba);
   return ba;
 }
 
 /**
  * turns bytecode into a byte-array that can be stored to a file
  */
-struct object *marshal_bytecode(struct object *bc) {
-  struct object *ba;
+struct object *marshal_bytecode(struct object *bc, struct object *ba, char include_header) {
   TC("marshal_bytecode", 0, bc, type_bytecode);
-  ba = dynamic_byte_array(1);
-  dynamic_byte_array_push_char(ba, marshaled_type_bytecode);
-  ba = dynamic_byte_array_concat(ba,
-                                 marshal_dynamic_array(BYTECODE_CONSTANTS(bc)));
-  ba = dynamic_byte_array_concat(ba,
-                                 marshal_dynamic_byte_array(BYTECODE_CODE(bc)));
+  if (ba == NULL)
+    ba = dynamic_byte_array(10);
+  if (include_header)
+    dynamic_byte_array_push_char(ba, marshaled_type_bytecode);
+  marshal_dynamic_array(BYTECODE_CONSTANTS(bc), ba, 0);
+  marshal_dynamic_byte_array(BYTECODE_CODE(bc), ba, 0);
+  return ba;
+}
+
+struct object *marshal_vec2(struct object *vec2, struct object *ba, char include_header) {
+  TC("marshal_vec2", 0, vec2, type_vec2);
+  if (ba == NULL)
+    ba = dynamic_byte_array(1);
+  if (include_header)
+    dynamic_byte_array_push_char(ba, marshaled_type_vec2);
+  marshal_flonum(VEC2_X(vec2), ba, 0);
+  marshal_flonum(VEC2_Y(vec2), ba, 0);
   return ba;
 }
 
@@ -1331,27 +1369,30 @@ struct object *marshal_bytecode(struct object *bc) {
  * Takes any object and returns a byte-array containing the binary
  * representation of the object.
  */
-struct object *marshal(struct object *o) {
-  if (o == NIL) return marshal_nil();
+struct object *marshal(struct object *o, struct object *ba) {
+  if (ba == NULL) ba = dynamic_byte_array(10);
+  if (o == NIL) return marshal_nil(ba);
   switch (get_object_type(o)) {
     case type_dynamic_byte_array:
-      return marshal_dynamic_byte_array(o);
+      return marshal_dynamic_byte_array(o, ba, 1);
     case type_dynamic_array:
-      return marshal_dynamic_array(o);
+      return marshal_dynamic_array(o, ba, 1);
     case type_cons:
-      return marshal_cons(o);
+      return marshal_cons(o, ba, 1);
+    case type_vec2:
+      return marshal_vec2(o, ba, 1);
     case type_fixnum:
-      return marshal_fixnum(o);
+      return marshal_fixnum(o, ba, 1);
     case type_ufixnum:
-      return marshal_ufixnum(o);
+      return marshal_ufixnum(o, ba, 1);
     case type_flonum:
-      return marshal_flonum(o);
+      return marshal_flonum(FLONUM_VALUE(o), ba, 1);
     case type_string:
-      return marshal_string(o);
+      return marshal_string(o, ba, 1);
     case type_symbol:
-      return marshal_symbol(o);
+      return marshal_symbol(o, ba, 1);
     case type_bytecode:
-      return marshal_bytecode(o);
+      return marshal_bytecode(o, ba, 1);
     default:
       printf("BC: cannot marshal type %s.\n", get_object_type_name(o));
       return NIL;
@@ -1365,7 +1406,38 @@ struct object *marshal(struct object *o) {
  *===============================*/
 struct object *unmarshal(struct object *s);
 
-struct object *unmarshal_integer(struct object *s) {
+/* these are used for lengths -- this will never be used for numbers used in the code
+   those use unmarshal_integer, because it is uncertain if they will fit into a fix/ufix/flo.
+   But these are required to fit into a ufixnum on this machine. It would be an error if the number
+   doesn't fit into the ufix. */
+ufixnum_t unmarshal_ufixnum_t(struct object *s) {
+  ufixnum_t n;
+  ufixnum_t byte;
+  char byte_count;
+  s = byte_stream_lift(s);
+  TC2("unmarshal_ufixnum_t", 0, s, type_enumerator, type_file);
+  byte = byte_stream_read_byte(s);
+  n = byte & 0x7F;
+  byte_count = 1;
+  while (byte & 0x80) {
+    byte = byte_stream_read_byte(s);
+    n = ((byte & 0x7F) << (7 * byte_count)) | n;
+    ++byte_count;
+    /* TODO: error if trying to read more bytes than what fits into a ufix */
+  }
+  return n;
+}
+
+fixnum_t unmarshal_16_bit_fix(struct object *s) {
+  fixnum_t n;
+  s = byte_stream_lift(s);
+  TC2("unmarshal_16_bit_fix", 0, s, type_enumerator, type_file);
+  n = byte_stream_read_byte(s) << 8;
+  n = byte_stream_read_byte(s) | n;
+  return n;
+}
+
+struct object *unmarshal_integer(struct object *s, char includes_header) {
   unsigned char t, sign, is_flo, is_init_flo;
   ufixnum_t ufix, next_ufix, byte_count,
       byte; /* the byte must be a ufixnum because it is used in operations that
@@ -1374,16 +1446,16 @@ struct object *unmarshal_integer(struct object *s) {
   flonum_t flo;
 
   s = byte_stream_lift(s);
-
   TC2("unmarshal_integer", 0, s, type_enumerator, type_file);
-
-  t = byte_stream_read_byte(s);
-  if (t != marshaled_type_integer) {
-    printf(
-        "BC: unmarshaling fixnum expected either marshaled_integer type, but "
-        "was %d.",
-        t);
-    exit(1);
+  if (includes_header) {
+    t = byte_stream_read_byte(s);
+    if (t != marshaled_type_integer) {
+      printf(
+          "BC: unmarshal expected marshaled_integer type, but "
+          "was %d.",
+          t);
+      exit(1);
+    }
   }
 
   sign = byte_stream_read_byte(s);
@@ -1445,70 +1517,50 @@ struct object *unmarshal_integer(struct object *s) {
   return ufixnum(ufix);
 }
 
-struct object *unmarshal_float(struct object *s) {
+flonum_t unmarshal_float_t(struct object *s, char includes_header) {
   unsigned char t, sign;
-  struct object *mantissa_fix, *exponent;
+  fixnum_t exponent;
   flonum_t flo, mantissa;
-
+  ufixnum_t mantissa_fix;
   s = byte_stream_lift(s);
-
   TC2("unmarshal_float", 0, s, type_file, type_enumerator);
-
-  t = byte_stream_read_byte(s);
-  if (t != marshaled_type_float) {
-    printf("BC: unmarshaling float expected float type, but was %d.", t);
-    exit(1);
+  if (includes_header) {
+    t = byte_stream_read_byte(s);
+    if (t != marshaled_type_float) {
+      printf("BC: unmarshal expected float type, but was %d.", t);
+      exit(1);
+    }
   }
-
-  sign = byte_stream_read_byte(s);
-
-  mantissa_fix = unmarshal_integer(s);
-  if (get_object_type(mantissa_fix) == type_flonum) {
-    printf(
-        "BC: expected mantissa part of float to fit into a fixnum or ufixnum "
-        "during float unmarshaling");
-    exit(1);
-  }
-
+  sign = byte_stream_read_byte(s); /* TODO: this sign byte can be thrown into the exponent fix as a single bit */
+  mantissa_fix = unmarshal_ufixnum_t(s);
   mantissa =
-      (flonum_t)UFIXNUM_VALUE(mantissa_fix) /
-      pow(2, DBL_MANT_DIG); /* TODO: make it choose between DBL/FLT properly */
-
-  exponent = unmarshal_integer(s);
-  if (get_object_type(exponent) != type_fixnum) {
-    printf(
-        "BC: expected exponent part of float to fit into a fixnum during float "
-        "unmarshaling (was %s).", get_object_type_name(exponent));
-    exit(1);
-  }
-
-  flo = ldexp(mantissa, FIXNUM_VALUE(exponent));
-  return flonum(sign == 1 ? -flo : flo);
+      (flonum_t)mantissa_fix /
+      pow(2, DBL_MANT_DIG);
+  /* TODO: make it choose between DBL/FLT properly */
+  exponent = unmarshal_16_bit_fix(s);
+  flo = ldexp(mantissa, exponent);
+  return sign == 1 ? -flo : flo;
 }
 
-struct object *unmarshal_string(struct object *s) {
+struct object *unmarshal_float(struct object *s, char includes_header) {
+  return flonum(unmarshal_float_t(s, includes_header));
+}
+
+struct object *unmarshal_string(struct object *s, char includes_header) {
   unsigned char t;
-  struct object *str, *length;
-
+  struct object *str;
+  ufixnum_t length;
   s = byte_stream_lift(s);
-
   TC2("unmarshal_string", 0, s, type_file, type_enumerator);
-
-  t = byte_stream_read_byte(s);
-  if (t != marshaled_type_string) {
-    printf("BC: unmarshaling string expected string type, but was %d.", t);
-    exit(1);
+  if (includes_header) {
+    t = byte_stream_read_byte(s);
+    if (t != marshaled_type_string) {
+      printf("BC: unmarshal expected string type, but was %d.", t);
+      exit(1);
+    }
   }
-
-  length = unmarshal_integer(s);
-  if (get_object_type(length) != type_fixnum) {
-    printf(
-        "BC: expected string length to fit into a fixnum during string "
-        "unmarshal");
-    exit(1);
-  }
-
-  str = byte_stream_read(s, FIXNUM_VALUE(length));
+  length = unmarshal_ufixnum_t(s);
+  str = byte_stream_read(s, length);
   OBJECT_TYPE(str) = type_string;
   return str;
 }
@@ -1516,123 +1568,120 @@ struct object *unmarshal_string(struct object *s) {
 /* this won't work, what if you have a symbol in the keyword package, and in the user package?
    like this (:abc 3 'thing 4) ? need to store package name along with it. and have some way
    of looking up packages by name. */
-struct object *unmarshal_symbol(struct object *s) {
+struct object *unmarshal_symbol(struct object *s, char includes_header) {
   unsigned char t, has_home_package;
-  struct object *symbol_name, *package_name, *length;
-
+  struct object *symbol_name, *package_name;
+  ufixnum_t length;
   s = byte_stream_lift(s);
-
   TC2("unmarshal_symbol", 0, s, type_file, type_enumerator);
-
-  t = byte_stream_read_byte(s);
-  if (t != marshaled_type_symbol) {
-    printf("BC: unmarshaling symbol expected symbol type, but was %d.", t);
-    exit(1);
+  if (includes_header) {
+    t = byte_stream_read_byte(s);
+    if (t != marshaled_type_symbol) {
+      printf("BC: unmarshal expected symbol type, but was %d.", t);
+      exit(1);
+    }
   }
-
-  length = unmarshal_integer(s);
-  if (get_object_type(length) != type_fixnum) {
-    printf(
-        "BC: expected symbol length to fit into a fixnum during symbol "
-        "unmarshal");
-    exit(1);
-  }
-  symbol_name = byte_stream_read(s, FIXNUM_VALUE(length));
+  length = unmarshal_ufixnum_t(s);
+  symbol_name = byte_stream_read(s, length);
   OBJECT_TYPE(symbol_name) = type_string;
   has_home_package = byte_stream_do_read_byte(s, 0);
   if (has_home_package) {
-    length = unmarshal_integer(s);
-    if (get_object_type(length) != type_fixnum) {
-      printf(
-          "BC: expected symbol length to fit into a fixnum during symbol "
-          "unmarshal");
-      exit(1);
-    }
-    package_name = byte_stream_read(s, FIXNUM_VALUE(length));
+    length = unmarshal_ufixnum_t(s);
+    package_name = byte_stream_read(s, length);
     OBJECT_TYPE(package_name) = type_string;
     return intern(symbol_name, find_package(package_name));
   }
   return symbol(symbol_name);
 }
 
-struct object *unmarshal_cons(struct object *s) {
+struct object *unmarshal_cons(struct object *s, char includes_header) {
   unsigned char t;
   struct object *car, *cdr;
-
   s = byte_stream_lift(s);
-
-  t = byte_stream_read_byte(s);
-  if (t != marshaled_type_cons) {
-    printf("BC: unmarshaling cons expected cons type, but was %d.", t);
-    exit(1);
+  if (includes_header) {
+    t = byte_stream_read_byte(s);
+    if (t != marshaled_type_cons) {
+      printf("BC: unmarshaling cons expected cons type, but was %d.", t);
+      exit(1);
+    }
   }
-
   car = unmarshal(s);
   cdr = unmarshal(s);
   return cons(car, cdr);
 }
 
-struct object *unmarshal_dynamic_byte_array(struct object *s) {
+struct object *unmarshal_dynamic_byte_array(struct object *s, char includes_header) {
   unsigned char t;
-  struct object *length;
-
+  ufixnum_t length;
   s = byte_stream_lift(s);
-
-  t = byte_stream_read_byte(s);
-  if (t != marshaled_type_dynamic_byte_array) {
-    printf(
-        "BC: unmarshaling dynamic-byte-array expected dynamic-byte-array type, "
-        "but was %d.",
-        t);
-    exit(1);
+  if (includes_header) {
+    t = byte_stream_read_byte(s);
+    if (t != marshaled_type_dynamic_byte_array) {
+      printf(
+          "BC: unmarshaling dynamic-byte-array expected dynamic-byte-array "
+          "type, "
+          "but was %d.",
+          t);
+      exit(1);
+    }
   }
-
-  length = unmarshal_integer(s); /* TODO: make sure this is not a float */
-  return byte_stream_read(s, UFIXNUM_VALUE(length));
+  length = unmarshal_ufixnum_t(s);
+  return byte_stream_read(s, length);
 }
 
-struct object *unmarshal_dynamic_array(struct object *s) {
+struct object *unmarshal_dynamic_array(struct object *s, char includes_header) {
   unsigned char t;
-  struct object *length, *darr;
-  ufixnum_t i;
-
+  struct object *darr;
+  ufixnum_t length;
   s = byte_stream_lift(s);
-
-  t = byte_stream_read_byte(s);
-  if (t != marshaled_type_dynamic_array) {
-    printf(
-        "BC: unmarshaling dynamic-array expected dynamic-array type, but was "
-        "%d.",
-        t);
-    exit(1);
+  if (includes_header) {
+    t = byte_stream_read_byte(s);
+    if (t != marshaled_type_dynamic_array) {
+      printf(
+          "BC: unmarshal expected dynamic-array type, but was "
+          "%d.",
+          t);
+      exit(1);
+    }
   }
-
-  length = unmarshal_integer(s); /* TODO: make sure this is not a float */
-  darr = dynamic_array(UFIXNUM_VALUE(length));
-
-  i = UFIXNUM_VALUE(length);
-  /* unmarshal i items: */
-  while (i != 0) {
-    dynamic_array_push(darr, unmarshal(s));
-    --i;
-  }
+  length = unmarshal_ufixnum_t(s);
+  darr = dynamic_array(length);
+  /* unmarshal all items: */
+  while (length-- > 0) dynamic_array_push(darr, unmarshal(s));
   return darr;
 }
 
-struct object *unmarshal_bytecode(struct object *s) {
+struct object *unmarshal_vec2(struct object *s, char includes_header) {
+  unsigned char t;
+  flonum_t x, y;
+  s = byte_stream_lift(s);
+  if (includes_header) {
+    t = byte_stream_read_byte(s);
+    if (t != marshaled_type_vec2) {
+      printf("BC: unmarshal expected vec2 type, but was %d.",
+             t);
+      exit(1);
+    }
+  }
+  x = unmarshal_float_t(s, 0);
+  y = unmarshal_float_t(s, 0);
+  return vec2(x, y);
+}
+
+struct object *unmarshal_bytecode(struct object *s, char includes_header) {
   unsigned char t;
   struct object *constants, *code;
-
   s = byte_stream_lift(s);
-  t = byte_stream_read_byte(s);
-  if (t != marshaled_type_bytecode) {
-    printf("BC: unmarshaling bytecode expected bytecode type, but was %d.", t);
-    exit(1);
+  if (includes_header) {
+    t = byte_stream_read_byte(s);
+    if (t != marshaled_type_bytecode) {
+      printf("BC: unmarshaling bytecode expected bytecode type, but was %d.",
+             t);
+      exit(1);
+    }
   }
-
-  constants = unmarshal_dynamic_array(s);
-  code = unmarshal_dynamic_byte_array(s);
-
+  constants = unmarshal_dynamic_array(s, 0);
+  code = unmarshal_dynamic_byte_array(s, 0);
   return bytecode(constants, code);
 }
 
@@ -1655,23 +1704,25 @@ struct object *unmarshal(struct object *s) {
 
   switch (t) {
     case marshaled_type_dynamic_byte_array:
-      return unmarshal_dynamic_byte_array(s);
+      return unmarshal_dynamic_byte_array(s, 1);
     case marshaled_type_dynamic_array:
-      return unmarshal_dynamic_array(s);
+      return unmarshal_dynamic_array(s, 1);
     case marshaled_type_cons:
-      return unmarshal_cons(s);
+      return unmarshal_cons(s, 1);
     case marshaled_type_nil:
       return unmarshal_nil(s);
     case marshaled_type_integer:
-      return unmarshal_integer(s);
+      return unmarshal_integer(s, 1);
     case marshaled_type_float:
-      return unmarshal_float(s);
+      return unmarshal_float(s, 1);
     case marshaled_type_string:
-      return unmarshal_string(s);
+      return unmarshal_string(s, 1);
+    case marshaled_type_vec2:
+      return unmarshal_vec2(s, 1);
     case marshaled_type_symbol:
-      return unmarshal_symbol(s);
+      return unmarshal_symbol(s, 1);
     case marshaled_type_bytecode:
-      return unmarshal_bytecode(s);
+      return unmarshal_bytecode(s, 1);
     default:
       printf("BC: cannot unmarshal marshaled type %d.", t);
       return NIL;
@@ -1688,7 +1739,7 @@ struct object *make_bytecode_file_header() {
   dynamic_byte_array_push_char(ba, 'b');
   dynamic_byte_array_push_char(ba, 'u');
   dynamic_byte_array_push_char(ba, 'g');
-  ba = dynamic_byte_array_concat(ba, marshal_fixnum_t(BC_VERSION, NULL, 1));
+  marshal_ufixnum_t(BC_VERSION, ba, 0);
   return ba;
 }
 
@@ -1739,13 +1790,14 @@ struct object *write_bytecode_file(struct object *file, struct object *bc) {
   TC("write_bytecode_file", 1, bc, type_bytecode);
 
   write_file(file, make_bytecode_file_header());
-  write_file(file, marshal_bytecode(bc));
+  write_file(file, marshal_bytecode(bc, NULL, 0));
 
   return NIL;
 }
 
 struct object *read_bytecode_file(struct object *s) {
-  struct object *version, *bc;
+  struct object *bc;
+  ufixnum_t version;
 
   s = byte_stream_lift(s);
 
@@ -1755,16 +1807,16 @@ struct object *read_bytecode_file(struct object *s) {
     exit(1);
   }
 
-  version = unmarshal_integer(s);
-  if (UFIXNUM_VALUE(version) != BC_VERSION) {
+  version = unmarshal_ufixnum_t(s);
+  if (version != BC_VERSION) {
     printf(
         "BC: Version mismatch (this interpreter has version %d, the file has "
-        "version %d).\n",
-        BC_VERSION, (unsigned int)UFIXNUM_VALUE(version));
+        "version %u).\n",
+        BC_VERSION, (unsigned int)version);
     exit(1);
   }
 
-  bc = unmarshal_bytecode(s);
+  bc = unmarshal_bytecode(s, 0);
 
   if (get_object_type(bc) != type_bytecode) {
     printf(
@@ -2158,6 +2210,7 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
     case type_string:
     case type_dynamic_byte_array:
     case type_package:
+    case type_vec2:
     case type_enumerator:
       gen_load_constant(bc, value);
       break;
@@ -2750,85 +2803,88 @@ void run_tests() {
 
   /* Fixnum marshaling */
   reinit();
+
+#define T_MAR_FIXNUM(n) \
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(n), NULL, 1), 1)) == n);
+#define T_MAR_UFIXNUM(n) \
+  assert(UFIXNUM_VALUE(unmarshal_integer(marshal_ufixnum(ufixnum(n), NULL, 1), 1)) == n);
+#define T_MAR_FLONUM(n) \
+  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(n, NULL, 1), 1)) == n);
+#define T_MAR_STR(x) \
+  assert_string_eq(unmarshal_string(marshal_string(string(x), NULL, 1), 1), string(x));
+  /* test marshaling with the default package */
+#define T_MAR_SYM_DEF(x) \
+  assert(unmarshal_symbol(marshal_symbol(intern(string(x), gis->package), NULL, 1), 1) == intern(string(x), gis->package));
+#define T_MAR_SYM(x, p)                                                        \
+  assert(                                                                      \
+      unmarshal_symbol(                                                        \
+          marshal_symbol(intern(string(x), find_package(string(p))), NULL, 1), \
+          1) == intern(string("dinkle"), find_package(string(p))));
+#define T_MAR(x) \
+  assert(equals(unmarshal(marshal(x, NULL)), x));
+
+  assert(unmarshal_ufixnum_t(marshal_ufixnum_t(1, NULL, 0)) == 1);
+  /* three bytes long */
+  assert(unmarshal_ufixnum_t(marshal_ufixnum_t(122345, NULL, 0)) == 122345);
+  assert(unmarshal_ufixnum_t(marshal_ufixnum_t(1223450, NULL, 0)) == 1223450);
+  /* four bytes long */
+  assert(unmarshal_ufixnum_t(marshal_ufixnum_t(122345000, NULL, 0)) == 122345000);
+
   /* no bytes */
-  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(0)))) == 0);
+  T_MAR_FIXNUM(0);
   /* one byte */
-  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(9)))) == 9);
-  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(-23)))) == -23);
-  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(-76)))) == -76);
-  assert(FIXNUM_VALUE(unmarshal(marshal_fixnum(fixnum(-76)))) == -76);
+  T_MAR_FIXNUM(9); T_MAR_FIXNUM(-23); T_MAR_FIXNUM(-76); 
+  T_MAR(fixnum(-76)); /* make sure it is included in main marshal/unmarshal switches */
   /* two bytes */
-  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(256)))) == 256);
-  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(257)))) == 257);
-  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(-342)))) == -342);
-  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(2049)))) == 2049);
+  T_MAR_FIXNUM(256); T_MAR_FIXNUM(257); T_MAR_FIXNUM(-342); T_MAR_FIXNUM(2049);
   /* three bytes */
-  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(123456)))) ==
-         123456);
-  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(-123499)))) ==
-         -123499);
-  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(20422)))) ==
-         20422);
+  T_MAR_FIXNUM(123456); T_MAR_FIXNUM(-123499); T_MAR_FIXNUM(20422); 
   /* four bytes */
-  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(123456789)))) ==
-         123456789);
-  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(-123456789)))) ==
-         -123456789);
+  T_MAR_FIXNUM(123456789); T_MAR_FIXNUM(-123456789);
   /* Should test fixnums that are from platforms that have larger word sizes
    * (e.g. read in a fixnum larger than four bytes on a machine with two byte
    * words) */
-  assert(UFIXNUM_VALUE(unmarshal_integer(
-             marshal_ufixnum(ufixnum(MAX_UFIXNUM)))) == MAX_UFIXNUM);
+  T_MAR_UFIXNUM(MAX_UFIXNUM);
 
   /* flonum marshaling */
-  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(0.0)))) == 0.0);
-  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(1.0)))) == 1.0);
-  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(1.23)))) == 1.23);
-  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(1e23)))) == 1e23);
-  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(1e-23)))) == 1e-23);
-  assert(FLONUM_VALUE(unmarshal_float(
-             marshal_flonum(flonum(123456789123456789123456789123456789.0)))) ==
-         123456789123456789123456789123456789.0);
-  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(-0.0)))) == -0.0);
-  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(flonum(-1.23)))) == -1.23);
+  T_MAR_FLONUM(0.0); T_MAR_FLONUM(1.0); T_MAR_FLONUM(1.23); T_MAR_FLONUM(1e23);
+  T_MAR_FLONUM(1e-23); T_MAR_FLONUM(123456789123456789123456789123456789.0);
+  T_MAR_FLONUM(-0.0); T_MAR_FLONUM(-1.23);
+
   /* TODO: test that NaN and +/- Infinity work */
 
   /* string marshaling */
-  assert_string_eq(unmarshal_string(marshal_string(string("abcdef"))),
-                   string("abcdef"));
-  assert(strcmp(bstring_to_cstring(unmarshal_string(
-                    marshal_string(string("nerEW)F9nef09n230(N#EOINWEogiwe")))),
-                "nerEW)F9nef09n230(N#EOINWEogiwe") == 0);
-  assert(
-      strcmp(bstring_to_cstring(unmarshal_string(marshal_string(string("")))),
-             "") == 0);
+  T_MAR_STR("abcdef");
+  T_MAR_STR("nerEW)F9nef09n230(N#EOINWEogiwe");
+  T_MAR_STR("");
 
   reinit();
-  assert(unmarshal_symbol(marshal_symbol(intern(string("abcdef"), gis->package))) ==
-                   intern(string("abcdef"), gis->package));
+  T_MAR_SYM_DEF("abcdef");
 
   /* uninterned symbol */
-  o0 = unmarshal_symbol(marshal_symbol(symbol(string("fwe"))));
+  o0 = unmarshal_symbol(marshal_symbol(symbol(string("fwe")), NULL, 1), 1);
   assert(SYMBOL_PACKAGE(o0) == NIL);
   add_package(package(string("peep"), NIL));
-  assert(unmarshal_symbol(marshal_symbol(intern(string("dinkle"), find_package(string("peep"))))) ==
-                   intern(string("dinkle"), find_package(string("peep"))));
-  assert(unmarshal_symbol(marshal_symbol(intern(string("dinkle"), find_package(string("peep"))))) !=
-                   intern(string("dinkle"), gis->package));
+  T_MAR_SYM("dinkle", "peep");
+  /* make sure the symbol isn't interned into the wrong package */
+  assert(unmarshal_symbol(marshal_symbol(intern(string("dinkle"),
+                                                find_package(string("peep"))),
+                                         NULL, 1),
+                          1) != intern(string("dinkle"), gis->package));
 
   /* nil marshaling */
-  assert(unmarshal_nil(marshal_nil()) == NIL);
+  assert(unmarshal_nil(marshal_nil(NULL)) == NIL);
 
   /* cons filled with nils */
-  o0 = unmarshal_cons(marshal_cons(cons(NIL, NIL)));
+  o0 = unmarshal_cons(marshal_cons(cons(NIL, NIL), NULL, 1), 1);
   assert(CONS_CAR(o0) == NIL);
   assert(CONS_CDR(o0) == NIL);
   /* cons with strings */
-  o0 = unmarshal_cons(marshal_cons(cons(string("A"), string("B"))));
+  o0 = unmarshal_cons(marshal_cons(cons(string("A"), string("B")), NULL, 1), 1);
   assert(strcmp(bstring_to_cstring(CONS_CAR(o0)), "A") == 0);
   assert(strcmp(bstring_to_cstring(CONS_CDR(o0)), "B") == 0);
   /* cons list with fixnums */
-  o0 = unmarshal_cons(marshal_cons(cons(fixnum(35), cons(fixnum(99), NIL))));
+  o0 = unmarshal_cons(marshal_cons(cons(fixnum(35), cons(fixnum(99), NIL)), NULL, 1), 1);
   assert(FIXNUM_VALUE(CONS_CAR(o0)) == 35);
   assert(FIXNUM_VALUE(CONS_CAR(CONS_CDR(o0))) == 99);
   assert(CONS_CDR(CONS_CDR(o0)) == NIL);
@@ -2839,7 +2895,7 @@ void run_tests() {
   dynamic_byte_array_push_char(dba, 99);
   dynamic_byte_array_push_char(dba, 23);
   dynamic_byte_array_push_char(dba, 9);
-  o0 = unmarshal_dynamic_byte_array(marshal_dynamic_byte_array(dba));
+  o0 = unmarshal_dynamic_byte_array(marshal_dynamic_byte_array(dba, NULL, 1), 1);
   assert(DYNAMIC_BYTE_ARRAY_LENGTH(dba) == DYNAMIC_BYTE_ARRAY_LENGTH(o0));
   assert(strcmp(bstring_to_cstring(dba), bstring_to_cstring(o0)) == 0);
 
@@ -2856,7 +2912,7 @@ void run_tests() {
   T_DBA_PUSH(30); T_DBA_PUSH(31); T_DBA_PUSH(32); T_DBA_PUSH(33); T_DBA_PUSH(34);
   T_DBA_PUSH(35); T_DBA_PUSH(36); T_DBA_PUSH(37); T_DBA_PUSH(38); T_DBA_PUSH(39);
   T_DBA_PUSH(40);
-  o0 = unmarshal_dynamic_byte_array(marshal_dynamic_byte_array(dba));
+  o0 = unmarshal_dynamic_byte_array(marshal_dynamic_byte_array(dba, NULL, 1), 1);
   assert(DYNAMIC_BYTE_ARRAY_LENGTH(dba) == DYNAMIC_BYTE_ARRAY_LENGTH(o0));
   assert(equals(dba, o0));
 
@@ -2868,7 +2924,7 @@ void run_tests() {
   dynamic_array_push(darr, fixnum(3));
   dynamic_array_push(darr, string("e2"));
   dynamic_array_push(darr, NIL);
-  o0 = unmarshal_dynamic_array(marshal_dynamic_array(darr));
+  o0 = unmarshal_dynamic_array(marshal_dynamic_array(darr, NULL, 1), 1);
   assert(DYNAMIC_ARRAY_LENGTH(darr) == DYNAMIC_ARRAY_LENGTH(o0));
   assert(FIXNUM_VALUE(DYNAMIC_ARRAY_VALUES(darr)[0]) == 3);
   assert(strcmp(bstring_to_cstring(DYNAMIC_ARRAY_VALUES(darr)[1]), "e2") == 0);
@@ -2883,7 +2939,7 @@ void run_tests() {
   T_DA_PUSH(fixnum(20)); T_DA_PUSH(fixnum(21)); T_DA_PUSH(fixnum(22)); T_DA_PUSH(fixnum(23));
   T_DA_PUSH(fixnum(24)); T_DA_PUSH(fixnum(25)); T_DA_PUSH(fixnum(26)); T_DA_PUSH(fixnum(27));
   T_DA_PUSH(fixnum(28)); T_DA_PUSH(fixnum(29)); T_DA_PUSH(fixnum(30)); T_DA_PUSH(fixnum(31));
-  o0 = unmarshal_dynamic_array(marshal_dynamic_array(darr));
+  o0 = unmarshal_dynamic_array(marshal_dynamic_array(darr, NULL, 1), 1);
   assert(equals(darr, o0));
 
   /* marshal bytecode */
@@ -2897,7 +2953,7 @@ void run_tests() {
   dynamic_byte_array_push_char(dba, 0x13);
   dynamic_byte_array_push_char(dba, 0x23);
   bc = bytecode(darr, dba);
-  o0 = unmarshal_bytecode(marshal_bytecode(bc));
+  o0 = unmarshal_bytecode(marshal_bytecode(bc, NULL, 1), 1);
   /* check constants vector */
   assert(DYNAMIC_ARRAY_LENGTH(darr) ==
          DYNAMIC_ARRAY_LENGTH(BYTECODE_CONSTANTS(o0)));
@@ -2934,7 +2990,7 @@ void run_tests() {
   T_DBA_PUSH(0x08); T_DBA_PUSH(0x15); T_DBA_PUSH(0x0D); T_DBA_PUSH(0x16); T_DBA_PUSH(0x00);
   T_DBA_PUSH(0x15); T_DBA_PUSH(0x0E);
   bc = bytecode(darr, dba);
-  o0 = unmarshal_bytecode(marshal_bytecode(bc));
+  o0 = unmarshal_bytecode(marshal_bytecode(bc, NULL, 1), 1);
   assert(equals(bc, o0));
 
   /* to-string */

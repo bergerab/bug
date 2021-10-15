@@ -132,6 +132,12 @@ typedef double flonum_t;
 #define FILE_PATH(o)\
  o->w1.value.file->path
 
+#define VEC2_X(o)\
+ o->w1.value.vec2->x
+
+#define VEC2_Y(o)\
+ o->w1.value.vec2->y
+
 #define ENUMERATOR_VALUE(o)\
  o->w1.value.enumerator->value
 
@@ -221,7 +227,8 @@ enum type {
   type_nil = 46, /* type_nil won't appear on an object, only from calls to
                    get_object_type(...) */
   type_record = 50,
-  type_function = 54
+  type_function = 54,
+  type_vec2 = 58
 };
 
 union value {
@@ -237,6 +244,7 @@ union value {
   struct file *file;
   struct record *record;
   struct function *function;
+  struct vec2 *vec2;
 };
 
 union w0 { /** The first word of an object. */
@@ -310,6 +318,12 @@ struct record {
   struct object **fields;
 };
 
+/* two unboxed floats - an optimization over using just a cons or dynamic array */
+struct vec2 {
+  flonum_t x;
+  flonum_t y;
+};
+
 /**
  * The global interpreter state.
  */
@@ -373,5 +387,6 @@ enum marshaled_type {
   marshaled_type_cons,
   marshaled_type_dynamic_array,
   marshaled_type_dynamic_byte_array,
-  marshaled_type_bytecode
+  marshaled_type_bytecode,
+  marshaled_type_vec2
 };

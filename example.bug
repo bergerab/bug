@@ -1,6 +1,6 @@
 (progn
   (set 'g (+ 1 2 3 4))
   (if t
-      (print "g = " g "wow it works!" (- 7 3 2 9))
+      (print "g = " g "wow it works!" (- 7 3 2 9) 3.4211)
     (print "didn't work")
     (print "fff")))
