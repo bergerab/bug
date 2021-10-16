@@ -1238,12 +1238,11 @@ struct object *do_string_marshal_cache_intern_cstr(struct object *cache, char *s
   }
   /* add to cache */
   if (existing_str == NULL) { 
-    printf("%s oiwjefoij\n", str);
     existing_str = dynamic_byte_array(length);
     memcpy(DYNAMIC_BYTE_ARRAY_BYTES(existing_str), str, length);
+    STRING_LENGTH(existing_str) = length;
     OBJECT_TYPE(existing_str) = type_string;
   }
-  printf("adding %I64u %c%c%c%c ", STRING_LENGTH(existing_str), STRING_CONTENTS(existing_str)[0], STRING_CONTENTS(existing_str)[1], STRING_CONTENTS(existing_str)[2], STRING_CONTENTS(existing_str)[3]);
   dynamic_array_push(cache, existing_str);
   *index = DYNAMIC_ARRAY_LENGTH(cache) - 1;
   return existing_str;
@@ -3096,7 +3095,8 @@ void run_tests() {
   assert(string_marshal_cache_intern_cstr(o0, "lisp", &uf0) == gis->lisp_string);
   assert(string_marshal_cache_intern_cstr(o0, "lisp", &uf0) != string("lisp"));
   assert(string_marshal_cache_intern_cstr(o0, "mips", &uf0) == string_marshal_cache_intern_cstr(o0, "mips", &uf0));
-  END_TESTS();
+  string_marshal_cache_intern_cstr(o0, "mips", &uf0);
+  assert(uf0 == DYNAMIC_ARRAY_LENGTH(o0) - 1);
 
   /* to-string */
   assert_string_eq(to_string(fixnum(0)), string("0"));
