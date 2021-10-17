@@ -1261,7 +1261,7 @@ struct object *string_marshal_cache_intern(struct object *cache, struct object *
  * Marshaling                    *
  *===============================*
  *===============================*/
-struct object *marshal(struct object *o, struct object *ba);
+struct object *marshal(struct object *o, struct object *ba, struct object *cache);
 
 struct object *marshal_fixnum_t(fixnum_t n, struct object *ba, char include_header) {
   unsigned char byte;
@@ -1304,29 +1304,34 @@ struct object *marshal_ufixnum_t(ufixnum_t n, struct object *ba, char include_he
   return ba;
 }
 
-struct object *marshal_string(struct object *str, struct object *ba, char include_header) {
+struct object *marshal_string(struct object *str, struct object *ba, char include_header, struct object *cache) {
+  ufixnum_t i;
   TC("marshal_string", 0, str, type_string);
   if (ba == NULL)
     ba = dynamic_byte_array(10);
   if (include_header)
     dynamic_byte_array_push_char(ba, marshaled_type_string);
-  marshal_ufixnum_t(STRING_LENGTH(str), ba, 0);
-  dynamic_byte_array_push_all(ba, str);
+  if (cache == NULL) { /* if not using a cache, use the string directly */
+    marshal_ufixnum_t(STRING_LENGTH(str), ba, 0);
+    dynamic_byte_array_push_all(ba, str);
+  } else { /* otherwise, just the cache index value */
+    string_marshal_cache_intern(cache, str, &i);
+    marshal_ufixnum_t(i, ba, 0);
+  }
   return ba;
 }
 
-struct object *marshal_symbol(struct object *sym, struct object *ba, char include_header) {
+struct object *marshal_symbol(struct object *sym, struct object *ba, char include_header, struct object *cache) {
+  ufixnum_t i;
   TC("marshal_symbol", 0, sym, type_symbol);
   if (ba == NULL)
     ba = dynamic_byte_array(10);
   if (include_header)
     dynamic_byte_array_push_char(ba, marshaled_type_symbol);
-  marshal_ufixnum_t(STRING_LENGTH(SYMBOL_NAME(sym)), ba, 0);
-  dynamic_byte_array_push_all(ba, SYMBOL_NAME(sym));
+  marshal_string(SYMBOL_NAME(sym), ba, include_header, cache);
   if (SYMBOL_PACKAGE(sym) != NIL) {
     dynamic_byte_array_push_char(ba, 1); /* flag indicating this symbol belongs to a package */
-    marshal_ufixnum_t(STRING_LENGTH(PACKAGE_NAME(SYMBOL_PACKAGE(sym))), ba, 0);
-    dynamic_byte_array_push_all(ba, PACKAGE_NAME(SYMBOL_PACKAGE(sym)));
+    marshal_string(PACKAGE_NAME(SYMBOL_PACKAGE(sym)), ba, include_header, cache);
   } else {
     dynamic_byte_array_push_char(ba, 0); /* flag indicating this symbol does not belong in any package */
   }
@@ -1351,18 +1356,18 @@ struct object *marshal_nil(struct object *ba) {
   return ba;
 }
 
-struct object *marshal_cons(struct object *o, struct object *ba, char include_header) {
+struct object *marshal_cons(struct object *o, struct object *ba, char include_header, struct object *cache) {
   TC("marshal_cons", 0, o, type_cons);
   if (ba == NULL)
     ba = dynamic_byte_array(10);
   if (include_header)
     dynamic_byte_array_push_char(ba, marshaled_type_cons);
-  marshal(CONS_CAR(o), ba);
-  marshal(CONS_CDR(o), ba);
+  marshal(CONS_CAR(o), ba, cache);
+  marshal(CONS_CDR(o), ba, cache);
   return ba;
 }
 
-struct object *marshal_dynamic_array(struct object *arr, struct object *ba, char include_header) {
+struct object *marshal_dynamic_array(struct object *arr, struct object *ba, char include_header, struct object *cache) {
   ufixnum_t arr_length, i;
   struct object **c_arr;
   TC("marshal_dynamic_array", 0, arr, type_dynamic_array);
@@ -1373,7 +1378,7 @@ struct object *marshal_dynamic_array(struct object *arr, struct object *ba, char
   arr_length = DYNAMIC_ARRAY_LENGTH(arr);
   c_arr = DYNAMIC_ARRAY_VALUES(arr);
   marshal_ufixnum_t(arr_length, ba, 0);
-  for (i = 0; i < arr_length; ++i) marshal(c_arr[i], ba);
+  for (i = 0; i < arr_length; ++i) marshal(c_arr[i], ba, cache);
   return ba;
 }
 
@@ -1441,13 +1446,13 @@ struct object *marshal_flonum(flonum_t n, struct object *ba, char include_header
 /**
  * turns bytecode into a byte-array that can be stored to a file
  */
-struct object *marshal_bytecode(struct object *bc, struct object *ba, char include_header) {
+struct object *marshal_bytecode(struct object *bc, struct object *ba, char include_header, struct object *cache) {
   TC("marshal_bytecode", 0, bc, type_bytecode);
   if (ba == NULL)
     ba = dynamic_byte_array(10);
   if (include_header)
     dynamic_byte_array_push_char(ba, marshaled_type_bytecode);
-  marshal_dynamic_array(BYTECODE_CONSTANTS(bc), ba, 0);
+  marshal_dynamic_array(BYTECODE_CONSTANTS(bc), ba, 0, cache);
   marshal_dynamic_byte_array(BYTECODE_CODE(bc), ba, 0);
   return ba;
 }
@@ -1467,16 +1472,16 @@ struct object *marshal_vec2(struct object *vec2, struct object *ba, char include
  * Takes any object and returns a byte-array containing the binary
  * representation of the object.
  */
-struct object *marshal(struct object *o, struct object *ba) {
+struct object *marshal(struct object *o, struct object *ba, struct object *cache) {
   if (ba == NULL) ba = dynamic_byte_array(10);
   if (o == NIL) return marshal_nil(ba);
   switch (get_object_type(o)) {
     case type_dynamic_byte_array:
       return marshal_dynamic_byte_array(o, ba, 1);
     case type_dynamic_array:
-      return marshal_dynamic_array(o, ba, 1);
+      return marshal_dynamic_array(o, ba, 1, cache);
     case type_cons:
-      return marshal_cons(o, ba, 1);
+      return marshal_cons(o, ba, 1, cache);
     case type_vec2:
       return marshal_vec2(o, ba, 1);
     case type_fixnum:
@@ -1486,11 +1491,11 @@ struct object *marshal(struct object *o, struct object *ba) {
     case type_flonum:
       return marshal_flonum(FLONUM_VALUE(o), ba, 1);
     case type_string:
-      return marshal_string(o, ba, 1);
+      return marshal_string(o, ba, 1, cache);
     case type_symbol:
-      return marshal_symbol(o, ba, 1);
+      return marshal_symbol(o, ba, 1, cache);
     case type_bytecode:
-      return marshal_bytecode(o, ba, 1);
+      return marshal_bytecode(o, ba, 1, cache);
     default:
       printf("BC: cannot marshal type %s.\n", get_object_type_name(o));
       return NIL;
@@ -1701,8 +1706,8 @@ struct object *unmarshal_cons(struct object *s, char includes_header) {
       exit(1);
     }
   }
-  car = unmarshal(s);
-  cdr = unmarshal(s);
+  car = unmarshal(s, cache);
+  cdr = unmarshal(s, cache);
   return cons(car, cdr);
 }
 
@@ -1725,7 +1730,7 @@ struct object *unmarshal_dynamic_byte_array(struct object *s, char includes_head
   return byte_stream_read(s, length);
 }
 
-struct object *unmarshal_dynamic_array(struct object *s, char includes_header) {
+struct object *unmarshal_dynamic_array(struct object *s, char includes_header, struct object *cache) {
   unsigned char t;
   struct object *darr;
   ufixnum_t length;
@@ -1743,7 +1748,7 @@ struct object *unmarshal_dynamic_array(struct object *s, char includes_header) {
   length = unmarshal_ufixnum_t(s);
   darr = dynamic_array(length);
   /* unmarshal all items: */
-  while (length-- > 0) dynamic_array_push(darr, unmarshal(s));
+  while (length-- > 0) dynamic_array_push(darr, unmarshal(s, cache));
   return darr;
 }
 
@@ -1764,7 +1769,7 @@ struct object *unmarshal_vec2(struct object *s, char includes_header) {
   return vec2(x, y);
 }
 
-struct object *unmarshal_bytecode(struct object *s, char includes_header) {
+struct object *unmarshal_bytecode(struct object *s, char includes_header, struct object *cache) {
   unsigned char t;
   struct object *constants, *code;
   s = byte_stream_lift(s);
@@ -1776,7 +1781,7 @@ struct object *unmarshal_bytecode(struct object *s, char includes_header) {
       exit(1);
     }
   }
-  constants = unmarshal_dynamic_array(s, 0);
+  constants = unmarshal_dynamic_array(s, 0, cache);
   code = unmarshal_dynamic_byte_array(s, 0);
   return bytecode(constants, code);
 }
@@ -1792,7 +1797,7 @@ struct object *unmarshal_nil(struct object *s) {
   return NIL;
 }
 
-struct object *unmarshal(struct object *s) {
+struct object *unmarshal(struct object *s, struct object *cache) {
   enum marshaled_type t;
 
   s = byte_stream_lift(s);
