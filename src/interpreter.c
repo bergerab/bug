@@ -1889,7 +1889,7 @@ struct object *read_file(struct object *file) {
   write_file(file, make_bytecode_file_header());
   cache = dynamic_array(10);
   ba = marshal_bytecode(bc, NULL, 0, cache);
-  write_file(file, marshal_dynamic_array(cache, file, 0, NULL));
+  write_file(file, marshal_dynamic_array(cache, NULL, 0, NULL));
   write_file(file, ba);
 }
 
