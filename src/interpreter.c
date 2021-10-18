@@ -1205,6 +1205,7 @@ struct object *string_marshal_cache_get_default() {
   dynamic_array_push(cache, gis->lisp_string);
   dynamic_array_push(cache, gis->keyword_string);
   dynamic_array_push(cache, gis->impl_string);
+  dynamic_array_push(cache, gis->t_string);
   dynamic_array_push(cache, gis->var_string);
   dynamic_array_push(cache, gis->list_string);
   dynamic_array_push(cache, gis->cons_string);
