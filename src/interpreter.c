@@ -1175,6 +1175,16 @@ struct object *string_intern(char *cstr, char is_builtin) {
   return NULL;
 }
 
+struct object *string_clone(struct object *str0) {
+  struct object *str1;
+  TC("string_clone", 0, str0, type_string);
+  str1 = dynamic_byte_array(STRING_LENGTH(str0));
+  memcpy(DYNAMIC_BYTE_ARRAY_BYTES(str1), DYNAMIC_BYTE_ARRAY_BYTES(str0), STRING_LENGTH(str0));
+  OBJECT_TYPE(str1) = type_string;
+  STRING_LENGTH(str1) = STRING_LENGTH(str0);
+  return str1;
+}
+
 void add_package(struct object *package) {
   gis->packages = cons(package, gis->packages);
 }
@@ -1646,8 +1656,10 @@ struct object *unmarshal_float(struct object *s) {
   return flonum(unmarshal_float_t(s));
 }
 
-/* TODO: pass clone parameter -- don't clone if it is immutable (e.g. symbol names), otherwise clone. only for when using cache */
-struct object *unmarshal_string(struct object *s, char includes_header, struct object *cache) {
+/* clone_from_cache -- if cache is not NULL, this parameter is used. If clone_from_cache=1, when
+   the string is taken from the cache, it will immediately clone it (intended for strings that can be
+   mutated). */
+struct object *unmarshal_string(struct object *s, char includes_header, struct object *cache, char clone_from_cache) {
   unsigned char t;
   struct object *str;
   ufixnum_t length;
@@ -1666,7 +1678,7 @@ struct object *unmarshal_string(struct object *s, char includes_header, struct o
     OBJECT_TYPE(str) = type_string;
   } else {
     length = unmarshal_ufixnum_t(s); /* this is the index in the cache where the string is found */
-    return DYNAMIC_ARRAY_VALUES(cache)[length];
+    return clone_from_cache ? string_clone(DYNAMIC_ARRAY_VALUES(cache)[length]) : DYNAMIC_ARRAY_VALUES(cache)[length];
   }
   return str;
 }
@@ -1682,11 +1694,11 @@ struct object *unmarshal_symbol(struct object *s, struct object *cache) {
     exit(1);
   }
   if (t == marshaled_type_symbol) {
-    package_name = unmarshal_string(s, 0, cache);
-    symbol_name = unmarshal_string(s, 0, cache);
+    package_name = unmarshal_string(s, 0, cache, 0); /* clone_from_cache is 0 because modifying symbol names is not allowed */
+    symbol_name = unmarshal_string(s, 0, cache, 0);
     return intern(symbol_name, find_package(package_name));
   } else {
-    symbol_name = unmarshal_string(s, 0, cache);
+    symbol_name = unmarshal_string(s, 0, cache, 0);
     return symbol(symbol_name);
   }
 }
@@ -1766,7 +1778,7 @@ struct object *unmarshal_dynamic_string_array(struct object *s, char includes_he
   length = unmarshal_ufixnum_t(s);
   if (darr == NULL)
     darr = dynamic_array(length);
-  while (length-- > 0) dynamic_array_push(darr, unmarshal_string(s, 0, cache));
+  while (length-- > 0) dynamic_array_push(darr, unmarshal_string(s, 0, cache, 0));
   return darr;
 }
 
@@ -1837,7 +1849,7 @@ struct object *unmarshal(struct object *s, struct object *cache) {
     case marshaled_type_negative_float:
       return unmarshal_float(s);
     case marshaled_type_string:
-      return unmarshal_string(s, 1, cache);
+      return unmarshal_string(s, 1, cache, 1);
     case marshaled_type_vec2:
       return unmarshal_vec2(s, 1);
     case marshaled_type_symbol:
@@ -2940,7 +2952,7 @@ void run_tests() {
 #define T_MAR_FLONUM(n) \
   assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(n, NULL))) == n);
 #define T_MAR_STR(x) \
-  assert_string_eq(unmarshal_string(marshal_string(string(x), NULL, 1, NULL), 1, NULL), string(x));
+  assert_string_eq(unmarshal_string(marshal_string(string(x), NULL, 1, NULL), 1, NULL, 1), string(x));
   /* test marshaling with the default package */
 #define T_MAR_SYM_DEF(x)                                                     \
   assert(unmarshal_symbol(                                                   \
