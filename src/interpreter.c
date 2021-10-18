@@ -2012,7 +2012,7 @@ char is_whitespace(char c) {
 }
 
 char is_priority_character(char c) {
-  return c == '"' || c == ')' || c == '\'' || c == '>';
+  return c == '"' || c == ')' || c == '\'';
 }
 
 char skip_whitespace(struct object *s) {
@@ -2098,26 +2098,6 @@ struct object *read(struct object *s, struct object *package) {
     }
     OBJECT_TYPE(buf) = type_string;
     return buf;
-  } else if (c == '<') { /* beginning of vec */
-    buf = dynamic_array(10);
-    byte_stream_read_byte(s); /* throw away the opening bracket */
-    c = skip_whitespace(s);
-    while (byte_stream_has(s) && (c = byte_stream_peek_byte(s)) != '>') {
-      dynamic_array_push(buf, read(s, package));
-      c = skip_whitespace(s);
-    }
-    if (!byte_stream_has(s)) {
-      printf("Unexpected end of input during vec2.");
-      exit(1);
-    }
-    byte_stream_read_byte(s); /* throw away the closing paren */
-    if (DYNAMIC_ARRAY_LENGTH(buf) != 2) {
-      printf("vec2 only accepts two flonums.");
-      exit(1);
-    }
-    flonum_convert(DYNAMIC_ARRAY_VALUES(buf)[0]);
-    flonum_convert(DYNAMIC_ARRAY_VALUES(buf)[1]);
-    return vec2(FLONUM_VALUE(DYNAMIC_ARRAY_VALUES(buf)[0]), FLONUM_VALUE(DYNAMIC_ARRAY_VALUES(buf)[1]));
   } else if (c == '(') { /* beginning of sexpr */
     buf = dynamic_array(10);
     sexpr = NIL;
