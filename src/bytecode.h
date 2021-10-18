@@ -436,6 +436,7 @@ enum marshaled_type {
   marshaled_type_integer,
   marshaled_type_float,
   marshaled_type_symbol,
+  marshaled_type_uninterned_symbol, /** a symbol with no home package */
   marshaled_type_string,
   marshaled_type_nil,
   marshaled_type_cons,
