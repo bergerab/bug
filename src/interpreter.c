@@ -1263,18 +1263,14 @@ struct object *string_marshal_cache_intern(struct object *cache, struct object *
  *===============================*/
 struct object *marshal(struct object *o, struct object *ba, struct object *cache);
 
-struct object *marshal_fixnum_t(fixnum_t n, struct object *ba, char include_header) {
+struct object *marshal_fixnum_t(fixnum_t n, struct object *ba) {
   unsigned char byte;
 
   if (ba == NULL)
     ba = dynamic_byte_array(4);
-
-  if (include_header)
-    dynamic_byte_array_push_char(ba, marshaled_type_integer);
-  dynamic_byte_array_push_char(ba, n < 0 ? 1 : 0);
-
+  /* the header must be included, because it includes sign information */
+  dynamic_byte_array_push_char(ba, n < 0 ? marshaled_type_negative_integer : marshaled_type_integer);
   n = n < 0 ? -n : n; /* abs */
-
   do {
     byte = n & 0x7F;
     if (n > 0x7F) /* flip the continuation bit if there are more bytes */
@@ -1282,7 +1278,6 @@ struct object *marshal_fixnum_t(fixnum_t n, struct object *ba, char include_head
     dynamic_byte_array_push_char(ba, byte);
     n >>= 7;
   } while (n > 0);
-
   return ba;
 }
 
@@ -1290,10 +1285,8 @@ struct object *marshal_ufixnum_t(ufixnum_t n, struct object *ba, char include_he
   unsigned char byte;
   if (ba == NULL)
     ba = dynamic_byte_array(4);
-  if (include_header) {
-    dynamic_byte_array_push_char(ba, marshaled_type_integer);
-    dynamic_byte_array_push_char(ba, 0); /* sign bit (always positive for ufixnum) */
-  }
+  /* the header is optional, because the code that unmarshals might already know that the number must be positive (e.g. string lengths). */
+  if (include_header) dynamic_byte_array_push_char(ba, marshaled_type_integer);
   do {
     byte = n & 0x7F;
     if (n > 0x7F) /* flip the continuation bit if there are more bytes */
@@ -1394,9 +1387,9 @@ struct object *marshal_dynamic_array(struct object *arr, struct object *ba, char
  * 2s compliment for the marshaling format besides the memory cost of the sign
  * byte (1 byte per number).
  */
-struct object *marshal_fixnum(struct object *n, struct object *ba, char include_header) {
+struct object *marshal_fixnum(struct object *n, struct object *ba) {
   TC("marshal_fixnum", 0, n, type_fixnum);
-  return marshal_fixnum_t(FIXNUM_VALUE(n), ba, include_header);
+  return marshal_fixnum_t(FIXNUM_VALUE(n), ba);
 }
 
 struct object *marshal_ufixnum(struct object *n, struct object *ba, char include_header) {
@@ -1412,16 +1405,14 @@ struct object *marshal_16_bit_fix(fixnum_t n, struct object *ba) {
   return ba;
 }
 
-struct object *marshal_flonum(flonum_t n, struct object *ba, char include_header) {
+struct object *marshal_flonum(flonum_t n, struct object *ba) {
   ufixnum_t mantissa_fix;
   flonum_t mantissa;
   int exponent;
 
   if (ba == NULL)
     ba = dynamic_byte_array(10);
-  if (include_header)
-    dynamic_byte_array_push_char(ba, marshaled_type_float);
-  dynamic_byte_array_push_char(ba, n < 0 ? 1 : 0);
+  dynamic_byte_array_push_char(ba, n < 0 ? marshaled_type_negative_float : marshaled_type_float);
   /* Inefficient in both time and space but work short term.
    *
    * The idea was for the marshaled format to be as exact as possible
@@ -1462,8 +1453,8 @@ struct object *marshal_vec2(struct object *vec2, struct object *ba, char include
     ba = dynamic_byte_array(1);
   if (include_header)
     dynamic_byte_array_push_char(ba, marshaled_type_vec2);
-  marshal_flonum(VEC2_X(vec2), ba, 0);
-  marshal_flonum(VEC2_Y(vec2), ba, 0);
+  marshal_flonum(VEC2_X(vec2), ba);
+  marshal_flonum(VEC2_Y(vec2), ba);
   return ba;
 }
 
@@ -1484,11 +1475,11 @@ struct object *marshal(struct object *o, struct object *ba, struct object *cache
     case type_vec2:
       return marshal_vec2(o, ba, 1);
     case type_fixnum:
-      return marshal_fixnum(o, ba, 1);
+      return marshal_fixnum(o, ba);
     case type_ufixnum:
       return marshal_ufixnum(o, ba, 1);
     case type_flonum:
-      return marshal_flonum(FLONUM_VALUE(o), ba, 1);
+      return marshal_flonum(FLONUM_VALUE(o), ba);
     case type_string:
       return marshal_string(o, ba, 1, cache);
     case type_symbol:
@@ -1511,7 +1502,9 @@ struct object *unmarshal(struct object *s, struct object *cache);
 /* these are used for lengths -- this will never be used for numbers used in the code
    those use unmarshal_integer, because it is uncertain if they will fit into a fix/ufix/flo.
    But these are required to fit into a ufixnum on this machine. It would be an error if the number
-   doesn't fit into the ufix. */
+   doesn't fit into the ufix. 
+   
+   this always assumes the data was written with include_header=0. */
 ufixnum_t unmarshal_ufixnum_t(struct object *s) {
   ufixnum_t n;
   ufixnum_t byte;
@@ -1539,7 +1532,7 @@ fixnum_t unmarshal_16_bit_fix(struct object *s) {
   return n;
 }
 
-struct object *unmarshal_integer(struct object *s, char includes_header) {
+struct object *unmarshal_integer(struct object *s) {
   unsigned char t, sign, is_flo, is_init_flo;
   ufixnum_t ufix, next_ufix, byte_count,
       byte; /* the byte must be a ufixnum because it is used in operations that
@@ -1549,18 +1542,17 @@ struct object *unmarshal_integer(struct object *s, char includes_header) {
 
   s = byte_stream_lift(s);
   TC2("unmarshal_integer", 0, s, type_enumerator, type_file);
-  if (includes_header) {
-    t = byte_stream_read_byte(s);
-    if (t != marshaled_type_integer) {
-      printf(
-          "BC: unmarshal expected marshaled_integer type, but "
-          "was %d.",
-          t);
-      exit(1);
-    }
+  t = byte_stream_read_byte(s);
+  if (t != marshaled_type_integer && t != marshaled_type_negative_integer) {
+    printf(
+        "BC: unmarshal expected marshaled_integer or "
+        "marsahled_negative_interger type, but "
+        "was %d.",
+        t);
+    exit(1);
   }
 
-  sign = byte_stream_read_byte(s);
+  sign = t == marshaled_type_negative_integer;
 
   is_flo = 0;
   is_init_flo = 0;
@@ -1619,31 +1611,32 @@ struct object *unmarshal_integer(struct object *s, char includes_header) {
   return ufixnum(ufix);
 }
 
-flonum_t unmarshal_float_t(struct object *s, char includes_header) {
-  unsigned char t, sign;
+flonum_t unmarshal_float_t(struct object *s) {
+  unsigned char t;
   fixnum_t exponent;
   flonum_t flo, mantissa;
   ufixnum_t mantissa_fix;
   s = byte_stream_lift(s);
   TC2("unmarshal_float", 0, s, type_file, type_enumerator);
-  if (includes_header) {
-    t = byte_stream_read_byte(s);
-    if (t != marshaled_type_float) {
-      printf("BC: unmarshal expected float type, but was %d.", t);
-      exit(1);
-    }
+  t = byte_stream_read_byte(s);
+  if (t != marshaled_type_float && t != marshaled_type_negative_float) {
+    printf("BC: unmarshal expected float type, but was %d.", t);
+    exit(1);
   }
-  sign = byte_stream_read_byte(s); /* TODO: this sign byte can be thrown into the exponent fix as a single bit */
   mantissa_fix = unmarshal_ufixnum_t(s);
   mantissa = (flonum_t)mantissa_fix / pow(2, DBL_MANT_DIG);
   /* TODO: make it choose between DBL/FLT properly */
   exponent = unmarshal_16_bit_fix(s);
   flo = ldexp(mantissa, exponent);
-  return sign == 1 ? -flo : flo;
+  /* the sign could also be embedded in the "exponent" part -- use one bit for
+     it causing the exponent to use 15 bits. But this won't actually save space
+     because all floats current need the header anyway, so may as well use the
+     header for signing information (it is easier to code that). */
+  return t == marshaled_type_negative_float ? -flo : flo;
 }
 
-struct object *unmarshal_float(struct object *s, char includes_header) {
-  return flonum(unmarshal_float_t(s, includes_header));
+struct object *unmarshal_float(struct object *s) {
+  return flonum(unmarshal_float_t(s));
 }
 
 /* TODO: pass clone parameter -- don't clone if it is immutable (e.g. symbol names), otherwise clone. only for when using cache */
@@ -1760,8 +1753,8 @@ struct object *unmarshal_vec2(struct object *s, char includes_header) {
       exit(1);
     }
   }
-  x = unmarshal_float_t(s, 0);
-  y = unmarshal_float_t(s, 0);
+  x = unmarshal_float_t(s);
+  y = unmarshal_float_t(s);
   return vec2(x, y);
 }
 
@@ -1809,9 +1802,11 @@ struct object *unmarshal(struct object *s, struct object *cache) {
     case marshaled_type_nil:
       return unmarshal_nil(s);
     case marshaled_type_integer:
-      return unmarshal_integer(s, 1);
+    case marshaled_type_negative_integer:
+      return unmarshal_integer(s);
     case marshaled_type_float:
-      return unmarshal_float(s, 1);
+    case marshaled_type_negative_float:
+      return unmarshal_float(s);
     case marshaled_type_string:
       return unmarshal_string(s, 1, cache);
     case marshaled_type_vec2:
@@ -2905,11 +2900,11 @@ void run_tests() {
   reinit();
 
 #define T_MAR_FIXNUM(n) \
-  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(n), NULL, 1), 1)) == n);
+  assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(n), NULL))) == n);
 #define T_MAR_UFIXNUM(n) \
-  assert(UFIXNUM_VALUE(unmarshal_integer(marshal_ufixnum(ufixnum(n), NULL, 1), 1)) == n);
+  assert(UFIXNUM_VALUE(unmarshal_integer(marshal_ufixnum(ufixnum(n), NULL, 1))) == n);
 #define T_MAR_FLONUM(n) \
-  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(n, NULL, 1), 1)) == n);
+  assert(FLONUM_VALUE(unmarshal_float(marshal_flonum(n, NULL))) == n);
 #define T_MAR_STR(x) \
   assert_string_eq(unmarshal_string(marshal_string(string(x), NULL, 1, NULL), 1, NULL), string(x));
   /* test marshaling with the default package */
