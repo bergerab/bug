@@ -1374,6 +1374,18 @@ struct object *marshal_dynamic_array(struct object *arr, struct object *ba, char
   return ba;
 }
 
+struct object *marshal_dynamic_string_array(struct object *arr, struct object *ba, char include_header, struct object *cache) {
+  ufixnum_t i;
+  TC("marshal_dynamic_string_array", 0, arr, type_dynamic_array);
+  if (ba == NULL)
+    ba = dynamic_byte_array(10);
+  if (include_header)
+    dynamic_byte_array_push_char(ba, marshaled_type_dynamic_string_array);
+  marshal_ufixnum_t(DYNAMIC_ARRAY_LENGTH(arr), ba, 0);
+  for (i = 0; i < DYNAMIC_ARRAY_LENGTH(arr); ++i) marshal_string(DYNAMIC_ARRAY_VALUES(arr)[i], ba, 0, cache);
+  return ba;
+}
+
 /**
  * The format used for marshaling fixnums is platform independent
  * it has the following form (each is one byte):
@@ -1741,6 +1753,27 @@ struct object *unmarshal_dynamic_array(struct object *s, char includes_header, s
   return darr;
 }
 
+struct object *unmarshal_dynamic_string_array(struct object *s, char includes_header, struct object *cache) {
+  unsigned char t;
+  struct object *darr;
+  ufixnum_t length;
+  s = byte_stream_lift(s);
+  if (includes_header) {
+    t = byte_stream_read_byte(s);
+    if (t != marshaled_type_dynamic_string_array) {
+      printf(
+          "BC: unmarshal expected dynamic-string-array type, but was "
+          "%d.",
+          t);
+      exit(1);
+    }
+  }
+  length = unmarshal_ufixnum_t(s);
+  darr = dynamic_array(length);
+  while (length-- > 0) dynamic_array_push(darr, unmarshal_string(s, 0, cache));
+  return darr;
+}
+
 struct object *unmarshal_vec2(struct object *s, char includes_header) {
   unsigned char t;
   flonum_t x, y;
@@ -1797,6 +1830,8 @@ struct object *unmarshal(struct object *s, struct object *cache) {
       return unmarshal_dynamic_byte_array(s, 1);
     case marshaled_type_dynamic_array:
       return unmarshal_dynamic_array(s, 1, cache);
+    case marshaled_type_dynamic_string_array:
+      return unmarshal_dynamic_string_array(s, 1, cache);
     case marshaled_type_cons:
       return unmarshal_cons(s, 1, cache);
     case marshaled_type_nil:
@@ -1884,7 +1919,7 @@ struct object *read_file(struct object *file) {
   write_file(file, make_bytecode_file_header());
   cache = dynamic_array(10);
   ba = marshal_bytecode(bc, NULL, 0, cache);
-  write_file(file, marshal_dynamic_array(cache, NULL, 0, NULL));
+  write_file(file, marshal_dynamic_string_array(cache, NULL, 0, NULL));
   write_file(file, ba);
 }
 
@@ -1909,7 +1944,7 @@ struct object *read_bytecode_file(struct object *s) {
     exit(1);
   }
 
-  cache = unmarshal_dynamic_array(s, 0, NULL);
+  cache = unmarshal_dynamic_string_array(s, 0, NULL);
   bc = unmarshal_bytecode(s, 0, cache);
 
   if (get_object_type(bc) != type_bytecode) {

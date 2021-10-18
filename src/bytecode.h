@@ -443,6 +443,7 @@ enum marshaled_type {
   marshaled_type_nil,
   marshaled_type_cons,
   marshaled_type_dynamic_array,
+  marshaled_type_dynamic_string_array,
   marshaled_type_dynamic_byte_array,
   marshaled_type_bytecode,
   marshaled_type_vec2
