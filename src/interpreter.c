@@ -1205,11 +1205,6 @@ struct object *string_marshal_cache_get_default() {
   dynamic_array_push(cache, gis->lisp_string);
   dynamic_array_push(cache, gis->keyword_string);
   dynamic_array_push(cache, gis->impl_string);
-  dynamic_array_push(cache, gis->x_string);
-  dynamic_array_push(cache, gis->y_string);
-  dynamic_array_push(cache, gis->a_string);
-  dynamic_array_push(cache, gis->b_string);
-  dynamic_array_push(cache, gis->temp_string);
   dynamic_array_push(cache, gis->var_string);
   dynamic_array_push(cache, gis->list_string);
   dynamic_array_push(cache, gis->cons_string);
@@ -1374,15 +1369,14 @@ struct object *marshal_dynamic_array(struct object *arr, struct object *ba, char
   return ba;
 }
 
-struct object *marshal_dynamic_string_array(struct object *arr, struct object *ba, char include_header, struct object *cache) {
-  ufixnum_t i;
+struct object *marshal_dynamic_string_array(struct object *arr, struct object *ba, char include_header, struct object *cache, ufixnum_t start_index) {
   TC("marshal_dynamic_string_array", 0, arr, type_dynamic_array);
   if (ba == NULL)
     ba = dynamic_byte_array(10);
   if (include_header)
     dynamic_byte_array_push_char(ba, marshaled_type_dynamic_string_array);
-  marshal_ufixnum_t(DYNAMIC_ARRAY_LENGTH(arr), ba, 0);
-  for (i = 0; i < DYNAMIC_ARRAY_LENGTH(arr); ++i) marshal_string(DYNAMIC_ARRAY_VALUES(arr)[i], ba, 0, cache);
+  marshal_ufixnum_t(DYNAMIC_ARRAY_LENGTH(arr) - start_index, ba, 0);
+  for (; start_index < DYNAMIC_ARRAY_LENGTH(arr); ++start_index) marshal_string(DYNAMIC_ARRAY_VALUES(arr)[start_index], ba, 0, cache);
   return ba;
 }
 
@@ -1753,9 +1747,9 @@ struct object *unmarshal_dynamic_array(struct object *s, char includes_header, s
   return darr;
 }
 
-struct object *unmarshal_dynamic_string_array(struct object *s, char includes_header, struct object *cache) {
+/* if given an existing dynamic array, it will push all items to that. otherwise makes a new one. */
+struct object *unmarshal_dynamic_string_array(struct object *s, char includes_header, struct object *cache, struct object *darr) {
   unsigned char t;
-  struct object *darr;
   ufixnum_t length;
   s = byte_stream_lift(s);
   if (includes_header) {
@@ -1769,7 +1763,8 @@ struct object *unmarshal_dynamic_string_array(struct object *s, char includes_he
     }
   }
   length = unmarshal_ufixnum_t(s);
-  darr = dynamic_array(length);
+  if (darr == NULL)
+    darr = dynamic_array(length);
   while (length-- > 0) dynamic_array_push(darr, unmarshal_string(s, 0, cache));
   return darr;
 }
@@ -1830,8 +1825,6 @@ struct object *unmarshal(struct object *s, struct object *cache) {
       return unmarshal_dynamic_byte_array(s, 1);
     case marshaled_type_dynamic_array:
       return unmarshal_dynamic_array(s, 1, cache);
-    case marshaled_type_dynamic_string_array:
-      return unmarshal_dynamic_string_array(s, 1, cache);
     case marshaled_type_cons:
       return unmarshal_cons(s, 1, cache);
     case marshaled_type_nil:
@@ -1914,12 +1907,14 @@ struct object *read_file(struct object *file) {
  */
  void write_bytecode_file(struct object *file, struct object *bc) {
   struct object *cache, *ba;
+  ufixnum_t user_cache_start_index;
   TC("write_bytecode_file", 0, file, type_file);
   TC("write_bytecode_file", 1, bc, type_bytecode);
   write_file(file, make_bytecode_file_header());
-  cache = dynamic_array(10);
+  cache = string_marshal_cache_get_default();
+  user_cache_start_index = DYNAMIC_ARRAY_LENGTH(cache);
   ba = marshal_bytecode(bc, NULL, 0, cache);
-  write_file(file, marshal_dynamic_string_array(cache, NULL, 0, NULL));
+  write_file(file, marshal_dynamic_string_array(cache, NULL, 0, NULL, user_cache_start_index));
   write_file(file, ba);
 }
 
@@ -1944,7 +1939,10 @@ struct object *read_bytecode_file(struct object *s) {
     exit(1);
   }
 
-  cache = unmarshal_dynamic_string_array(s, 0, NULL);
+  /* load cache with defaults, then fill with additional from file */
+  cache = string_marshal_cache_get_default();
+  unmarshal_dynamic_string_array(s, 0, NULL, cache);
+
   bc = unmarshal_bytecode(s, 0, cache);
 
   if (get_object_type(bc) != type_bytecode) {
