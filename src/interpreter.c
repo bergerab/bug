@@ -635,14 +635,13 @@ struct object *to_string_vec2(struct object *vec2) {
   TC("to_string_vec2", 0, vec2, type_vec2);
 
   str = string("<");
-  str = dynamic_array_concat(str, to_string_flonum_t(VEC2_X(vec2)));
-  dynamic_byte_array_push_char(str, ',');
+  str = dynamic_byte_array_concat(str, to_string_flonum_t(VEC2_X(vec2)));
   dynamic_byte_array_push_char(str, ' ');
-  str = dynamic_array_concat(str, to_string_flonum_t(VEC2_Y(vec2)));
+  str = dynamic_byte_array_concat(str, to_string_flonum_t(VEC2_Y(vec2)));
   dynamic_byte_array_push_char(str, '>');
+  OBJECT_TYPE(str) = type_string;
   return str;
 }
-
 
 struct object *to_string_dynamic_array(struct object *da) {
   struct object *str;
@@ -1185,6 +1184,37 @@ struct object *string_clone(struct object *str0) {
   return str1;
 }
 
+flonum_t flonum_t_value(struct object *o) {
+  enum type type;
+  type = get_object_type(o);
+  if (type == type_flonum)
+    return FLONUM_VALUE(o);
+  if (type == type_fixnum)
+    return FIXNUM_VALUE(o);
+  if (type == type_ufixnum)
+    return UFIXNUM_VALUE(o);
+  printf("Cannot get flonum_t value of given type.");
+  exit(1);
+}
+
+void flonum_convert(struct object *o) {
+  enum type type;
+  type = get_object_type(o);
+  if (type == type_flonum) {
+    return;
+  } else if (type == type_fixnum) {
+    OBJECT_TYPE(o) = type_flonum;
+    FLONUM_VALUE(o) = FIXNUM_VALUE(o);
+    return;
+  } else if (type == type_ufixnum) {
+    OBJECT_TYPE(o) = type_flonum;
+    FLONUM_VALUE(o) = UFIXNUM_VALUE(o);
+    return;
+  }
+  printf("Cannot get flonum_t value of given type.");
+  exit(1);
+}
+
 void add_package(struct object *package) {
   gis->packages = cons(package, gis->packages);
 }
@@ -1467,7 +1497,7 @@ struct object *marshal_bytecode(struct object *bc, struct object *ba, char inclu
 struct object *marshal_vec2(struct object *vec2, struct object *ba, char include_header) {
   TC("marshal_vec2", 0, vec2, type_vec2);
   if (ba == NULL)
-    ba = dynamic_byte_array(1);
+    ba = dynamic_byte_array(10);
   if (include_header)
     dynamic_byte_array_push_char(ba, marshaled_type_vec2);
   marshal_flonum(VEC2_X(vec2), ba);
@@ -1982,7 +2012,7 @@ char is_whitespace(char c) {
 }
 
 char is_priority_character(char c) {
-  return c == '"' || c == ')' || c == '\'';
+  return c == '"' || c == ')' || c == '\'' || c == '>';
 }
 
 char skip_whitespace(struct object *s) {
@@ -2068,6 +2098,26 @@ struct object *read(struct object *s, struct object *package) {
     }
     OBJECT_TYPE(buf) = type_string;
     return buf;
+  } else if (c == '<') { /* beginning of vec */
+    buf = dynamic_array(10);
+    byte_stream_read_byte(s); /* throw away the opening bracket */
+    c = skip_whitespace(s);
+    while (byte_stream_has(s) && (c = byte_stream_peek_byte(s)) != '>') {
+      dynamic_array_push(buf, read(s, package));
+      c = skip_whitespace(s);
+    }
+    if (!byte_stream_has(s)) {
+      printf("Unexpected end of input during vec2.");
+      exit(1);
+    }
+    byte_stream_read_byte(s); /* throw away the closing paren */
+    if (DYNAMIC_ARRAY_LENGTH(buf) != 2) {
+      printf("vec2 only accepts two flonums.");
+      exit(1);
+    }
+    flonum_convert(DYNAMIC_ARRAY_VALUES(buf)[0]);
+    flonum_convert(DYNAMIC_ARRAY_VALUES(buf)[1]);
+    return vec2(FLONUM_VALUE(DYNAMIC_ARRAY_VALUES(buf)[0]), FLONUM_VALUE(DYNAMIC_ARRAY_VALUES(buf)[1]));
   } else if (c == '(') { /* beginning of sexpr */
     buf = dynamic_array(10);
     sexpr = NIL;
@@ -3179,6 +3229,8 @@ void run_tests() {
   assert_string_eq(to_string(flonum(0.000000059)), string("5.9e-8"));
   assert_string_eq(to_string(flonum(0.00000000000000000000000000000000000000000000034234234232942362341239123412312348)), string("3.423423423e-46"));
   assert_string_eq(to_string(flonum(0.00000000000000000000000000000000000000000000034234234267942362341239123412312348)), string("3.423423427e-46")); /* should round last digit */
+
+  assert_string_eq(to_string(vec2(1, 2)), string("<1.0 2.0>"));
 
   /* TODO: something is wrong with 1.0003 (try typing it into the REPL) not sure if its an issue during read or to-string. any leading zeros are cut off */
   /* TODO: something wrong with 23532456346234623462346236. */
