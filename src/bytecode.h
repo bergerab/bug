@@ -117,6 +117,9 @@ typedef double flonum_t;
 #define BYTECODE_CODE(o)\
   o->w1.value.bytecode->code
 
+#define BYTECODE_STACK_SIZE(o)\
+  o->w1.value.bytecode->stack_size
+
 #define STRING_LENGTH(o)\
   DYNAMIC_BYTE_ARRAY_LENGTH(o)
 
@@ -205,7 +208,9 @@ enum ops {
   op_set_symbol_value,
   op_symbol_value,
   op_jump,
-  op_jump_when_nil
+  op_jump_when_nil,
+  op_load_from_stack,
+  op_store_to_stack
 };
 
 /* The types defined below are not the same as the types that will
@@ -294,6 +299,7 @@ struct package {
 struct bytecode {
   struct object *code; /** the code (a byte-array) */
   struct object *constants; /** an array of constants used within the code (an array) */
+  ufixnum_t stack_size; /** how many items to reserve on the stack */
 };
 
 struct function {
@@ -374,6 +380,7 @@ struct gis {
   struct object *or_symbol;
   struct object *equals_symbol;
   struct object *function_symbol;
+  struct object *let_symbol;
   struct object *nil_symbol;
   struct object *t_symbol;
   struct object *if_symbol;
@@ -410,6 +417,7 @@ struct gis {
   struct object *or_string;
   struct object *equals_string;
   struct object *function_string;
+  struct object *let_string;
   struct object *nil_string;
   struct object *t_string;
   struct object *if_string;

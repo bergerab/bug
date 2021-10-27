@@ -209,7 +209,7 @@ struct object *dynamic_byte_array(ufixnum_t initial_capacity) {
   return o;
 }
 
-struct object *bytecode(struct object *constants, struct object *code) {
+struct object *bytecode(struct object *constants, struct object *code, ufixnum_t stack_size) {
   struct object *o;
   TC("bytecode", 0, constants, type_dynamic_array);
   TC("bytecode", 1, code, type_dynamic_byte_array);
@@ -219,6 +219,7 @@ struct object *bytecode(struct object *constants, struct object *code) {
   NC(o->w1.value.bytecode, "Failed to allocate bytecode.");
   BYTECODE_CODE(o) = code;
   BYTECODE_CONSTANTS(o) = constants;
+  BYTECODE_STACK_SIZE(o) = stack_size;
   return o;
 }
 
@@ -796,7 +797,8 @@ char equals(struct object *o0, struct object *o1) {
       return o0 == o1;
     case type_bytecode:
       return equals(BYTECODE_CONSTANTS(o0), BYTECODE_CONSTANTS(o1)) &&
-             equals(BYTECODE_CODE(o0), BYTECODE_CODE(o1));
+             equals(BYTECODE_CODE(o0), BYTECODE_CODE(o1)) &&
+             BYTECODE_STACK_SIZE(o0) == BYTECODE_STACK_SIZE(o1);
     case type_function:
       return equals(FUNCTION_NAME(o0), FUNCTION_NAME(o1)) &&
              equals(FUNCTION_BYTECODE(o0), FUNCTION_BYTECODE(o1));
@@ -1142,6 +1144,7 @@ void gis_init() {
   GIS_SYM(progn_symbol, progn_string, "progn", lisp_package);
   GIS_SYM(or_symbol, or_string, "or", lisp_package);
   GIS_SYM(function_symbol, function_string, "func", lisp_package);
+  GIS_SYM(let_symbol, let_string, "let", lisp_package);
   GIS_SYM(t_symbol, t_string, "t", lisp_package);
   symbol_set_value(gis->t_symbol, gis->t_symbol); /* t has itself as its value */
   GIS_SYM(if_symbol, if_string, "if", lisp_package);
@@ -1490,6 +1493,7 @@ struct object *marshal_bytecode(struct object *bc, struct object *ba, char inclu
   if (include_header)
     dynamic_byte_array_push_char(ba, marshaled_type_bytecode);
   marshal_dynamic_array(BYTECODE_CONSTANTS(bc), ba, 0, cache);
+  marshal_ufixnum_t(BYTECODE_STACK_SIZE(bc), ba, 0);
   marshal_dynamic_byte_array(BYTECODE_CODE(bc), ba, 0);
   return ba;
 }
@@ -1832,6 +1836,7 @@ struct object *unmarshal_vec2(struct object *s, char includes_header) {
 struct object *unmarshal_bytecode(struct object *s, char includes_header, struct object *cache) {
   unsigned char t;
   struct object *constants, *code;
+  ufixnum_t stack_size;
   s = byte_stream_lift(s);
   if (includes_header) {
     t = byte_stream_read_byte(s);
@@ -1842,8 +1847,9 @@ struct object *unmarshal_bytecode(struct object *s, char includes_header, struct
     }
   }
   constants = unmarshal_dynamic_array(s, 0, cache);
+  stack_size = unmarshal_ufixnum_t(s);
   code = unmarshal_dynamic_byte_array(s, 0);
-  return bytecode(constants, code);
+  return bytecode(constants, code, stack_size);
 }
 
 struct object *unmarshal_nil(struct object *s) {
@@ -2312,13 +2318,14 @@ struct object *compile_function(struct object *ast, struct object *bc, struct ob
  *   add
  */
 struct object *compile(struct object *ast, struct object *bc, struct object *st) {
-  struct object *value, *car, *cursor, *constants, *code;
-  ufixnum_t length, t0, t1, jump_offset;
+  struct object *value, *car, *cursor, *constants, *code, *tst; /* temp symbol table */
+  struct object *name, *params, *body, *k, *v, *kvp; /** for compiling functions */
+  ufixnum_t length, t0, t1, jump_offset, stack_index;
 
   if (bc == NIL) {
     constants = dynamic_array(10);
     code = dynamic_byte_array(10);
-    bc = bytecode(constants, code);
+    bc = bytecode(constants, code, 0); /* 0 stack size is temporary, it will be updated */
   }
 
 /* compiles each item in the cons list, and runs "f" after each is compiled 
@@ -2371,6 +2378,22 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
     }                                    \
   }
 
+#define C_ARG0() CONS_CAR(CONS_CDR(value))
+#define C_ARG1() CONS_CAR(CONS_CDR(CONS_CDR(value)))
+#define C_ARG2() CONS_CAR(CONS_CDR(CONS_CDR(CONS_CDR(value))))
+#define C_ARG3() CONS_CAR(CONS_CDR(CONS_CDR(CONS_CDR(CONS_CDR(value)))))
+#define C_COMPILE(expr) compile(expr, bc, st);
+#define C_COMPILE_ARG0 C_COMPILE(C_ARG0())
+#define C_COMPILE_ARG1 C_COMPILE(C_ARG1())
+#define C_COMPILE_ARG2 C_COMPILE(C_ARG2())
+#define C_COMPILE_ARG3 C_COMPILE(C_ARG3())
+
+#define C_CODE BYTECODE_CODE(bc)
+#define C_CONSTANTS BYTECODE_CONSTANTS(bc)
+#define C_PUSH_CODE(op) dynamic_byte_array_push_char(C_CODE, op);
+#define C_PUSH_CONSTANT(constant) dynamic_array_push(C_CONSTANTS, constant);
+#define C_CODE_LEN DYNAMIC_BYTE_ARRAY_LENGTH(C_CODE)
+
   value = ast;
   switch (get_object_type(value)) {
     case type_nil:
@@ -2385,10 +2408,18 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
       gen_load_constant(bc, value);
       break;
     case type_symbol:
-      dynamic_array_push(BYTECODE_CONSTANTS(bc), value);
-      dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_const);
-      marshal_ufixnum_t(DYNAMIC_ARRAY_LENGTH(BYTECODE_CONSTANTS(bc)) - 1, BYTECODE_CODE(bc), 0);
-      dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_symbol_value);
+      if (alist_get_slot(st, value) != NIL) {
+        marshal_ufixnum(alist_get_value(st, value), C_CODE, 0);
+        C_PUSH_CODE(op_load_from_stack);
+      } else {
+        /* if the value isn't in the symbol table (not a lexical variable),
+         * evaluate the symbol's value at runtime */
+        C_PUSH_CONSTANT(value);
+        C_PUSH_CODE(op_const);
+        marshal_ufixnum_t(DYNAMIC_ARRAY_LENGTH(C_CONSTANTS) - 1, C_CODE, 0);
+        C_PUSH_CODE(op_symbol_value);
+      }
+      /* TODO: add dynamic scoping */
       break;
     case type_file:
       printf("A object of type file cannot be compiled.");
@@ -2403,173 +2434,206 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
         } else { /* either it is undefined or a special form */
           if (car == gis->cons_symbol) {
             SF_REQ_N(2, value);
-            compile(CONS_CAR(CONS_CDR(value)), bc, st);
-            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
-            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_cons);
+            C_COMPILE_ARG0;
+            C_COMPILE_ARG1;
+            C_PUSH_CODE(op_cons);
             break;
           } else if (car == gis->progn_symbol) {
             cursor = CONS_CDR(value);
             while (cursor != NIL) {
-              compile(CONS_CAR(cursor), bc, st);
+              C_COMPILE(CONS_CAR(cursor));
               cursor = CONS_CDR(cursor);
               if (cursor != NIL)
-                dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_drop);
+                C_PUSH_CODE(op_drop);
             }
             break;
           } else if (car == gis->drop_symbol) {
-            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_drop);
+            C_PUSH_CODE(op_drop);
+            break;
+          } else if (car == gis->let_symbol) {
+            /* (let [params] [body]) */
+            params = C_ARG0();
+
+            cursor = params;
+            tst = st; /* all compilations in the let will use the symbol table from before evaluating the let */
+            while (cursor != NIL) { 
+              kvp = CONS_CAR(cursor);
+              /* TODO: validate that there's actually a key and value in the kvp */
+              k = CONS_CAR(kvp);
+              v = CONS_CAR(CONS_CDR(kvp));
+              stack_index = BYTECODE_STACK_SIZE(bc);
+              ++BYTECODE_STACK_SIZE(bc);
+              C_PUSH_CODE(stack_index); /* should this be a marshaled fix or char? */
+              compile(v, bc, tst);
+              C_PUSH_CODE(op_store_to_stack);
+              st = alist_extend(st, k, ufixnum(stack_index)); /* add to the symbol table that the body of the let will use */
+              cursor = CONS_CDR(cursor);
+            }
+
+            cursor = CONS_CDR(CONS_CDR(value)); /* the body of the let */
+            while (cursor != NIL) { 
+              C_COMPILE(CONS_CAR(cursor));
+              cursor = CONS_CDR(cursor);
+            }
+          } else if (car == gis->function_symbol) {
+            /* (function [name] [params] body) */
+            name = C_ARG0();
+            if (get_object_type(name) != type_symbol) {
+              printf("functions must be given a symbol name.");
+              exit(1);
+            }
+            /* this is the params list */
+            params = C_ARG1();
+
+            /* the start of the body */
+            body = CONS_CDR(CONS_CDR(CONS_CDR(value)));
+
+            print(params, 1);
+            print(body, 1);
             break;
           } else if (car == gis->symbol_value_symbol) {
             SF_REQ_N(1, value);
-            compile(CONS_CAR(CONS_CDR(value)), bc, st);
+            C_COMPILE_ARG0;
             break;
           } else if (car == gis->quote_symbol) {
             SF_REQ_N(1, value);
-            gen_load_constant(bc, CONS_CAR(CONS_CDR(value)));
+            gen_load_constant(bc, C_ARG0());
             break;
           } else if (car == gis->car_symbol) {
             SF_REQ_N(1, value);
-            compile(CONS_CAR(CONS_CDR(value)), bc, st);
-            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_car);
+            C_COMPILE_ARG0;
+            C_PUSH_CODE(op_car);
             break;
           } else if (car == gis->cdr_symbol) {
             SF_REQ_N(1, value);
-            compile(CONS_CAR(CONS_CDR(value)), bc, st);
-            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_cdr);
+            C_COMPILE_ARG0;
+            C_PUSH_CODE(op_cdr);
             break;
           } else if (car == gis->set_symbol) {
+            SF_REQ_N(2, value);
+            /* in CL, SET doesn't work for lexical variables. setq can do this though */
             /* if this is lexical, set the variable on the stack
                otherwise, set the symbol value slot */
-            SF_REQ_N(2, value);
-            compile(CONS_CAR(CONS_CDR(value)), bc, st);
-            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
-            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_set_symbol_value);
+            C_COMPILE_ARG0;
+            C_COMPILE_ARG1;
+            C_PUSH_CODE(op_set_symbol_value);
             break;
           } else if (car == gis->if_symbol) {
-
             /* compile the condition part if the if */
-            compile(CONS_CAR(CONS_CDR(value)), bc, st);
-            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_jump_when_nil);
+            C_COMPILE_ARG0;
+            C_PUSH_CODE(op_jump_when_nil);
             /* dummy arg of zeros for jump -- will be updated below to go to end of if statement */
-            dynamic_byte_array_push_char(BYTECODE_CODE(bc), 0);
-            dynamic_byte_array_push_char(BYTECODE_CODE(bc), 0);
-            t0 = DYNAMIC_BYTE_ARRAY_LENGTH(BYTECODE_CODE(bc)) - 1; /* keep the address of the dummy jump value */
+            C_PUSH_CODE(0);
+            C_PUSH_CODE(0);
+
+            t0 = C_CODE_LEN - 1; /* keep the address of the dummy jump value */
 
             /* compile the "then" part of the if */
             if (CONS_CDR(CONS_CDR(value)) == NIL) {
               printf("\"if\" requires at least 3 arguments was given 1.");
               exit(1);
             }
-            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
+            C_COMPILE_ARG1;
 
-            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_jump);
+            C_PUSH_CODE(op_jump);
             /* dummy arg of zeros for jump -- will be updated below to go to end of if statement */
-            dynamic_byte_array_push_char(BYTECODE_CODE(bc), 0);
-            dynamic_byte_array_push_char(BYTECODE_CODE(bc), 0);
-            t1 = DYNAMIC_BYTE_ARRAY_LENGTH(BYTECODE_CODE(bc)) - 1; /* keep the address of the dummy jump value */
+            C_PUSH_CODE(0);
+            C_PUSH_CODE(0);
+
+            t1 = C_CODE_LEN - 1; /* keep the address of the dummy jump value */
 
             /* now we know how far the first jump should have been - update it */ 
-            jump_offset = DYNAMIC_BYTE_ARRAY_LENGTH(BYTECODE_CODE(bc)) - t0;
+            jump_offset = C_CODE_LEN - t0;
             if (jump_offset > 32767) { /* signed 16-bit number */
               printf("\"then\" part of if special form exceeded maximum jump range.");
               exit(1);
             }
-            dynamic_byte_array_set(BYTECODE_CODE(bc), t0 - 1, jump_offset << 8);
-            dynamic_byte_array_set(BYTECODE_CODE(bc), t0, jump_offset & 0xFF);
+            dynamic_byte_array_set(C_CODE, t0 - 1, jump_offset << 8);
+            dynamic_byte_array_set(C_CODE, t0, jump_offset & 0xFF);
 
             /* compile the "else" part of the if */
             cursor = CONS_CDR(CONS_CDR(CONS_CDR(value)));
             while (cursor != NIL) {
-              compile(CONS_CAR(cursor), bc, st);
+              C_COMPILE(CONS_CAR(cursor));
               cursor = CONS_CDR(cursor);
               if (cursor != NIL)
-                dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_drop);
+                C_PUSH_CODE(op_drop);
             }
 
             /* now we know how far the first jump should have been - update it */ 
-            jump_offset = DYNAMIC_BYTE_ARRAY_LENGTH(BYTECODE_CODE(bc)) - t1;
+            jump_offset = C_CODE_LEN - t1;
             if (jump_offset > 32767) {
               printf("\"else\" part of if special form exceeded maximum jump range.");
               exit(1);
             }
-            dynamic_byte_array_set(BYTECODE_CODE(bc), t1 - 1, jump_offset << 8);
-            dynamic_byte_array_set(BYTECODE_CODE(bc), t1, jump_offset & 0xFF);
+            dynamic_byte_array_set(C_CODE, t1 - 1, jump_offset << 8);
+            dynamic_byte_array_set(C_CODE, t1, jump_offset & 0xFF);
 
             break;
           } else if (car == gis->print_symbol) {
-            COMPILE_DO_EACH(
-                { dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_print); });
+            COMPILE_DO_EACH({ C_PUSH_CODE(op_print); });
             break;
           } else if (car == gis->print_line_symbol) {
-            COMPILE_DO_EACH(
-                { dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_print); });
+            COMPILE_DO_EACH({ C_PUSH_CODE(op_print); });
             gen_load_constant(bc, string("\n"));
-            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_print);
+            C_PUSH_CODE(op_print);
             break;
           } else if (car == gis->add_symbol) {
-            COMPILE_DO_AGG_EACH(
-                { dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_add); });
+            COMPILE_DO_AGG_EACH({ C_PUSH_CODE(op_add); });
             break;
           } else if (car == gis->sub_symbol) {
-            COMPILE_DO_AGG_EACH(
-                { dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_sub); });
+            COMPILE_DO_AGG_EACH({ C_PUSH_CODE(op_sub); });
             break;
           } else if (car == gis->mul_symbol) {
-            COMPILE_DO_AGG_EACH(
-                { dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_mul); });
+            COMPILE_DO_AGG_EACH({ C_PUSH_CODE(op_mul); });
             break;
           } else if (car == gis->div_symbol) {
-            COMPILE_DO_AGG_EACH(
-                { dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_div); });
+            COMPILE_DO_AGG_EACH({ C_PUSH_CODE(op_div); });
             break;
           } else if (car == gis->and_symbol) {
             /* TODO: AND, OR, and EQ should short circuit. currently only allowing
              * two arguments, because later this could be impelmented as a macro
              */
             SF_REQ_N(2, value);
-            compile(CONS_CAR(CONS_CDR(value)), bc, st);
-            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
-            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_and); 
+            C_COMPILE_ARG0;
+            C_COMPILE_ARG1;
+            C_PUSH_CODE(op_and);
             break;
           } else if (car == gis->or_symbol) {
             SF_REQ_N(2, value);
-            compile(CONS_CAR(CONS_CDR(value)), bc, st);
-            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
-            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_or); 
+            C_COMPILE_ARG0;
+            C_COMPILE_ARG1;
+            C_PUSH_CODE(op_or);
             break;
           } else if (car == gis->gt_symbol) {
             SF_REQ_N(2, value);
-            compile(CONS_CAR(CONS_CDR(value)), bc, st);
-            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
-            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_gt); 
+            C_COMPILE_ARG0;
+            C_COMPILE_ARG1;
+            C_PUSH_CODE(op_gt);
             break;
           } else if (car == gis->lt_symbol) {
             SF_REQ_N(2, value);
-            compile(CONS_CAR(CONS_CDR(value)), bc, st);
-            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
-            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_lt); 
+            C_COMPILE_ARG0;
+            C_COMPILE_ARG1;
+            C_PUSH_CODE(op_lt);
             break;
           } else if (car == gis->gte_symbol) {
             SF_REQ_N(2, value);
-            compile(CONS_CAR(CONS_CDR(value)), bc, st);
-            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
-            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_gte); 
+            C_COMPILE_ARG0;
+            C_COMPILE_ARG1;
+            C_PUSH_CODE(op_gte);
             break;
           } else if (car == gis->lte_symbol) {
             SF_REQ_N(2, value);
-            compile(CONS_CAR(CONS_CDR(value)), bc, st);
-            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
-            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_lte); 
+            C_COMPILE_ARG0;
+            C_COMPILE_ARG1;
+            C_PUSH_CODE(op_lte);
             break;
           } else if (car == gis->equals_symbol) {
             SF_REQ_N(2, value);
-            compile(CONS_CAR(CONS_CDR(value)), bc, st);
-            compile(CONS_CAR(CONS_CDR(CONS_CDR(value))), bc, st);
-            dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_eq); 
-            break;
-          } else if (car == gis->function_symbol) {
-            /* (function asdf () ) */
-            /*compile_function(value, bc, st);*/
+            C_COMPILE_ARG0;
+            C_COMPILE_ARG1;
+            C_PUSH_CODE(op_eq);
             break;
           } else {
             printf("Undefined symbol %s\n", bstring_to_cstring(SYMBOL_NAME(car)));
@@ -2870,7 +2934,7 @@ void reinit() {
  *===============================*/
 void run_tests() {
   struct object *darr, *o0, *o1, *dba, *dba1, *bc, *bc0, *bc1, *da, *code, *constants, *code0, *consts0, *code1, *consts1;
-  ufixnum_t uf0;
+  ufixnum_t uf0, stack_size;
 
   printf("Running tests...\n");
 
@@ -3125,7 +3189,7 @@ void run_tests() {
   dynamic_byte_array_push_char(dba, 0x39);
   dynamic_byte_array_push_char(dba, 0x13);
   dynamic_byte_array_push_char(dba, 0x23);
-  bc = bytecode(darr, dba);
+  bc = bytecode(darr, dba, 12); /* bogus stack size */
   o0 = unmarshal_bytecode(marshal_bytecode(bc, NULL, 1, NULL), 1, NULL);
   /* check constants vector */
   assert(DYNAMIC_ARRAY_LENGTH(darr) ==
@@ -3162,7 +3226,7 @@ void run_tests() {
   T_DBA_PUSH(0x0C); T_DBA_PUSH(0x12); T_DBA_PUSH(0x16); T_DBA_PUSH(0x21); T_DBA_PUSH(0x00);
   T_DBA_PUSH(0x08); T_DBA_PUSH(0x15); T_DBA_PUSH(0x0D); T_DBA_PUSH(0x16); T_DBA_PUSH(0x00);
   T_DBA_PUSH(0x15); T_DBA_PUSH(0x0E);
-  bc = bytecode(darr, dba);
+  bc = bytecode(darr, dba, 8); /* bogus stack size */
   o0 = unmarshal_bytecode(marshal_bytecode(bc, NULL, 1, NULL), 1, NULL);
   assert(equals(bc, o0));
 
@@ -3311,7 +3375,7 @@ void run_tests() {
   dynamic_array_push(consts0, string("ab"));
   dynamic_array_push(consts0, cons(string("F"), cons(string("E"), NIL)));
   dynamic_array_push(consts0, flonum(8));
-  o0 = bytecode(consts0, code0);
+  o0 = bytecode(consts0, code0, 99); /* bogus stack size */
 
   code1 = dynamic_byte_array(100);
   dynamic_byte_array_push_char(code1, op_const);
@@ -3320,7 +3384,7 @@ void run_tests() {
   dynamic_array_push(consts1, string("ab"));
   dynamic_array_push(consts1, cons(string("F"), cons(string("E"), NIL)));
   dynamic_array_push(consts1, flonum(8));
-  o1 = bytecode(consts1, code1);
+  o1 = bytecode(consts1, code1, 99); /* bogus stack size */
   assert(equals(o0, o1));
 
   dynamic_array_push(consts1, flonum(10));
@@ -3444,8 +3508,9 @@ void run_tests() {
   bc0 = compile(read(string(input_string), gis->package), NIL, NIL); \
   code = dynamic_byte_array(10);                         \
   constants = dynamic_array(10);
+  stack_size = 0;
 #define END_BC_TEST()              \
-  bc1 = bytecode(constants, code); \
+  bc1 = bytecode(constants, code, stack_size); \
   assert(equals(bc0, bc1));
 #define DEBUG_END_BC_TEST()        \
   bc1 = bytecode(constants, code); \
@@ -3454,12 +3519,13 @@ void run_tests() {
   assert(equals(bc0, bc1));
 #define T_BYTE(op) dynamic_byte_array_push_char(code, op);
 #define T_CONST(c) dynamic_array_push(constants, c);
+#define T_STACK_SIZE(c) stack_size = c;
 
   reinit();
 
   BEGIN_BC_TEST("3");
   T_BYTE(op_const); T_BYTE(0);
-  T_CONST(fixnum(3));  
+  T_CONST(fixnum(3));
   END_BC_TEST();
 
   BEGIN_BC_TEST("\"dink\"");

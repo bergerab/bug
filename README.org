@@ -1005,10 +1005,12 @@ struct marshaled_string {
 12: 0x11           (+)
 13: 0x1F           (set-symbol-value)
 14: 0x00           (drop)
+
 15: 0x15 0x05      (load t)
 17: 0x20           (symbol-value)
 18: 0x22 0x00 0x1A (jump-when-nil 26)
 21: 0x15 0x06      (load "g = ")
+
 23: 0x16           (print)
 24: 0x15 0x07      (load g)
 26: 0x20           (symbol-value)
@@ -1029,4 +1031,25 @@ struct marshaled_string {
 49: 0x00           (drop)
 50: 0x15 0x0E      (load "fff")
 52: 0x16           (print)
+#+END_SRC
+
+
+* TODO
+- implement function calls
+- implement lexical scoping
+- implement interface for SDL
+- implement garbage collector
+  - fix all bugs caused by not calling free for 4,000 lines of code :'-)
+
+
+#+BEGIN_SRC lisp
+(let ((a 3))
+  (print a))
+
+
+(let ((a 3))
+  (let ((a 9)) ;; add new entry to symbol table
+    (print a) ;; pop entry to symbol table
+        ;; what goes into the symbol table? how do you know how many items to go back?
+    ))
 #+END_SRC
