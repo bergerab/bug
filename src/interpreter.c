@@ -2388,6 +2388,17 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
 #define C_COMPILE_ARG2 C_COMPILE(C_ARG2())
 #define C_COMPILE_ARG3 C_COMPILE(C_ARG3())
 
+#define C_EXE1(op)    \
+  SF_REQ_N(1, value); \
+  C_COMPILE_ARG0;     \
+  C_PUSH_CODE(op);
+
+#define C_EXE2(op)    \
+  SF_REQ_N(2, value); \
+  C_COMPILE_ARG0;     \
+  C_COMPILE_ARG1;     \
+  C_PUSH_CODE(op);
+
 #define C_CODE BYTECODE_CODE(bc)
 #define C_CONSTANTS BYTECODE_CONSTANTS(bc)
 #define C_PUSH_CODE(op) dynamic_byte_array_push_char(C_CODE, op);
@@ -2500,23 +2511,16 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
             gen_load_constant(bc, C_ARG0());
             break;
           } else if (car == gis->car_symbol) {
-            SF_REQ_N(1, value);
-            C_COMPILE_ARG0;
-            C_PUSH_CODE(op_car);
+            C_EXE1(op_car);
             break;
           } else if (car == gis->cdr_symbol) {
-            SF_REQ_N(1, value);
-            C_COMPILE_ARG0;
-            C_PUSH_CODE(op_cdr);
+            C_EXE1(op_cdr);
             break;
           } else if (car == gis->set_symbol) {
-            SF_REQ_N(2, value);
             /* in CL, SET doesn't work for lexical variables. setq can do this though */
             /* if this is lexical, set the variable on the stack
                otherwise, set the symbol value slot */
-            C_COMPILE_ARG0;
-            C_COMPILE_ARG1;
-            C_PUSH_CODE(op_set_symbol_value);
+            C_EXE2(op_set_symbol_value);
             break;
           } else if (car == gis->if_symbol) {
             /* compile the condition part if the if */
@@ -2594,46 +2598,25 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
             /* TODO: AND, OR, and EQ should short circuit. currently only allowing
              * two arguments, because later this could be impelmented as a macro
              */
-            SF_REQ_N(2, value);
-            C_COMPILE_ARG0;
-            C_COMPILE_ARG1;
-            C_PUSH_CODE(op_and);
+            C_EXE2(op_and);
             break;
           } else if (car == gis->or_symbol) {
-            SF_REQ_N(2, value);
-            C_COMPILE_ARG0;
-            C_COMPILE_ARG1;
-            C_PUSH_CODE(op_or);
+            C_EXE2(op_or);
             break;
           } else if (car == gis->gt_symbol) {
-            SF_REQ_N(2, value);
-            C_COMPILE_ARG0;
-            C_COMPILE_ARG1;
-            C_PUSH_CODE(op_gt);
+            C_EXE2(op_gt);
             break;
           } else if (car == gis->lt_symbol) {
-            SF_REQ_N(2, value);
-            C_COMPILE_ARG0;
-            C_COMPILE_ARG1;
-            C_PUSH_CODE(op_lt);
+            C_EXE2(op_lt);
             break;
           } else if (car == gis->gte_symbol) {
-            SF_REQ_N(2, value);
-            C_COMPILE_ARG0;
-            C_COMPILE_ARG1;
-            C_PUSH_CODE(op_gte);
+            C_EXE2(op_gte);
             break;
           } else if (car == gis->lte_symbol) {
-            SF_REQ_N(2, value);
-            C_COMPILE_ARG0;
-            C_COMPILE_ARG1;
-            C_PUSH_CODE(op_lte);
+            C_EXE2(op_lte);
             break;
           } else if (car == gis->equals_symbol) {
-            SF_REQ_N(2, value);
-            C_COMPILE_ARG0;
-            C_COMPILE_ARG1;
-            C_PUSH_CODE(op_eq);
+            C_EXE2(op_eq);
             break;
           } else {
             printf("Undefined symbol %s\n", bstring_to_cstring(SYMBOL_NAME(car)));
