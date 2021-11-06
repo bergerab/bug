@@ -1053,3 +1053,23 @@ struct marshaled_string {
         ;; what goes into the symbol table? how do you know how many items to go back?
     ))
 #+END_SRC
+
+
+Function calls
+#+BEGIN_SRC lisp
+(fun a (b)
+  (let ((c 2))
+    (+ b c)))
+
+(a 3)
+#+END_SRC
+
+The steps to evaluating ~(a 3)~ involve:
+  1. Pushing gis->i to the call stack
+  2. Pushing gis->bc to the call stack
+  ?. If gis->bc is a function
+        Push all arguments to the call stack
+  3. Push gis->bc->stack_size nils to the call stack
+  4. Evaluate gis->bc->code
+
+How to implement TCO?

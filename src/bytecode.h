@@ -13,7 +13,7 @@
 #ifdef RUN_TIME_CHECKS
 #define TC(name, argument, o, type) type_check(name, argument, o, type)
 #define TC2(name, argument, o, type0, type1) type_check_or2(name, argument, o, type0, type1)
-#define SC(name, n) stack_check(name, n, i)
+#define SC(name, n) stack_check(name, n, UFIXNUM_VALUE(gis->i))
 #else
 #define TC(name, argument, o, type) \
   {}
@@ -197,6 +197,7 @@ enum ops {
   op_div,
   op_const,
   op_print,
+  op_print_nl,
   op_eq,
   op_and,
   op_or,
@@ -336,6 +337,10 @@ struct vec2 {
 struct gis {
   struct object *stack; /** the data stack (a cons list) */
   struct object *call_stack; /** stack for saving stack pointers and values for function calls (a cons list) */
+
+  struct object *i; /** the index of the next instruction in bc to execute */
+  struct object *bc; /** the currently executing bytecode */
+
   struct object *sp; /** the call stack pointer (a ufixnum) */
   struct object *package; /** the current package being evaluated */
   struct object *packages; /** all packages */
@@ -375,7 +380,6 @@ struct gis {
   struct object *gte_symbol;
   struct object *lte_symbol;
   struct object *print_symbol;
-  struct object *print_line_symbol;
   struct object *and_symbol;
   struct object *or_symbol;
   struct object *equals_symbol;
@@ -412,7 +416,6 @@ struct gis {
   struct object *gte_string;
   struct object *lte_string;
   struct object *print_string;
-  struct object *print_line_string;
   struct object *and_string;
   struct object *or_string;
   struct object *equals_string;

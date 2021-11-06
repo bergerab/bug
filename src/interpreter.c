@@ -344,7 +344,7 @@ struct object *close_file(struct object *file) {
 /*
  * Dynamic Array
  */
-struct object *dynamic_array_get_fixnum_t(struct object *da, fixnum_t index) {
+struct object *dynamic_array_get_ufixnum_t(struct object *da, ufixnum_t index) {
   TC("dynamic_array_get", 0, da, type_dynamic_array);
   return DYNAMIC_ARRAY_VALUES(da)[index];
 }
@@ -352,6 +352,12 @@ struct object *dynamic_array_get(struct object *da, struct object *index) {
   TC("dynamic_array_get", 0, da, type_dynamic_array);
   TC("dynamic_array_get", 1, index, type_fixnum);
   return DYNAMIC_ARRAY_VALUES(da)[FIXNUM_VALUE(index)];
+}
+struct object *dynamic_array_set_ufixnum_t(struct object *da, ufixnum_t index, struct object *value) {
+  TC("dynamic_array_set", 0, da, type_dynamic_array);
+  TC("dynamic_array_set", 2, value, type_fixnum);
+  DYNAMIC_ARRAY_VALUES(da)[index] = value;
+  return NIL;
 }
 struct object *dynamic_array_set(struct object *da, struct object *index, struct object *value) {
   TC("dynamic_array_set", 0, da, type_dynamic_array);
@@ -652,7 +658,7 @@ struct object *to_string_dynamic_array(struct object *da) {
 
   str = string("[");
   for (i = 0; i < DYNAMIC_ARRAY_LENGTH(da); ++i) {
-    str = dynamic_byte_array_concat(str, do_to_string(dynamic_array_get_fixnum_t(da, i), 1));
+    str = dynamic_byte_array_concat(str, do_to_string(dynamic_array_get_ufixnum_t(da, i), 1));
     dynamic_byte_array_push_char(str, ' ');
   }
   if (DYNAMIC_ARRAY_LENGTH(da) > 0)
@@ -736,7 +742,7 @@ struct object *to_repr(struct object *o) {
  * Print                         *
  *===============================*
  *===============================*/
-void print(struct object *o, char newline) {
+void do_print(struct object *o, char newline) {
   ufixnum_t i;
   o = to_string(o);
   for (i = 0; i < STRING_LENGTH(o); ++i) {
@@ -744,6 +750,12 @@ void print(struct object *o, char newline) {
   }
   if (newline)
     printf("\n");
+}
+void print(struct object *o) {
+  do_print(o, 1);
+}
+void print_no_newline(struct object *o) {
+  do_print(o, 0);
 }
 
 /*===============================*
@@ -860,13 +872,13 @@ struct object *symbol_get_value(struct object *sym) {
   } else {
     printf("Symbol ");
     if (SYMBOL_PACKAGE(sym) != NIL) {
-      print(PACKAGE_NAME(SYMBOL_PACKAGE(sym)), 0);
+      print_no_newline(PACKAGE_NAME(SYMBOL_PACKAGE(sym)));
       if (SYMBOL_IS_EXTERNAL(sym))
         printf(":");
       else
         printf("::");
     }
-    print(SYMBOL_NAME(sym), 0);
+    print_no_newline(SYMBOL_NAME(sym));
     printf(" has no value.");
     exit(1);
   }
@@ -1078,6 +1090,9 @@ void gis_init() {
   gis->id = intern(gis->str_id, gis->pack); \
   symbol_export(gis->id);
 
+  gis->bc = NULL; /* the instruction index */
+  gis->i = ufixnum(0); /* the instruction index */
+
   /* nil must be boostrapped because other functions relies on it */
   gis->nil_string = string("nil");
   NIL = symbol(gis->nil_string);
@@ -1094,7 +1109,7 @@ void gis_init() {
   symbol_export(NIL); /* export nil */
 
   gis->stack = NIL;
-  gis->call_stack = NIL;
+  gis->call_stack = dynamic_array(10); /* using a dynamic array to make looking up arguments on the stack faster */
   gis->sp = ufixnum(0);
 
   /* initialize packages (note: lisp package is above for nil bootstrap) */
@@ -1137,7 +1152,6 @@ void gis_init() {
   GIS_SYM(gt_symbol, gt_string, ">", lisp_package);
   GIS_SYM(gte_symbol, gte_string, ">=", lisp_package);
   GIS_SYM(print_symbol, print_string, "print", lisp_package);
-  GIS_SYM(print_line_symbol, print_line_string, "print-line", lisp_package);
   GIS_SYM(and_symbol, and_string, "and", lisp_package);
   GIS_SYM(or_symbol, or_string, "or", lisp_package);
   GIS_SYM(equals_symbol, equals_string, "=", lisp_package);
@@ -2392,7 +2406,6 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
   SF_REQ_N(1, value); \
   C_COMPILE_ARG0;     \
   C_PUSH_CODE(op);
-
 #define C_EXE2(op)    \
   SF_REQ_N(2, value); \
   C_COMPILE_ARG0;     \
@@ -2420,8 +2433,8 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
       break;
     case type_symbol:
       if (alist_get_slot(st, value) != NIL) {
-        marshal_ufixnum(alist_get_value(st, value), C_CODE, 0);
         C_PUSH_CODE(op_load_from_stack);
+        marshal_ufixnum(alist_get_value(st, value), C_CODE, 0);
       } else {
         /* if the value isn't in the symbol table (not a lexical variable),
          * evaluate the symbol's value at runtime */
@@ -2474,9 +2487,9 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
               v = CONS_CAR(CONS_CDR(kvp));
               stack_index = BYTECODE_STACK_SIZE(bc);
               ++BYTECODE_STACK_SIZE(bc);
-              C_PUSH_CODE(stack_index); /* should this be a marshaled fix or char? */
               compile(v, bc, tst);
               C_PUSH_CODE(op_store_to_stack);
+              C_PUSH_CODE(stack_index); /* TODO: make this a marshaled ufixnum */
               st = alist_extend(st, k, ufixnum(stack_index)); /* add to the symbol table that the body of the let will use */
               cursor = CONS_CDR(cursor);
             }
@@ -2499,8 +2512,8 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
             /* the start of the body */
             body = CONS_CDR(CONS_CDR(CONS_CDR(value)));
 
-            print(params, 1);
-            print(body, 1);
+            print(params);
+            print(body);
             break;
           } else if (car == gis->symbol_value_symbol) {
             SF_REQ_N(1, value);
@@ -2576,11 +2589,7 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
             break;
           } else if (car == gis->print_symbol) {
             COMPILE_DO_EACH({ C_PUSH_CODE(op_print); });
-            break;
-          } else if (car == gis->print_line_symbol) {
-            COMPILE_DO_EACH({ C_PUSH_CODE(op_print); });
-            gen_load_constant(bc, string("\n"));
-            C_PUSH_CODE(op_print);
+            C_PUSH_CODE(op_print_nl);
             break;
           } else if (car == gis->add_symbol) {
             COMPILE_DO_AGG_EACH({ C_PUSH_CODE(op_add); });
@@ -2627,13 +2636,6 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
         printf("Invalid sexpr starts with a %s\n", get_type_name(OBJECT_TYPE(car)));
         exit(1);
       }
-      /*
-      cursor = CONS_CDR(value);
-      while (cursor != NIL) {
-        compile(CONS_CAR(cursor), bc, NIL);
-        cursor = CONS_CDR(cursor);
-      }
-      */
       break;
     case type_record:
       break;
@@ -2672,26 +2674,26 @@ void dup() {
  */
 /* (80)_16 is (1000 0000)_2, it extracts the flag from the temporary */
 #define READ_OP_ARG()                                                  \
-  if (i >= byte_count) {                                               \
+  if (UFIXNUM_VALUE(i) >= byte_count) {                                               \
     printf("BC: expected an op code argument, but bytecode ended.\n"); \
     break;                                                             \
   }                                                                    \
-  t0 = code->bytes[++i];                                               \
+  t0 = code->bytes[++UFIXNUM_VALUE(i)];                                               \
   a0 = t0 & 0x7F;                                                      \
   while (t0 & 0x80) {                                                  \
-    if (i >= byte_count) {                                             \
+    if (UFIXNUM_VALUE(i) >= byte_count) {                                             \
       printf(                                                          \
           "BC: expected an extended op code argument, but bytecode "   \
           "ended.\n");                                                 \
       break;                                                           \
     }                                                                  \
-    t0 = code->bytes[++i];                                             \
+    t0 = code->bytes[++UFIXNUM_VALUE(i)];                                             \
     a0 = (a0 << 7) | (t0 & 0x7F);                                      \
   }
 
 #define READ_OP_JUMP_ARG()                                             \
-  sa0 = code->bytes[++i] << 8;                                         \
-  sa0 = code->bytes[++i] | sa0;
+  sa0 = code->bytes[++UFIXNUM_VALUE(i)] << 8;                                         \
+  sa0 = code->bytes[++UFIXNUM_VALUE(i)] | sa0;
 
 #define READ_CONST_ARG()                                             \
   READ_OP_ARG()                                                      \
@@ -2705,10 +2707,11 @@ void dup() {
   c0 = constants->values[a0];
 
 /* returns the top of the stack for convience */
-struct object *eval(struct object *bc) {
-  unsigned long i,        /* the current byte being evaluated */
-      byte_count;         /* number of  bytes in this bytecode */
-  unsigned char t0;       /* temporary for reading bytecode arguments */
+/* evaluates gis->bytecode starting at instruction gis->i */
+/* assumes gis->i and gis->bc is set and call_stack has been initialized with space for all stack args */
+struct object *run(struct gis *gis) {
+  unsigned long byte_count; /* number of  bytes in this bytecode */
+  unsigned char t0;        /* temporary for reading bytecode arguments */
   unsigned long a0;       /* the arguments for bytecode parameters */
   long sa0; /* argument for jumps */
   struct object *v0, *v1; /* temps for values popped off the stack */
@@ -2717,16 +2720,19 @@ struct object *eval(struct object *bc) {
       *code; /* the byte array containing the bytes in the bytecode */
   struct dynamic_array *constants; /* the constants array */
   unsigned long constants_length;  /* the length of the constants array */
+  struct object *i;
 
-  TC("eval", 1, bc, type_bytecode);
-  i = 0;
-  code = bc->w1.value.bytecode->code->w1.value.dynamic_byte_array;
-  constants = bc->w1.value.bytecode->constants->w1.value.dynamic_array;
+  /* jump to this label after setting a new gis->i and gis->bc 
+     (and pushing the old i and bc to the call-stack) */
+  eval_restart:
+  code = gis->bc->w1.value.bytecode->code->w1.value.dynamic_byte_array;
+  constants = gis->bc->w1.value.bytecode->constants->w1.value.dynamic_array;
   constants_length = constants->length;
   byte_count = code->length;
+  i = gis->i;
 
-  while (i < byte_count) {
-    switch (code->bytes[i]) {
+  while (UFIXNUM_VALUE(i) < byte_count) {
+    switch (code->bytes[UFIXNUM_VALUE(i)]) {
       case op_drop: /* drop ( x -- ) */
         SC("drop", 1);
         pop();
@@ -2860,21 +2866,33 @@ struct object *eval(struct object *bc) {
         READ_CONST_ARG();
         push(c0);
         break;
+      case op_load_from_stack: /* load-from-stack ( -- ) */
+        READ_OP_ARG();
+        push(dynamic_array_get_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (BYTECODE_STACK_SIZE(gis->bc) - a0)));
+        break;
+      case op_store_to_stack: /* store-to-stack ( -- ) */
+        SC("store-to-stack", 1);
+        READ_CONST_ARG();
+        dynamic_array_set_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (BYTECODE_STACK_SIZE(gis->bc) - a0), pop());
+        break;
       case op_jump: /* jump ( x -- ) */
         /* can jump ~32,000 in both directions */
         READ_OP_JUMP_ARG();  
-        i += sa0;
+        UFIXNUM_VALUE(i) += sa0;
         continue; /* continue so the usual increment to i doesn't happen */
-      case op_jump_when_nil: /* jump_if ( cond -- ) */
+      case op_jump_when_nil: /* jump_when_nil ( cond -- ) */
         READ_OP_JUMP_ARG();  
         v0 = pop(); /* cond */
-        if (v0 == NIL) i += sa0;
-        else ++i;
+        if (v0 == NIL) UFIXNUM_VALUE(i) += sa0;
+        else ++UFIXNUM_VALUE(i);
         continue; /* continue so the usual increment to i doesn't happen */
       case op_print: /* print ( x -- ) */
         SC("print", 1);
-        print(pop(), 0);
+        print_no_newline(pop());
         push(NIL);
+        break;
+      case op_print_nl: /* print-nl ( -- ) */
+        printf("\n");
         break;
       case op_symbol_value: /* symbol-value ( sym -- ) */
         SC("symbol-value", 1);
@@ -2894,17 +2912,34 @@ struct object *eval(struct object *bc) {
         exit(1);
         break;
     }
-    ++i;
+    ++UFIXNUM_VALUE(i);
   }
   return gis->stack == NIL ? NIL : CONS_CAR(gis->stack);
 }
 
+/* evaluates the given bytecode starting at the given instruction index */
+struct object *eval_at_instruction(struct object *bc, ufixnum_t i) {
+  ufixnum_t j;
+  gis->bc = bc;
+  UFIXNUM_VALUE(gis->i) = i;
+  /* prepare the call stack by making room for stack args */
+  /* TODO: this can be optimized to just increment the length instead of pushing NILs */
+  for (j = 0; j < BYTECODE_STACK_SIZE(bc); ++j)
+    dynamic_array_push(gis->call_stack, NIL);
+  return run(gis);
+}
+/* evaluates the bytecode starting at instruction index 0 */
+struct object *eval(struct object *bc) {
+  return eval_at_instruction(bc, 0);
+}
+
 /*
- * Creates the default global interpreter state
+ * Sets the default interpreter state
  */
 void init() {
   gis_init();
 }
+
 void reinit() {
   free(gis); /* TODO: write gis_free */
   gis_init();
@@ -3495,10 +3530,12 @@ void run_tests() {
 #define END_BC_TEST()              \
   bc1 = bytecode(constants, code, stack_size); \
   assert(equals(bc0, bc1));
-#define DEBUG_END_BC_TEST()        \
-  bc1 = bytecode(constants, code); \
-  print(bc0, 1);                      \
-  print(bc1, 1);                      \
+#define DEBUG_END_BC_TEST()                    \
+  bc1 = bytecode(constants, code, stack_size); \
+  printf("ACTUAL:\t\t");                          \
+  print(bc0);                                  \
+  printf("EXPECTED:\t");                        \
+  print(bc1);                                  \
   assert(equals(bc0, bc1));
 #define T_BYTE(op) dynamic_byte_array_push_char(code, op);
 #define T_CONST(c) dynamic_array_push(constants, c);
@@ -3540,6 +3577,7 @@ void run_tests() {
   T_BYTE(op_print);
   T_BYTE(op_const); T_BYTE(2);
   T_BYTE(op_print);
+  T_BYTE(op_print_nl);
   T_CONST(string("a")); T_CONST(string("b"));  
   T_CONST(string("c"));
   END_BC_TEST();
@@ -3597,9 +3635,13 @@ void run_tests() {
   T_CONST(fixnum(3)); T_CONST(fixnum(4));
   END_BC_TEST();
 
-/*
-  eval(compile(read(string("(print \"IT WORKS\")"), gis->package), NIL, NIL));
-  */
+  BEGIN_BC_TEST("(let ((a 2)) a)");
+  T_BYTE(op_const); T_BYTE(0); /* load the number 2 */
+  T_BYTE(op_store_to_stack); T_BYTE(0); /* store to index 0 on the stack */
+  T_BYTE(op_load_from_stack); T_BYTE(0); /* evaluation of "a" comes from the stack, not symbol-value */
+  T_CONST(fixnum(2));
+  T_STACK_SIZE(1);
+  DEBUG_END_BC_TEST();
 
   END_TESTS();
 }
@@ -3702,7 +3744,7 @@ int main(int argc, char **argv) {
       write_file(output_file, string("b> "));
       bc = compile(read(input_file, NIL), NIL, NIL);
       eval(bc);
-      print(gis->stack == NIL ? NIL : pop(), 1);
+      print(gis->stack == NIL ? NIL : pop());
     }
   }
 
