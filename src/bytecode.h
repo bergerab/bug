@@ -165,9 +165,6 @@ typedef double flonum_t;
 #define PACKAGE_PACKAGES(o)\
  o->w1.value.package->packages
 
-#define FUNCTION_NAME(o)\
-  o->w1.value.function->name
-
 #define BC_VERSION 1
 
 enum ops {
@@ -193,6 +190,16 @@ enum ops {
   op_mul,
   op_div,
   op_const,
+  op_const_0,
+  op_const_1,
+  op_const_2,
+  op_const_3,
+  op_const_4,
+  op_const_5,
+  op_const_6,
+  op_const_7,
+  op_push_arg,
+  op_push_args,
   op_print,
   op_print_nl,
   op_eq,
@@ -210,9 +217,15 @@ enum ops {
   op_jump,
   op_jump_when_nil,
   op_load_from_stack,
+  op_load_from_stack_0,
+  op_load_from_stack_1,
   op_store_to_stack,
+  op_store_to_stack_0,
+  op_store_to_stack_1,
   op_call_function,
-  op_return_function
+  op_call_symbol_function,
+  op_return_function,
+  op_load_call_stack
 };
 
 /* The types defined below are not the same as the types that will
@@ -385,6 +398,7 @@ struct gis {
   struct object *nil_symbol;
   struct object *t_symbol;
   struct object *if_symbol;
+  struct object *call_stack_symbol;
 
   /* cached strings that should be used internally */
   struct object *value_string;
@@ -422,6 +436,7 @@ struct gis {
   struct object *nil_string;
   struct object *t_string;
   struct object *if_string;
+  struct object *call_stack_string;
 
   struct object *var_string;
   struct object *x_string;

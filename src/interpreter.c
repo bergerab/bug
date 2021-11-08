@@ -50,7 +50,7 @@ char *get_type_name(enum type t) {
     case type_record:
       return "record";
     case type_function:
-      return "function";
+      return "fun";
   }
   printf("BC: Given type number has no implemented name %d", t);
   exit(1);
@@ -64,6 +64,31 @@ enum type get_object_type(struct object *o) {
 
 char *get_object_type_name(struct object *o) {
   return get_type_name(get_object_type(o));
+}
+
+/**
+ * Converts a bug string to a c string
+ */
+char *bstring_to_cstring(struct object *str) {
+  fixnum_t length;
+  char *buf;
+  length = STRING_LENGTH(str);
+  buf = malloc(sizeof(char) * (length + 1));
+  memcpy(buf, STRING_CONTENTS(str), length);
+  buf[length] = '\0';
+  return buf;
+}
+
+/**
+ * Counts the number of items in a cons list
+ */
+fixnum_t count(struct object *list) {
+  fixnum_t count = 0;
+  while (list != NIL) {
+    ++count;
+    list = list->w1.cdr;
+  }
+  return count;
 }
 
 #ifdef RUN_TIME_CHECKS
@@ -87,32 +112,6 @@ void type_check_or2(char *name, unsigned int argument, struct object *o,
         name, argument, get_type_name(type0), get_type_name(type1), get_object_type_name(o));
     exit(1);
   }
-}
-
-/**
- * Converts a bug string to a c string
- */
-char *bstring_to_cstring(struct object *str) {
-  fixnum_t length;
-  char *buf;
-  TC2("bstring_to_cstring", 0, str, type_string, type_dynamic_byte_array);
-  length = STRING_LENGTH(str);
-  buf = malloc(sizeof(char) * (length + 1));
-  memcpy(buf, STRING_CONTENTS(str), length);
-  buf[length] = '\0';
-  return buf;
-}
-
-/**
- * Counts the number of items in a cons list
- */
-fixnum_t count(struct object *list) {
-  fixnum_t count = 0;
-  while (list != NIL) {
-    ++count;
-    list = list->w1.cdr;
-  }
-  return count;
 }
 
 /**
@@ -207,7 +206,7 @@ struct object *function(struct object *constants, struct object *code, ufixnum_t
   FUNCTION_CODE(o) = code;
   FUNCTION_CONSTANTS(o) = constants;
   FUNCTION_STACK_SIZE(o) = stack_size;
-  FUNCTION_NAME(o) = NULL;
+  FUNCTION_NAME(o) = NIL;
   FUNCTION_NARGS(o) = 0;
   return o;
 }
@@ -379,7 +378,7 @@ struct object *dynamic_array_pop(struct object *da) {
     exit(1);
   }
   DYNAMIC_ARRAY_LENGTH(da)--;
-  return NIL;
+  return dynamic_array_get_ufixnum_t(da, DYNAMIC_ARRAY_LENGTH(da));
 }
 struct object *dynamic_array_concat(struct object *da0, struct object *da1) {
   struct object *da2; 
@@ -697,12 +696,20 @@ struct object *do_to_string(struct object *o, char repr) {
     case type_dynamic_array:
       return to_string_dynamic_array(o);
     case type_function: /* TODO */
-      str = string("#[");
-      str = dynamic_byte_array_concat(str, do_to_string(FUNCTION_CONSTANTS(o), 1));
-      dynamic_byte_array_push_char(str, ' ');
-      str = dynamic_byte_array_concat(str, do_to_string(FUNCTION_CODE(o), 1));
-      dynamic_byte_array_push_char(str, ']');
-      return str;
+      if (FUNCTION_NAME(o) != NIL) {
+        str = string("<fun ");
+        str = dynamic_byte_array_concat(str, SYMBOL_NAME(FUNCTION_NAME(o)));
+        dynamic_byte_array_push_char(str, '>');
+        return str;
+      } else {
+        str = string("<fun ");
+        str = dynamic_byte_array_concat(str,
+                                        do_to_string(FUNCTION_CONSTANTS(o), 1));
+        dynamic_byte_array_push_char(str, ' ');
+        str = dynamic_byte_array_concat(str, do_to_string(FUNCTION_CODE(o), 1));
+        dynamic_byte_array_push_char(str, '>');
+        return str;
+      }
     case type_record: /* TODO */
       return string("<record>");
     case type_package:
@@ -1173,6 +1180,7 @@ void gis_init() {
   symbol_set_value(gis->t_symbol, gis->t_symbol); /* t has itself as its value */
   GIS_SYM(if_symbol, if_string, "if", lisp_package);
 
+  GIS_SYM(call_stack_symbol, call_stack_string, "call-stack", impl_package);
   GIS_SYM(pop_symbol, pop_string, "pop", impl_package);
   GIS_SYM(push_symbol, push_string, "push", impl_package);
   GIS_SYM(drop_symbol, drop_string, "drop", impl_package);
@@ -2303,12 +2311,42 @@ struct object *read(struct object *s, struct object *package) {
 struct object *compile(struct object *ast, struct object *bc, struct object *st);
 
 void gen_load_constant(struct object *bc, struct object *value) {
+  ufixnum_t i;
   TC("gen_load_constant", 0, bc, type_function);
   dynamic_array_push(FUNCTION_CONSTANTS(bc), value);
-  dynamic_byte_array_push_char(FUNCTION_CODE(bc), op_const);
-  /* bugs could show up when the number of constants exceeds 127 (will make this be > 1 byte).
-     (if jump has issues) */
-  marshal_ufixnum_t(DYNAMIC_ARRAY_LENGTH(FUNCTION_CONSTANTS(bc)) - 1, FUNCTION_CODE(bc), 0);
+  i = DYNAMIC_ARRAY_LENGTH(FUNCTION_CONSTANTS(bc)) - 1;
+  switch (i) {
+    case 0:
+      dynamic_byte_array_push_char(FUNCTION_CODE(bc), op_const_0);
+      break;
+    case 1:
+      dynamic_byte_array_push_char(FUNCTION_CODE(bc), op_const_1);
+      break;
+    case 2:
+      dynamic_byte_array_push_char(FUNCTION_CODE(bc), op_const_2);
+      break;
+    case 3:
+      dynamic_byte_array_push_char(FUNCTION_CODE(bc), op_const_3);
+      break;
+    case 4:
+      dynamic_byte_array_push_char(FUNCTION_CODE(bc), op_const_4);
+      break;
+    case 5:
+      dynamic_byte_array_push_char(FUNCTION_CODE(bc), op_const_5);
+      break;
+    case 6:
+      dynamic_byte_array_push_char(FUNCTION_CODE(bc), op_const_6);
+      break;
+    case 7:
+      dynamic_byte_array_push_char(FUNCTION_CODE(bc), op_const_7);
+      break;
+    default:
+      dynamic_byte_array_push_char(FUNCTION_CODE(bc), op_const);
+      /* bugs could show up when the number of constants exceeds 127 (will make
+         this be > 1 byte). (if jump has issues) */
+      marshal_ufixnum_t(DYNAMIC_ARRAY_LENGTH(FUNCTION_CONSTANTS(bc)) - 1,
+                        FUNCTION_CODE(bc), 0);
+  }
 }
 
 /*
@@ -2370,9 +2408,11 @@ struct object *compile(struct object *ast, struct object *f, struct object *st) 
  */
 #define COMPILE_DO_EACH(block)       \
   cursor = CONS_CDR(value);           \
+  length = 0;    \
   while (cursor != NIL) {             \
     compile(CONS_CAR(cursor), f, st); \
     cursor = CONS_CDR(cursor);        \
+    ++length; \
     block;                           \
   }
 
@@ -2443,8 +2483,15 @@ struct object *compile(struct object *ast, struct object *f, struct object *st) 
       break;
     case type_symbol:
       if (alist_get_slot(st, value) != NIL) {
-        C_PUSH_CODE(op_load_from_stack);
-        marshal_ufixnum(alist_get_value(st, value), C_CODE, 0);
+        length = UFIXNUM_VALUE(alist_get_value(st, value)); /* using length as temp for stack index */
+        if (length == 0) {
+          C_PUSH_CODE(op_load_from_stack_0);
+        } else if (length == 1) {
+          C_PUSH_CODE(op_load_from_stack_1);
+        } else {
+          C_PUSH_CODE(op_load_from_stack);
+          marshal_ufixnum_t(length, C_CODE, 0);
+        }
       } else {
         /* if the value isn't in the symbol table (not a lexical variable),
          * evaluate the symbol's value at runtime */
@@ -2509,6 +2556,8 @@ struct object *compile(struct object *ast, struct object *f, struct object *st) 
               C_COMPILE(CONS_CAR(cursor));
               cursor = CONS_CDR(cursor);
             }
+          } else if (car == gis->call_stack_symbol) {
+            C_PUSH_CODE(op_load_call_stack);
           } else if (car == gis->function_symbol) {
             /* (function [name] [params] body) */
             name = C_ARG0();
@@ -2551,7 +2600,11 @@ struct object *compile(struct object *ast, struct object *f, struct object *st) 
             while (cursor != NIL) {
               compile(CONS_CAR(cursor), fun, tst);
               cursor = CONS_CDR(cursor);
+              if (cursor != NIL) /* implicit progn */
+                C_PUSH_CODE(op_drop); /* the last value will still be on the stack when the function body completes */
             }
+            /* add an implicit return to every function */
+            dynamic_byte_array_push_char(FUNCTION_CODE(fun), op_return_function);
 
             if (name == NIL) { /* if this is an anonymous function */
               gen_load_constant(f, fun);
@@ -2678,8 +2731,10 @@ struct object *compile(struct object *ast, struct object *f, struct object *st) 
             C_EXE2(op_eq);
             break;
           } else {
-            printf("Undefined symbol %s\n", bstring_to_cstring(SYMBOL_NAME(car)));
-            exit(1);
+            COMPILE_DO_EACH({});
+            gen_load_constant(f, car);
+            C_PUSH_CODE(op_call_symbol_function);
+            marshal_ufixnum_t(length, C_CODE, 0);
           }
         }
       } else {
@@ -2759,17 +2814,18 @@ void dup() {
 /* assumes gis->i and gis->f is set and call_stack has been initialized with space for all stack args */
 struct object *run(struct gis *gis) {
   unsigned long byte_count; /* number of  bytes in this bytecode */
-  unsigned char t0;        /* temporary for reading bytecode arguments */
-  unsigned long a0;       /* the arguments for bytecode parameters */
+  unsigned char t0, op;        /* temporary for reading bytecode arguments */
+  unsigned long a0, a1;       /* the arguments for bytecode parameters */
   long sa0; /* argument for jumps */
   struct object *v0, *v1; /* temps for values popped off the stack */
   struct object *c0; /* temps for constants (used for bytecode arguments) */
+  struct object *temp_i, *temp_f;
   struct dynamic_byte_array
       *code; /* the byte array containing the bytes in the bytecode */
   struct dynamic_array *constants; /* the constants array */
   unsigned long constants_length;  /* the length of the constants array */
   struct object *i;
-  ufixnum_t ufix;
+  ufixnum_t ufix, ufix0;
 
   /* jump to this label after setting a new gis->i and gis->f 
      (and pushing the old i and bc to the call-stack) */
@@ -2781,7 +2837,8 @@ struct object *run(struct gis *gis) {
   i = gis->i;
 
   while (UFIXNUM_VALUE(i) < byte_count) {
-    switch (code->bytes[UFIXNUM_VALUE(i)]) {
+    op = code->bytes[UFIXNUM_VALUE(i)];
+    switch (op) {
       case op_drop: /* drop ( x -- ) */
         SC("drop", 1);
         pop();
@@ -2911,38 +2968,109 @@ struct object *run(struct gis *gis) {
         else if (v1 != NIL) push(v1);
         else push(NIL);
         break;
+      case op_const_0:
+        push(constants->values[0]);
+        break;
+      case op_const_1:
+        push(constants->values[1]);
+        break;
+      case op_const_2:
+        push(constants->values[2]);
+        break;
+      case op_const_3:
+        push(constants->values[3]);
+        break;
+      case op_const_4:
+        push(constants->values[4]);
+        break;
+      case op_const_5:
+        push(constants->values[5]);
+        break;
+      case op_const_6:
+        push(constants->values[6]);
+        break;
+      case op_const_7:
+        push(constants->values[7]);
+        break;
       case op_const: /* const ( -- x ) */
         READ_CONST_ARG();
         push(c0);
         break;
+      case op_push_arg: /* push-arg ( x -- ) */
+        dynamic_array_push(gis->call_stack, pop());
+        break;
+      case op_push_args: /* push-args <n> ( x_0...x_n -- ) */
+        READ_OP_ARG();
+        for (a1 = 0; a1 < a0; ++a1) 
+          dynamic_array_push(gis->call_stack, pop());
+        break;
       case op_load_from_stack: /* load-from-stack ( -- ) */
         READ_OP_ARG();
-        push(dynamic_array_get_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (FUNCTION_STACK_SIZE(gis->f) - a0)));
+        /* minus two to skip the f and i */
+        v0 = dynamic_array_get_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (FUNCTION_STACK_SIZE(gis->f) - a0) - 2);
+        push(v0);
+        break;
+      /* two hard coded index versions for the most common cases (functions that take one or two arguments) */
+      case op_load_from_stack_0:
+        /* minus two to skip the f and i */
+        push(dynamic_array_get_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (FUNCTION_STACK_SIZE(gis->f) - 0) - 2));
+        break;
+      case op_load_from_stack_1:
+        /* minus two to skip the f and i */
+        push(dynamic_array_get_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (FUNCTION_STACK_SIZE(gis->f) - 1) - 2));
         break;
       case op_store_to_stack: /* store-to-stack ( -- ) */
         SC("store-to-stack", 1);
         READ_CONST_ARG();
-        dynamic_array_set_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (FUNCTION_STACK_SIZE(gis->f) - a0), pop());
+        /* minus two to skip the f and i */
+        dynamic_array_set_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (FUNCTION_STACK_SIZE(gis->f) - a0) - 2, pop());
         break;
-      case op_call_function: /* call-function ( fun -- ) */
+      /* two hard coded index versions for the most common cases (functions that take one or two arguments) */
+      case op_store_to_stack_0:
+        /* minus two to skip the f and i */
+        dynamic_array_set_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (FUNCTION_STACK_SIZE(gis->f) - 0) - 2, pop());
+        break;
+      case op_store_to_stack_1:
+        /* minus two to skip the f and i */
+        dynamic_array_set_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (FUNCTION_STACK_SIZE(gis->f) - 1) - 2, pop());
+        break;
+      case op_load_call_stack:
+        push(gis->call_stack);
+        break;
+
+      case op_call_symbol_function: /* an optimization for calling a function given a symbol */
+      case op_call_function: /* call-function <n> ( arg_0...arg_n fun -- ) */
+        READ_OP_ARG();
+        temp_i = gis->i;
+        temp_f = gis->f;
+        /* set the new function */
+        if (op == op_call_symbol_function) {
+          gis->f = symbol_get_function(pop());
+        } else {
+          gis->f = pop();
+        }
+        /* transfer arguments from data stack to call stack */
+        for (a1 = 0; a1 < a0; ++a1) 
+          dynamic_array_push(gis->call_stack, pop());
         /* save the instruction index, and function */
-        dynamic_array_push(gis->call_stack, gis->i);
-        dynamic_array_push(gis->call_stack, gis->f);
-        gis->f = pop(); /* set the new function */
+        UFIXNUM_VALUE(gis->i) += 1; /* resume at the next instruction */
+        dynamic_array_push(gis->call_stack, temp_i);
+        dynamic_array_push(gis->call_stack, temp_f);
         /* creating a new ufixnum() for every function call should be avoided. maybe add a instruction index stack that is ufixnums? 
            would have to copy the dynamic_array and make a dynamic_ufixnum_array. */
         gis->i = ufixnum(0); /* start the bytecode interpreter at the first instruction */
         goto eval_restart; /* restart the evaluation loop */
-      case op_return_function: /* return-function ( -- ) */
+      case op_return_function: /* return-function ( x -- ) */
         if (DYNAMIC_ARRAY_LENGTH(gis->call_stack) == FUNCTION_STACK_SIZE(gis->f)) {
           printf("Attempted to return from top-level.");
           exit(1);
         }
+        ufix0 = FUNCTION_STACK_SIZE(gis->f);
+        gis->f = dynamic_array_pop(gis->call_stack);
+        gis->i = dynamic_array_pop(gis->call_stack);
         /* pop off all stack arguments, then pop bc, then pop instruction index */
-        for (ufix = 0; ufix < FUNCTION_STACK_SIZE(gis->f); ++ufix)
+        for (ufix = 0; ufix < ufix0; ++ufix)
           dynamic_array_pop(gis->call_stack);
-        gis->f = dynamic_array_pop(gis->call_stack); /* bc */
-        gis->i = dynamic_array_pop(gis->call_stack); /* i */
         goto eval_restart; /* restart the evaluation loop */
       case op_jump: /* jump ( x -- ) */
         /* can jump ~32,000 in both directions */
@@ -3003,12 +3131,16 @@ struct object *run(struct gis *gis) {
 /* evaluates the given bytecode starting at the given instruction index */
 struct object *eval_at_instruction(struct object *f, ufixnum_t i) {
   ufixnum_t j;
+  gis->call_stack = dynamic_array(10);
   gis->f = f;
   UFIXNUM_VALUE(gis->i) = i;
   /* prepare the call stack by making room for stack args */
   /* TODO: this can be optimized to just increment the length instead of pushing NILs */
   for (j = 0; j < FUNCTION_STACK_SIZE(f); ++j)
     dynamic_array_push(gis->call_stack, NIL);
+  /* by default the top level call stack has a function of NIL, the instruction index doesn't matter so it is also nil */
+  dynamic_array_push(gis->call_stack, NIL);
+  dynamic_array_push(gis->call_stack, NIL);
   return run(gis);
 }
 /* evaluates the bytecode starting at instruction index 0 */
@@ -3627,26 +3759,26 @@ void run_tests() {
   reinit();
 
   BEGIN_BC_TEST("3");
-  T_BYTE(op_const); T_BYTE(0);
+  T_BYTE(op_const_0);
   T_CONST(fixnum(3));
   END_BC_TEST();
 
   BEGIN_BC_TEST("\"dink\"");
-  T_BYTE(op_const); T_BYTE(0);
+  T_BYTE(op_const_0);
   T_CONST(string("dink"));  
   END_BC_TEST();
 
   BEGIN_BC_TEST("(cons 1 2.3)");
-  T_BYTE(op_const); T_BYTE(0);
-  T_BYTE(op_const); T_BYTE(1);
+  T_BYTE(op_const_0);
+  T_BYTE(op_const_1);
   T_BYTE(op_cons);
   T_CONST(fixnum(1)); T_CONST(flonum(2.3));  
   END_BC_TEST();
 
   BEGIN_BC_TEST("(cons 1 (cons \"a\" 9))");
-  T_BYTE(op_const); T_BYTE(0);
-  T_BYTE(op_const); T_BYTE(1);
-  T_BYTE(op_const); T_BYTE(2);
+  T_BYTE(op_const_0);
+  T_BYTE(op_const_1);
+  T_BYTE(op_const_2);
   T_BYTE(op_cons);
   T_BYTE(op_cons);
   T_CONST(fixnum(1)); T_CONST(string("a"));  
@@ -3654,11 +3786,11 @@ void run_tests() {
   END_BC_TEST();
 
   BEGIN_BC_TEST("(print \"a\" \"b\" \"c\")");
-  T_BYTE(op_const); T_BYTE(0);
+  T_BYTE(op_const_0);
   T_BYTE(op_print);
-  T_BYTE(op_const); T_BYTE(1);
+  T_BYTE(op_const_1);
   T_BYTE(op_print);
-  T_BYTE(op_const); T_BYTE(2);
+  T_BYTE(op_const_2);
   T_BYTE(op_print);
   T_BYTE(op_print_nl);
   T_CONST(string("a")); T_CONST(string("b"));  
@@ -3666,14 +3798,14 @@ void run_tests() {
   END_BC_TEST();
 
   BEGIN_BC_TEST("(+ 1 2 3 4 5)");
-  T_BYTE(op_const); T_BYTE(0);
-  T_BYTE(op_const); T_BYTE(1);
+  T_BYTE(op_const_0);
+  T_BYTE(op_const_1);
   T_BYTE(op_add);
-  T_BYTE(op_const); T_BYTE(2);
+  T_BYTE(op_const_2);
   T_BYTE(op_add);
-  T_BYTE(op_const); T_BYTE(3);
+  T_BYTE(op_const_3);
   T_BYTE(op_add);
-  T_BYTE(op_const); T_BYTE(4);
+  T_BYTE(op_const_4);
   T_BYTE(op_add);
   T_CONST(fixnum(1)); T_CONST(fixnum(2));
   T_CONST(fixnum(3)); T_CONST(fixnum(4));
@@ -3681,16 +3813,16 @@ void run_tests() {
   END_BC_TEST();
 
   BEGIN_BC_TEST("(+ 1 (- 8 9 33) 4 5)");
-  T_BYTE(op_const); T_BYTE(0);
-  T_BYTE(op_const); T_BYTE(1);
-  T_BYTE(op_const); T_BYTE(2);
+  T_BYTE(op_const_0);
+  T_BYTE(op_const_1);
+  T_BYTE(op_const_2);
   T_BYTE(op_sub);
-  T_BYTE(op_const); T_BYTE(3);
+  T_BYTE(op_const_3);
   T_BYTE(op_sub);
   T_BYTE(op_add);
-  T_BYTE(op_const); T_BYTE(4);
+  T_BYTE(op_const_4);
   T_BYTE(op_add);
-  T_BYTE(op_const); T_BYTE(5);
+  T_BYTE(op_const_5);
   T_BYTE(op_add);
   T_CONST(fixnum(1)); T_CONST(fixnum(8));
   T_CONST(fixnum(9)); T_CONST(fixnum(33));
@@ -3698,30 +3830,30 @@ void run_tests() {
   END_BC_TEST();
 
   BEGIN_BC_TEST("(if 1 2 3)");
-  T_BYTE(op_const); T_BYTE(0);
-  T_BYTE(op_jump_when_nil); T_BYTE(0); T_BYTE(6);
-  T_BYTE(op_const); T_BYTE(1);
-  T_BYTE(op_jump); T_BYTE(0); T_BYTE(3);
-  T_BYTE(op_const); T_BYTE(2);
+  T_BYTE(op_const_0);
+  T_BYTE(op_jump_when_nil); T_BYTE(0); T_BYTE(5);
+  T_BYTE(op_const_1);
+  T_BYTE(op_jump); T_BYTE(0); T_BYTE(2);
+  T_BYTE(op_const_2);
   T_CONST(fixnum(1)); T_CONST(fixnum(2)); T_CONST(fixnum(3));
   END_BC_TEST();
 
   BEGIN_BC_TEST("(if 1 2 3 4)");
-  T_BYTE(op_const); T_BYTE(0);
-  T_BYTE(op_jump_when_nil); T_BYTE(0); T_BYTE(6);
-  T_BYTE(op_const); T_BYTE(1);
-  T_BYTE(op_jump); T_BYTE(0); T_BYTE(6);
-  T_BYTE(op_const); T_BYTE(2);
+  T_BYTE(op_const_0);
+  T_BYTE(op_jump_when_nil); T_BYTE(0); T_BYTE(5);
+  T_BYTE(op_const_1);
+  T_BYTE(op_jump); T_BYTE(0); T_BYTE(4);
+  T_BYTE(op_const_2);
   T_BYTE(op_drop);
-  T_BYTE(op_const); T_BYTE(3);
+  T_BYTE(op_const_3);
   T_CONST(fixnum(1)); T_CONST(fixnum(2)); 
   T_CONST(fixnum(3)); T_CONST(fixnum(4));
   END_BC_TEST();
 
   BEGIN_BC_TEST("(let ((a 2)) a)");
-  T_BYTE(op_const); T_BYTE(0); /* load the number 2 */
+  T_BYTE(op_const_0); /* load the number 2 */
   T_BYTE(op_store_to_stack); T_BYTE(0); /* store to index 0 on the stack */
-  T_BYTE(op_load_from_stack); T_BYTE(0); /* evaluation of "a" comes from the stack, not symbol-value */
+  T_BYTE(op_load_from_stack_0); /* evaluation of "a" comes from the stack, not symbol-value */
   T_CONST(fixnum(2));
   T_STACK_SIZE(1);
   END_BC_TEST();
