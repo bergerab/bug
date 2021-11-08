@@ -120,6 +120,12 @@ typedef double flonum_t;
 #define FUNCTION_STACK_SIZE(o)\
   o->w1.value.function->stack_size
 
+#define FUNCTION_NARGS(o)\
+  o->w1.value.function->nargs
+
+#define FUNCTION_NAME(o)\
+  o->w1.value.function->name
+
 #define STRING_LENGTH(o)\
   DYNAMIC_BYTE_ARRAY_LENGTH(o)
 
@@ -198,6 +204,7 @@ enum ops {
   op_lt,
   op_lte,
   op_set_symbol_value,
+  op_set_symbol_function,
   op_symbol_value,
   op_symbol_function,
   op_jump,

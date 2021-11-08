@@ -207,6 +207,8 @@ struct object *function(struct object *constants, struct object *code, ufixnum_t
   FUNCTION_CODE(o) = code;
   FUNCTION_CONSTANTS(o) = constants;
   FUNCTION_STACK_SIZE(o) = stack_size;
+  FUNCTION_NAME(o) = NULL;
+  FUNCTION_NARGS(o) = 0;
   return o;
 }
 
@@ -797,7 +799,8 @@ char equals(struct object *o0, struct object *o1) {
     case type_function:
       return equals(FUNCTION_CONSTANTS(o0), FUNCTION_CONSTANTS(o1)) &&
              equals(FUNCTION_CODE(o0), FUNCTION_CODE(o1)) &&
-             FUNCTION_STACK_SIZE(o0) == FUNCTION_STACK_SIZE(o1);
+             FUNCTION_STACK_SIZE(o0) == FUNCTION_STACK_SIZE(o1) &&
+             FUNCTION_NARGS(o0) == FUNCTION_NARGS(o1);
     case type_record:
       /* TODO */
       return 0;
@@ -883,6 +886,11 @@ struct object *symbol_get_value(struct object *sym) {
     printf(" has no value.");
     exit(1);
   }
+}
+
+void symbol_set_function(struct object *sym, struct object *f) {
+  SYMBOL_FUNCTION(sym) = f;
+  SYMBOL_FUNCTION_IS_SET(sym) = 1;
 }
 
 void symbol_set_value(struct object *sym, struct object *value) {
@@ -2333,15 +2341,15 @@ struct object *compile_function(struct object *ast, struct object *bc, struct ob
  *   load-constant 1
  *   add
  */
-struct object *compile(struct object *ast, struct object *bc, struct object *st) {
-  struct object *value, *car, *cursor, *constants, *code, *tst, *fun_code, *fun_constants; /* temp symbol table */
+struct object *compile(struct object *ast, struct object *f, struct object *st) {
+  struct object *value, *car, *cursor, *constants, *code, *tst; /* temp symbol table */
   struct object *name, *params, *body, *k, *v, *kvp, *fun; /** for compiling functions */
   ufixnum_t length, t0, t1, jump_offset, stack_index;
 
-  if (bc == NIL) {
+  if (f == NIL) {
     constants = dynamic_array(10);
     code = dynamic_byte_array(10);
-    bc = function(constants, code, 0); /* 0 stack size is temporary, it will be updated */
+    f = function(constants, code, 0); /* 0 stack size is temporary, it will be updated */
   }
 
 /* compiles each item in the cons list, and runs "f" after each is compiled 
@@ -2360,12 +2368,12 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
  * It could also have loaded then printed.
  * 
  */
-#define COMPILE_DO_EACH(f)               \
-  cursor = CONS_CDR(value);              \
-  while (cursor != NIL) {               \
-    compile(CONS_CAR(cursor), bc, st); \
-    cursor = CONS_CDR(cursor);           \
-    f;                                   \
+#define COMPILE_DO_EACH(block)       \
+  cursor = CONS_CDR(value);           \
+  while (cursor != NIL) {             \
+    compile(CONS_CAR(cursor), f, st); \
+    cursor = CONS_CDR(cursor);        \
+    block;                           \
   }
 
 /* compiles each item in the cons list, starting with the first two, then after each item. 
@@ -2382,23 +2390,23 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
  *    load 3
  *    subtract 
  */
-#define COMPILE_DO_AGG_EACH(f)           \
-  length = 0;                            \
-  cursor = CONS_CDR(value);              \
-  while (cursor != NIL) {               \
-    compile(CONS_CAR(cursor), bc, st); \
-    cursor = CONS_CDR(cursor);           \
-    ++length;                            \
-    if (length >= 2) {                   \
-      f;                                 \
-    }                                    \
+#define COMPILE_DO_AGG_EACH(block)    \
+  length = 0;                         \
+  cursor = CONS_CDR(value);           \
+  while (cursor != NIL) {             \
+    compile(CONS_CAR(cursor), f, st); \
+    cursor = CONS_CDR(cursor);        \
+    ++length;                         \
+    if (length >= 2) {                \
+      block;                          \
+    }                                 \
   }
 
 #define C_ARG0() CONS_CAR(CONS_CDR(value))
 #define C_ARG1() CONS_CAR(CONS_CDR(CONS_CDR(value)))
 #define C_ARG2() CONS_CAR(CONS_CDR(CONS_CDR(CONS_CDR(value))))
 #define C_ARG3() CONS_CAR(CONS_CDR(CONS_CDR(CONS_CDR(CONS_CDR(value)))))
-#define C_COMPILE(expr) compile(expr, bc, st);
+#define C_COMPILE(expr) compile(expr, f, st);
 #define C_COMPILE_ARG0 C_COMPILE(C_ARG0())
 #define C_COMPILE_ARG1 C_COMPILE(C_ARG1())
 #define C_COMPILE_ARG2 C_COMPILE(C_ARG2())
@@ -2414,8 +2422,8 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
   C_COMPILE_ARG1;     \
   C_PUSH_CODE(op);
 
-#define C_CODE FUNCTION_CODE(bc)
-#define C_CONSTANTS FUNCTION_CONSTANTS(bc)
+#define C_CODE FUNCTION_CODE(f)
+#define C_CONSTANTS FUNCTION_CONSTANTS(f)
 #define C_PUSH_CODE(op) dynamic_byte_array_push_char(C_CODE, op);
 #define C_PUSH_CONSTANT(constant) dynamic_array_push(C_CONSTANTS, constant);
 #define C_CODE_LEN DYNAMIC_BYTE_ARRAY_LENGTH(C_CODE)
@@ -2431,7 +2439,7 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
     case type_package:
     case type_vec2:
     case type_enumerator:
-      gen_load_constant(bc, value);
+      gen_load_constant(f, value);
       break;
     case type_symbol:
       if (alist_get_slot(st, value) != NIL) {
@@ -2487,9 +2495,9 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
               /* TODO: validate that there's actually a key and value in the kvp */
               k = CONS_CAR(kvp);
               v = CONS_CAR(CONS_CDR(kvp));
-              stack_index = FUNCTION_STACK_SIZE(bc);
-              ++FUNCTION_STACK_SIZE(bc);
-              compile(v, bc, tst);
+              stack_index = FUNCTION_STACK_SIZE(f);
+              ++FUNCTION_STACK_SIZE(f);
+              compile(v, f, tst);
               C_PUSH_CODE(op_store_to_stack);
               C_PUSH_CODE(stack_index); /* TODO: make this a marshaled ufixnum */
               st = alist_extend(st, k, ufixnum(stack_index)); /* add to the symbol table that the body of the let will use */
@@ -2504,21 +2512,54 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
           } else if (car == gis->function_symbol) {
             /* (function [name] [params] body) */
             name = C_ARG0();
-            if (get_object_type(name) != type_symbol) {
+
+            /* check if the name position is actually filled with the params (anonymous function) */
+            if (get_object_type(name) == type_cons || get_object_type(name) == type_nil) {
+              params = name;
+              /* set name to NIL as a flag for later */
+              name = NIL;
+            } else if (get_object_type(name) != type_symbol) {
               printf("functions must be given a symbol name.");
               exit(1);
+            } else {
+              /* the params list */
+              params = C_ARG1();
             }
 
-            /* this is the params list */
-            params = C_ARG1();
+            cursor = params;
+            length = 0;
+            tst = st;
+            while (cursor != NIL) {
+              k = CONS_CAR(cursor);
+              /* add to the symbol table that the body of the function will use */
+              tst = alist_extend(tst, k, ufixnum(length));
+              cursor = CONS_CDR(cursor);
+              ++length;
+            }
 
-            /* the start of the body */
-            body = CONS_CDR(CONS_CDR(CONS_CDR(value)));
+            fun = function(dynamic_array(10), dynamic_byte_array(10), length);
+            FUNCTION_NARGS(fun) = length;
+            FUNCTION_NAME(fun) = name;
 
-            C_PUSH_CODE(op_return_function);
+            /* compile each expression in the function and add it to the function's bytecode */
+            if (name == NIL) { /* if this is an anonymous function */
+              body = CONS_CDR(CONS_CDR(value));
+            } else {
+              body = CONS_CDR(CONS_CDR(CONS_CDR(value)));
+            }
+            cursor = body;
+            while (cursor != NIL) {
+              compile(CONS_CAR(cursor), fun, tst);
+              cursor = CONS_CDR(cursor);
+            }
 
-            print(params);
-            print(body);
+            if (name == NIL) { /* if this is an anonymous function */
+              gen_load_constant(f, fun);
+            } else {
+              gen_load_constant(f, name);
+              gen_load_constant(f, fun);
+              C_PUSH_CODE(op_set_symbol_function);
+            }
             break;
           } else if (car == gis->symbol_value_symbol) {
             C_COMPILE_ARG0;
@@ -2530,7 +2571,7 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
             break;
           } else if (car == gis->quote_symbol) {
             SF_REQ_N(1, value);
-            gen_load_constant(bc, C_ARG0());
+            gen_load_constant(f, C_ARG0());
             break;
           } else if (car == gis->car_symbol) {
             C_EXE1(op_car);
@@ -2652,7 +2693,7 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
       break;
   }
 
-  return bc;
+  return f;
 } 
 
 /* 
@@ -2939,6 +2980,15 @@ struct object *run(struct gis *gis) {
         TC("set-symbol-value", 0, v0, type_symbol);
         symbol_set_value(v0, v1);
         push(v0);
+        break;
+      case op_set_symbol_function: /* set-symbol-function ( sym val -- ) */
+        SC("set-symbol-function", 1);
+        v1 = pop(); /* val */
+        v0 = pop(); /* sym */
+        TC("set-symbol-function", 0, v0, type_symbol);
+        TC("set-symbol-function", 1, v1, type_function);
+        symbol_set_function(v0, v1);
+        push(v1);
         break;
       default:
         printf("No cases matched\n");
