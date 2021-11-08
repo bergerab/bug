@@ -37,8 +37,6 @@ char *get_type_name(enum type t) {
       return "package";
     case type_string:
       return "string";
-    case type_bytecode:
-      return "bytecode";
     case type_dynamic_byte_array:
       return "dynamic-byte-array";
     case type_file:
@@ -173,17 +171,6 @@ struct object *vec2(flonum_t x, flonum_t y) {
   return o;
 }
 
-struct object *function(struct object *name, struct object *bytecode) {
-  struct object *o;
-  TC("function", 0, name, type_symbol);
-  TC("function", 1, bytecode, type_bytecode);
-  o = object(type_function);
-  NC(o, "Failed to allocate function object.");
-  FUNCTION_NAME(o) = name;
-  FUNCTION_BYTECODE(o) = bytecode;
-  return o;
-}
-
 struct object *dynamic_array(fixnum_t initial_capacity) {
   struct object *o = object(type_dynamic_array);
   NC(o, "Failed to allocate dynamic-array object.");
@@ -209,17 +196,17 @@ struct object *dynamic_byte_array(ufixnum_t initial_capacity) {
   return o;
 }
 
-struct object *bytecode(struct object *constants, struct object *code, ufixnum_t stack_size) {
+struct object *function(struct object *constants, struct object *code, ufixnum_t stack_size) {
   struct object *o;
-  TC("bytecode", 0, constants, type_dynamic_array);
-  TC("bytecode", 1, code, type_dynamic_byte_array);
-  o = object(type_bytecode);
-  NC(o, "Failed to allocate bytecode object.");
-  o->w1.value.bytecode = malloc(sizeof(struct bytecode));
-  NC(o->w1.value.bytecode, "Failed to allocate bytecode.");
-  BYTECODE_CODE(o) = code;
-  BYTECODE_CONSTANTS(o) = constants;
-  BYTECODE_STACK_SIZE(o) = stack_size;
+  TC("function", 0, constants, type_dynamic_array);
+  TC("function", 1, code, type_dynamic_byte_array);
+  o = object(type_function);
+  NC(o, "Failed to allocate function object.");
+  o->w1.value.function = malloc(sizeof(struct function));
+  NC(o->w1.value.function, "Failed to allocate function.");
+  FUNCTION_CODE(o) = code;
+  FUNCTION_CONSTANTS(o) = constants;
+  FUNCTION_STACK_SIZE(o) = stack_size;
   return o;
 }
 
@@ -707,11 +694,11 @@ struct object *do_to_string(struct object *o, char repr) {
       return to_string_vec2(o);
     case type_dynamic_array:
       return to_string_dynamic_array(o);
-    case type_bytecode: /* TODO */
+    case type_function: /* TODO */
       str = string("#[");
-      str = dynamic_byte_array_concat(str, do_to_string(BYTECODE_CONSTANTS(o), 1));
+      str = dynamic_byte_array_concat(str, do_to_string(FUNCTION_CONSTANTS(o), 1));
       dynamic_byte_array_push_char(str, ' ');
-      str = dynamic_byte_array_concat(str, do_to_string(BYTECODE_CODE(o), 1));
+      str = dynamic_byte_array_concat(str, do_to_string(FUNCTION_CODE(o), 1));
       dynamic_byte_array_push_char(str, ']');
       return str;
     case type_record: /* TODO */
@@ -807,13 +794,10 @@ char equals(struct object *o0, struct object *o1) {
       return o0 == o1;
     case type_symbol:
       return o0 == o1;
-    case type_bytecode:
-      return equals(BYTECODE_CONSTANTS(o0), BYTECODE_CONSTANTS(o1)) &&
-             equals(BYTECODE_CODE(o0), BYTECODE_CODE(o1)) &&
-             BYTECODE_STACK_SIZE(o0) == BYTECODE_STACK_SIZE(o1);
     case type_function:
-      return equals(FUNCTION_NAME(o0), FUNCTION_NAME(o1)) &&
-             equals(FUNCTION_BYTECODE(o0), FUNCTION_BYTECODE(o1));
+      return equals(FUNCTION_CONSTANTS(o0), FUNCTION_CONSTANTS(o1)) &&
+             equals(FUNCTION_CODE(o0), FUNCTION_CODE(o1)) &&
+             FUNCTION_STACK_SIZE(o0) == FUNCTION_STACK_SIZE(o1);
     case type_record:
       /* TODO */
       return 0;
@@ -865,6 +849,23 @@ struct object *alist_extend(struct object *alist, struct object *key, struct obj
  * Symbol Interning and access   *
  *===============================*
  *===============================*/
+struct object *symbol_get_function(struct object *sym) {
+  if (SYMBOL_FUNCTION_IS_SET(sym)) {
+    return SYMBOL_FUNCTION(sym);
+  } else {
+    printf("Symbol ");
+    if (SYMBOL_PACKAGE(sym) != NIL) {
+      print_no_newline(PACKAGE_NAME(SYMBOL_PACKAGE(sym)));
+      if (SYMBOL_IS_EXTERNAL(sym))
+        printf(":");
+      else
+        printf("::");
+    }
+    print_no_newline(SYMBOL_NAME(sym));
+    printf(" has no function.");
+    exit(1);
+  }
+}
 
 struct object *symbol_get_value(struct object *sym) {
   if (SYMBOL_VALUE_IS_SET(sym)) {
@@ -1090,7 +1091,7 @@ void gis_init() {
   gis->id = intern(gis->str_id, gis->pack); \
   symbol_export(gis->id);
 
-  gis->bc = NULL; /* the instruction index */
+  gis->f = NULL; /* the instruction index */
   gis->i = ufixnum(0); /* the instruction index */
 
   /* nil must be boostrapped because other functions relies on it */
@@ -1141,6 +1142,7 @@ void gis_init() {
   GIS_SYM(car_symbol, car_string, "car", lisp_package);
   GIS_SYM(cdr_symbol, cdr_string, "cdr", lisp_package);
   GIS_SYM(symbol_value_symbol, symbol_value_string, "symbol-value", lisp_package);
+  GIS_SYM(symbol_function_symbol, symbol_function_string, "symbol-function", lisp_package);
   GIS_SYM(set_symbol, set_string, "set", lisp_package);
   GIS_SYM(quote_symbol, quote_string, "quote", lisp_package);
   GIS_SYM(add_symbol, add_string, "+", lisp_package);
@@ -1157,7 +1159,7 @@ void gis_init() {
   GIS_SYM(equals_symbol, equals_string, "=", lisp_package);
   GIS_SYM(progn_symbol, progn_string, "progn", lisp_package);
   GIS_SYM(or_symbol, or_string, "or", lisp_package);
-  GIS_SYM(function_symbol, function_string, "func", lisp_package);
+  GIS_SYM(function_symbol, function_string, "fun", lisp_package);
   GIS_SYM(let_symbol, let_string, "let", lisp_package);
   GIS_SYM(t_symbol, t_string, "t", lisp_package);
   symbol_set_value(gis->t_symbol, gis->t_symbol); /* t has itself as its value */
@@ -1498,17 +1500,17 @@ struct object *marshal_flonum(flonum_t n, struct object *ba) {
 }
 
 /**
- * turns bytecode into a byte-array that can be stored to a file
+ * turns function into a byte-array that can be stored to a file
  */
-struct object *marshal_bytecode(struct object *bc, struct object *ba, char include_header, struct object *cache) {
-  TC("marshal_bytecode", 0, bc, type_bytecode);
+struct object *marshal_function(struct object *bc, struct object *ba, char include_header, struct object *cache) {
+  TC("marshal_function", 0, bc, type_function);
   if (ba == NULL)
     ba = dynamic_byte_array(10);
   if (include_header)
-    dynamic_byte_array_push_char(ba, marshaled_type_bytecode);
-  marshal_dynamic_array(BYTECODE_CONSTANTS(bc), ba, 0, cache);
-  marshal_ufixnum_t(BYTECODE_STACK_SIZE(bc), ba, 0);
-  marshal_dynamic_byte_array(BYTECODE_CODE(bc), ba, 0);
+    dynamic_byte_array_push_char(ba, marshaled_type_function);
+  marshal_dynamic_array(FUNCTION_CONSTANTS(bc), ba, 0, cache);
+  marshal_ufixnum_t(FUNCTION_STACK_SIZE(bc), ba, 0);
+  marshal_dynamic_byte_array(FUNCTION_CODE(bc), ba, 0);
   return ba;
 }
 
@@ -1549,8 +1551,8 @@ struct object *marshal(struct object *o, struct object *ba, struct object *cache
       return marshal_string(o, ba, 1, cache);
     case type_symbol:
       return marshal_symbol(o, ba, cache);
-    case type_bytecode:
-      return marshal_bytecode(o, ba, 1, cache);
+    case type_function:
+      return marshal_function(o, ba, 1, cache);
     default:
       printf("BC: cannot marshal type %s.\n", get_object_type_name(o));
       return NIL;
@@ -1847,15 +1849,15 @@ struct object *unmarshal_vec2(struct object *s, char includes_header) {
   return vec2(x, y);
 }
 
-struct object *unmarshal_bytecode(struct object *s, char includes_header, struct object *cache) {
+struct object *unmarshal_function(struct object *s, char includes_header, struct object *cache) {
   unsigned char t;
   struct object *constants, *code;
   ufixnum_t stack_size;
   s = byte_stream_lift(s);
   if (includes_header) {
     t = byte_stream_read_byte(s);
-    if (t != marshaled_type_bytecode) {
-      printf("BC: unmarshaling bytecode expected bytecode type, but was %d.",
+    if (t != marshaled_type_function) {
+      printf("BC: unmarshaling function expected function type, but was %d.",
              t);
       exit(1);
     }
@@ -1863,7 +1865,7 @@ struct object *unmarshal_bytecode(struct object *s, char includes_header, struct
   constants = unmarshal_dynamic_array(s, 0, cache);
   stack_size = unmarshal_ufixnum_t(s);
   code = unmarshal_dynamic_byte_array(s, 0);
-  return bytecode(constants, code, stack_size);
+  return function(constants, code, stack_size);
 }
 
 struct object *unmarshal_nil(struct object *s) {
@@ -1904,8 +1906,8 @@ struct object *unmarshal(struct object *s, struct object *cache) {
       return unmarshal_vec2(s, 1);
     case marshaled_type_symbol:
       return unmarshal_symbol(s, cache);
-    case marshaled_type_bytecode:
-      return unmarshal_bytecode(s, 1, cache);
+    case marshaled_type_function:
+      return unmarshal_function(s, 1, cache);
     default:
       printf("BC: cannot unmarshal marshaled type %d.", t);
       return NIL;
@@ -1972,11 +1974,11 @@ struct object *read_file(struct object *file) {
   struct object *cache, *ba;
   ufixnum_t user_cache_start_index;
   TC("write_bytecode_file", 0, file, type_file);
-  TC("write_bytecode_file", 1, bc, type_bytecode);
+  TC("write_bytecode_file", 1, bc, type_function);
   write_file(file, make_bytecode_file_header());
   cache = string_marshal_cache_get_default();
   user_cache_start_index = DYNAMIC_ARRAY_LENGTH(cache);
-  ba = marshal_bytecode(bc, NULL, 0, cache);
+  ba = marshal_function(bc, NULL, 0, cache);
   write_file(file, marshal_dynamic_string_array(cache, NULL, 0, NULL, user_cache_start_index));
   write_file(file, ba);
 }
@@ -2006,11 +2008,11 @@ struct object *read_bytecode_file(struct object *s) {
   cache = string_marshal_cache_get_default();
   unmarshal_dynamic_string_array(s, 0, NULL, cache);
 
-  bc = unmarshal_bytecode(s, 0, cache);
+  bc = unmarshal_function(s, 0, cache);
 
-  if (get_object_type(bc) != type_bytecode) {
+  if (get_object_type(bc) != type_function) {
     printf(
-        "BC: Bytecode file requires a marshalled bytecode object immediately "
+        "BC: function file requires a marshalled function object immediately "
         "after the header, but found a %s.\n",
         get_object_type_name(bc));
     exit(1);
@@ -2293,12 +2295,12 @@ struct object *read(struct object *s, struct object *package) {
 struct object *compile(struct object *ast, struct object *bc, struct object *st);
 
 void gen_load_constant(struct object *bc, struct object *value) {
-  TC("gen_load_constant", 0, bc, type_bytecode);
-  dynamic_array_push(BYTECODE_CONSTANTS(bc), value);
-  dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_const);
+  TC("gen_load_constant", 0, bc, type_function);
+  dynamic_array_push(FUNCTION_CONSTANTS(bc), value);
+  dynamic_byte_array_push_char(FUNCTION_CODE(bc), op_const);
   /* bugs could show up when the number of constants exceeds 127 (will make this be > 1 byte).
      (if jump has issues) */
-  marshal_ufixnum_t(DYNAMIC_ARRAY_LENGTH(BYTECODE_CONSTANTS(bc)) - 1, BYTECODE_CODE(bc), 0);
+  marshal_ufixnum_t(DYNAMIC_ARRAY_LENGTH(FUNCTION_CONSTANTS(bc)) - 1, FUNCTION_CODE(bc), 0);
 }
 
 /*
@@ -2310,7 +2312,7 @@ struct object *compile_function(struct object *ast, struct object *bc, struct ob
   t0 = get_object_type(a0);
 
   if (t0 == type_symbol) { a named function 
-    dynamic_byte_array_push_char(BYTECODE_CODE(bc), op_);
+    dynamic_byte_array_push_char(FUNCTION_CODE(bc), op_);
   } else if (t0 == type_cons || t0 == type_nil) { anonymous function 
     printf("anonymous functions not supported");
     exit(1);
@@ -2332,14 +2334,14 @@ struct object *compile_function(struct object *ast, struct object *bc, struct ob
  *   add
  */
 struct object *compile(struct object *ast, struct object *bc, struct object *st) {
-  struct object *value, *car, *cursor, *constants, *code, *tst; /* temp symbol table */
-  struct object *name, *params, *body, *k, *v, *kvp; /** for compiling functions */
+  struct object *value, *car, *cursor, *constants, *code, *tst, *fun_code, *fun_constants; /* temp symbol table */
+  struct object *name, *params, *body, *k, *v, *kvp, *fun; /** for compiling functions */
   ufixnum_t length, t0, t1, jump_offset, stack_index;
 
   if (bc == NIL) {
     constants = dynamic_array(10);
     code = dynamic_byte_array(10);
-    bc = bytecode(constants, code, 0); /* 0 stack size is temporary, it will be updated */
+    bc = function(constants, code, 0); /* 0 stack size is temporary, it will be updated */
   }
 
 /* compiles each item in the cons list, and runs "f" after each is compiled 
@@ -2412,8 +2414,8 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
   C_COMPILE_ARG1;     \
   C_PUSH_CODE(op);
 
-#define C_CODE BYTECODE_CODE(bc)
-#define C_CONSTANTS BYTECODE_CONSTANTS(bc)
+#define C_CODE FUNCTION_CODE(bc)
+#define C_CONSTANTS FUNCTION_CONSTANTS(bc)
 #define C_PUSH_CODE(op) dynamic_byte_array_push_char(C_CODE, op);
 #define C_PUSH_CONSTANT(constant) dynamic_array_push(C_CONSTANTS, constant);
 #define C_CODE_LEN DYNAMIC_BYTE_ARRAY_LENGTH(C_CODE)
@@ -2485,8 +2487,8 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
               /* TODO: validate that there's actually a key and value in the kvp */
               k = CONS_CAR(kvp);
               v = CONS_CAR(CONS_CDR(kvp));
-              stack_index = BYTECODE_STACK_SIZE(bc);
-              ++BYTECODE_STACK_SIZE(bc);
+              stack_index = FUNCTION_STACK_SIZE(bc);
+              ++FUNCTION_STACK_SIZE(bc);
               compile(v, bc, tst);
               C_PUSH_CODE(op_store_to_stack);
               C_PUSH_CODE(stack_index); /* TODO: make this a marshaled ufixnum */
@@ -2506,18 +2508,25 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
               printf("functions must be given a symbol name.");
               exit(1);
             }
+
             /* this is the params list */
             params = C_ARG1();
 
             /* the start of the body */
             body = CONS_CDR(CONS_CDR(CONS_CDR(value)));
 
+            C_PUSH_CODE(op_return_function);
+
             print(params);
             print(body);
             break;
           } else if (car == gis->symbol_value_symbol) {
-            SF_REQ_N(1, value);
             C_COMPILE_ARG0;
+            C_PUSH_CODE(op_symbol_value);
+            break;
+          } else if (car == gis->symbol_function_symbol) {
+            C_COMPILE_ARG0;
+            C_PUSH_CODE(op_symbol_function);
             break;
           } else if (car == gis->quote_symbol) {
             SF_REQ_N(1, value);
@@ -2640,8 +2649,6 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st)
     case type_record:
       break;
     case type_dynamic_array:
-    case type_bytecode:
-      /* these need special cases because they could include non-constants */
       break;
   }
 
@@ -2707,8 +2714,8 @@ void dup() {
   c0 = constants->values[a0];
 
 /* returns the top of the stack for convience */
-/* evaluates gis->bytecode starting at instruction gis->i */
-/* assumes gis->i and gis->bc is set and call_stack has been initialized with space for all stack args */
+/* evaluates gis->function starting at instruction gis->i */
+/* assumes gis->i and gis->f is set and call_stack has been initialized with space for all stack args */
 struct object *run(struct gis *gis) {
   unsigned long byte_count; /* number of  bytes in this bytecode */
   unsigned char t0;        /* temporary for reading bytecode arguments */
@@ -2721,12 +2728,13 @@ struct object *run(struct gis *gis) {
   struct dynamic_array *constants; /* the constants array */
   unsigned long constants_length;  /* the length of the constants array */
   struct object *i;
+  ufixnum_t ufix;
 
-  /* jump to this label after setting a new gis->i and gis->bc 
+  /* jump to this label after setting a new gis->i and gis->f 
      (and pushing the old i and bc to the call-stack) */
   eval_restart:
-  code = gis->bc->w1.value.bytecode->code->w1.value.dynamic_byte_array;
-  constants = gis->bc->w1.value.bytecode->constants->w1.value.dynamic_array;
+  code = gis->f->w1.value.function->code->w1.value.dynamic_byte_array;
+  constants = gis->f->w1.value.function->constants->w1.value.dynamic_array;
   constants_length = constants->length;
   byte_count = code->length;
   i = gis->i;
@@ -2868,13 +2876,33 @@ struct object *run(struct gis *gis) {
         break;
       case op_load_from_stack: /* load-from-stack ( -- ) */
         READ_OP_ARG();
-        push(dynamic_array_get_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (BYTECODE_STACK_SIZE(gis->bc) - a0)));
+        push(dynamic_array_get_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (FUNCTION_STACK_SIZE(gis->f) - a0)));
         break;
       case op_store_to_stack: /* store-to-stack ( -- ) */
         SC("store-to-stack", 1);
         READ_CONST_ARG();
-        dynamic_array_set_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (BYTECODE_STACK_SIZE(gis->bc) - a0), pop());
+        dynamic_array_set_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (FUNCTION_STACK_SIZE(gis->f) - a0), pop());
         break;
+      case op_call_function: /* call-function ( fun -- ) */
+        /* save the instruction index, and function */
+        dynamic_array_push(gis->call_stack, gis->i);
+        dynamic_array_push(gis->call_stack, gis->f);
+        gis->f = pop(); /* set the new function */
+        /* creating a new ufixnum() for every function call should be avoided. maybe add a instruction index stack that is ufixnums? 
+           would have to copy the dynamic_array and make a dynamic_ufixnum_array. */
+        gis->i = ufixnum(0); /* start the bytecode interpreter at the first instruction */
+        goto eval_restart; /* restart the evaluation loop */
+      case op_return_function: /* return-function ( -- ) */
+        if (DYNAMIC_ARRAY_LENGTH(gis->call_stack) == FUNCTION_STACK_SIZE(gis->f)) {
+          printf("Attempted to return from top-level.");
+          exit(1);
+        }
+        /* pop off all stack arguments, then pop bc, then pop instruction index */
+        for (ufix = 0; ufix < FUNCTION_STACK_SIZE(gis->f); ++ufix)
+          dynamic_array_pop(gis->call_stack);
+        gis->f = dynamic_array_pop(gis->call_stack); /* bc */
+        gis->i = dynamic_array_pop(gis->call_stack); /* i */
+        goto eval_restart; /* restart the evaluation loop */
       case op_jump: /* jump ( x -- ) */
         /* can jump ~32,000 in both directions */
         READ_OP_JUMP_ARG();  
@@ -2899,6 +2927,11 @@ struct object *run(struct gis *gis) {
         v0 = pop(); /* sym */
         push(symbol_get_value(v0));
         break;
+      case op_symbol_function: /* symbol-function ( sym -- ) */
+        SC("symbol-function", 1);
+        v0 = pop(); /* sym */
+        push(symbol_get_function(v0));
+        break;
       case op_set_symbol_value: /* set-symbol-value ( sym val -- ) */
         SC("set-symbol-value", 1);
         v1 = pop(); /* val */
@@ -2918,13 +2951,13 @@ struct object *run(struct gis *gis) {
 }
 
 /* evaluates the given bytecode starting at the given instruction index */
-struct object *eval_at_instruction(struct object *bc, ufixnum_t i) {
+struct object *eval_at_instruction(struct object *f, ufixnum_t i) {
   ufixnum_t j;
-  gis->bc = bc;
+  gis->f = f;
   UFIXNUM_VALUE(gis->i) = i;
   /* prepare the call stack by making room for stack args */
   /* TODO: this can be optimized to just increment the length instead of pushing NILs */
-  for (j = 0; j < BYTECODE_STACK_SIZE(bc); ++j)
+  for (j = 0; j < FUNCTION_STACK_SIZE(f); ++j)
     dynamic_array_push(gis->call_stack, NIL);
   return run(gis);
 }
@@ -3197,7 +3230,7 @@ void run_tests() {
   o0 = unmarshal_dynamic_array(marshal_dynamic_array(darr, NULL, 1, NULL), 1, NULL);
   assert(equals(darr, o0));
 
-  /* marshal bytecode */
+  /* marshal function */
   darr = dynamic_array(10); /* constants vector */
   dynamic_array_push(darr, string("blackhole"));
   dynamic_array_push(darr, flonum(3.234));
@@ -3207,23 +3240,23 @@ void run_tests() {
   dynamic_byte_array_push_char(dba, 0x39);
   dynamic_byte_array_push_char(dba, 0x13);
   dynamic_byte_array_push_char(dba, 0x23);
-  bc = bytecode(darr, dba, 12); /* bogus stack size */
-  o0 = unmarshal_bytecode(marshal_bytecode(bc, NULL, 1, NULL), 1, NULL);
+  bc = function(darr, dba, 12); /* bogus stack size */
+  o0 = unmarshal_function(marshal_function(bc, NULL, 1, NULL), 1, NULL);
   /* check constants vector */
   assert(DYNAMIC_ARRAY_LENGTH(darr) ==
-         DYNAMIC_ARRAY_LENGTH(BYTECODE_CONSTANTS(o0)));
+         DYNAMIC_ARRAY_LENGTH(FUNCTION_CONSTANTS(o0)));
   assert(strcmp(bstring_to_cstring(
-                    DYNAMIC_ARRAY_VALUES(BYTECODE_CONSTANTS(o0))[0]),
+                    DYNAMIC_ARRAY_VALUES(FUNCTION_CONSTANTS(o0))[0]),
                 "blackhole") == 0);
-  assert(FLONUM_VALUE(DYNAMIC_ARRAY_VALUES(BYTECODE_CONSTANTS(o0))[1]) ==
+  assert(FLONUM_VALUE(DYNAMIC_ARRAY_VALUES(FUNCTION_CONSTANTS(o0))[1]) ==
          3.234);
-  assert(UFIXNUM_VALUE(DYNAMIC_ARRAY_VALUES(BYTECODE_CONSTANTS(o0))[2]) ==
+  assert(UFIXNUM_VALUE(DYNAMIC_ARRAY_VALUES(FUNCTION_CONSTANTS(o0))[2]) ==
          234234234);
   /* check code vector */
   assert(DYNAMIC_BYTE_ARRAY_LENGTH(dba) ==
-         DYNAMIC_BYTE_ARRAY_LENGTH(BYTECODE_CODE(o0)));
+         DYNAMIC_BYTE_ARRAY_LENGTH(FUNCTION_CODE(o0)));
   assert(strcmp(bstring_to_cstring(dba),
-                bstring_to_cstring(BYTECODE_CODE(o0))) == 0);
+                bstring_to_cstring(FUNCTION_CODE(o0))) == 0);
 
   darr = dynamic_array(10); /* constants vector */
   T_DA_PUSH(intern(string("g"), gis->user_package)); T_DA_PUSH(fixnum(1));
@@ -3244,8 +3277,8 @@ void run_tests() {
   T_DBA_PUSH(0x0C); T_DBA_PUSH(0x12); T_DBA_PUSH(0x16); T_DBA_PUSH(0x21); T_DBA_PUSH(0x00);
   T_DBA_PUSH(0x08); T_DBA_PUSH(0x15); T_DBA_PUSH(0x0D); T_DBA_PUSH(0x16); T_DBA_PUSH(0x00);
   T_DBA_PUSH(0x15); T_DBA_PUSH(0x0E);
-  bc = bytecode(darr, dba, 8); /* bogus stack size */
-  o0 = unmarshal_bytecode(marshal_bytecode(bc, NULL, 1, NULL), 1, NULL);
+  bc = function(darr, dba, 8); /* bogus stack size */
+  o0 = unmarshal_function(marshal_function(bc, NULL, 1, NULL), 1, NULL);
   assert(equals(bc, o0));
 
   /* string cache */
@@ -3393,7 +3426,7 @@ void run_tests() {
   dynamic_array_push(consts0, string("ab"));
   dynamic_array_push(consts0, cons(string("F"), cons(string("E"), NIL)));
   dynamic_array_push(consts0, flonum(8));
-  o0 = bytecode(consts0, code0, 99); /* bogus stack size */
+  o0 = function(consts0, code0, 99); /* bogus stack size */
 
   code1 = dynamic_byte_array(100);
   dynamic_byte_array_push_char(code1, op_const);
@@ -3402,7 +3435,7 @@ void run_tests() {
   dynamic_array_push(consts1, string("ab"));
   dynamic_array_push(consts1, cons(string("F"), cons(string("E"), NIL)));
   dynamic_array_push(consts1, flonum(8));
-  o1 = bytecode(consts1, code1, 99); /* bogus stack size */
+  o1 = function(consts1, code1, 99); /* bogus stack size */
   assert(equals(o0, o1));
 
   dynamic_array_push(consts1, flonum(10));
@@ -3528,10 +3561,10 @@ void run_tests() {
   constants = dynamic_array(10);
   stack_size = 0;
 #define END_BC_TEST()              \
-  bc1 = bytecode(constants, code, stack_size); \
+  bc1 = function(constants, code, stack_size); \
   assert(equals(bc0, bc1));
 #define DEBUG_END_BC_TEST()                    \
-  bc1 = bytecode(constants, code, stack_size); \
+  bc1 = function(constants, code, stack_size); \
   printf("ACTUAL:\t\t");                          \
   print(bc0);                                  \
   printf("EXPECTED:\t");                        \
@@ -3641,7 +3674,7 @@ void run_tests() {
   T_BYTE(op_load_from_stack); T_BYTE(0); /* evaluation of "a" comes from the stack, not symbol-value */
   T_CONST(fixnum(2));
   T_STACK_SIZE(1);
-  DEBUG_END_BC_TEST();
+  END_BC_TEST();
 
   END_TESTS();
 }

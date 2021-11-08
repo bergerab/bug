@@ -111,14 +111,14 @@ typedef double flonum_t;
 #define DYNAMIC_ARRAY_VALUES(o)\
   o->w1.value.dynamic_array->values
 
-#define BYTECODE_CONSTANTS(o)\
-  o->w1.value.bytecode->constants
+#define FUNCTION_CONSTANTS(o)\
+  o->w1.value.function->constants
 
-#define BYTECODE_CODE(o)\
-  o->w1.value.bytecode->code
+#define FUNCTION_CODE(o)\
+  o->w1.value.function->code
 
-#define BYTECODE_STACK_SIZE(o)\
-  o->w1.value.bytecode->stack_size
+#define FUNCTION_STACK_SIZE(o)\
+  o->w1.value.function->stack_size
 
 #define STRING_LENGTH(o)\
   DYNAMIC_BYTE_ARRAY_LENGTH(o)
@@ -162,15 +162,6 @@ typedef double flonum_t;
 #define FUNCTION_NAME(o)\
   o->w1.value.function->name
 
-#define FUNCTION_BYTECODE(o)\
-  o->w1.value.function->bytecode
-
-#define FUNCTION_CONSTANTS(o)\
-  o->w1.value.function->bytecode->constants
-
-#define FUNCTION_CODE(o)\
-  o->w1.value.function->bytecode->code
-
 #define BC_VERSION 1
 
 enum ops {
@@ -208,10 +199,13 @@ enum ops {
   op_lte,
   op_set_symbol_value,
   op_symbol_value,
+  op_symbol_function,
   op_jump,
   op_jump_when_nil,
   op_load_from_stack,
-  op_store_to_stack
+  op_store_to_stack,
+  op_call_function,
+  op_return_function
 };
 
 /* The types defined below are not the same as the types that will
@@ -227,14 +221,13 @@ enum type {
   type_string = 22,
   type_package = 26,
   type_dynamic_byte_array = 30,
-  type_bytecode = 34,
+  type_function = 34,
   type_file = 38,
   type_enumerator = 42,
   type_nil = 46, /* type_nil won't appear on an object, only from calls to
                    get_object_type(...) */
   type_record = 50,
-  type_function = 54,
-  type_vec2 = 58
+  type_vec2 = 54
 };
 
 union value {
@@ -244,12 +237,11 @@ union value {
   struct dynamic_array *dynamic_array;
   struct dynamic_byte_array *dynamic_byte_array;
   struct symbol *symbol;
-  struct bytecode *bytecode;
+  struct function *function;
   struct package *package;
   struct enumerator *enumerator;
   struct file *file;
   struct record *record;
-  struct function *function;
   struct vec2 *vec2;
 };
 
@@ -297,15 +289,12 @@ struct package {
   struct object *packages; /** packages this package uses -- all external symbols of these packages become internal symbols (can be exported) */
 };
 
-struct bytecode {
+struct function {
+  struct object *name; /** a symbol - optional */
   struct object *code; /** the code (a byte-array) */
   struct object *constants; /** an array of constants used within the code (an array) */
-  ufixnum_t stack_size; /** how many items to reserve on the stack */
-};
-
-struct function {
-  struct object *name; /** a symbol */
-  struct object *bytecode; /** bytecode */
+  ufixnum_t stack_size; /** how many items to reserve on the stack - includes */
+  ufixnum_t nargs; /** how many arguments does this require? */
 };
 
 struct file {
@@ -339,7 +328,7 @@ struct gis {
   struct object *call_stack; /** stack for saving stack pointers and values for function calls (a cons list) */
 
   struct object *i; /** the index of the next instruction in bc to execute */
-  struct object *bc; /** the currently executing bytecode */
+  struct object *f; /** the currently executing function */
 
   struct object *sp; /** the call stack pointer (a ufixnum) */
   struct object *package; /** the current package being evaluated */
@@ -347,7 +336,7 @@ struct gis {
 
   struct object *interned_strings; /** maybe it shouldn't be in the global interpreter state (originally for marshaling/unmarshaling), 
                                        but it was easier to put it here.
-                                       used for any internal strings that shouldn't be repeated in bytecode
+                                       used for any internal strings that shouldn't be repeated in function
                                        for example, frequent use of the same symbol name, or package name would
                                        be put here. */
 
@@ -367,6 +356,7 @@ struct gis {
   struct object *car_symbol;
   struct object *cdr_symbol;
   struct object *symbol_value_symbol;
+  struct object *symbol_function_symbol;
   struct object *set_symbol;
   struct object *quote_symbol;
   struct object *cons_symbol;
@@ -403,6 +393,7 @@ struct gis {
   struct object *car_string;
   struct object *cdr_string;
   struct object *symbol_value_string;
+  struct object *symbol_function_string;
   struct object *set_string;
   struct object *quote_string;
   struct object *cons_string;
@@ -456,6 +447,6 @@ enum marshaled_type {
   marshaled_type_dynamic_array,
   marshaled_type_dynamic_string_array,
   marshaled_type_dynamic_byte_array,
-  marshaled_type_bytecode,
+  marshaled_type_function,
   marshaled_type_vec2
 };
