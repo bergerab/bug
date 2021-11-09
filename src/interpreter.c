@@ -2382,6 +2382,7 @@ struct object *compile_function(struct object *ast, struct object *bc, struct ob
 struct object *compile(struct object *ast, struct object *f, struct object *st) {
   struct object *value, *car, *cursor, *constants, *code, *tst; /* temp symbol table */
   struct object *name, *params, *body, *k, *v, *kvp, *fun; /** for compiling functions */
+  struct object *lhs, *rhs;
   ufixnum_t length, t0, t1, jump_offset, stack_index;
 
   if (f == NIL) {
@@ -2695,7 +2696,70 @@ struct object *compile(struct object *ast, struct object *f, struct object *st) 
             C_PUSH_CODE(op_print_nl);
             break;
           } else if (car == gis->add_symbol) {
-            COMPILE_DO_AGG_EACH({ C_PUSH_CODE(op_add); });
+            length = 0;
+            cursor = CONS_CDR(value);
+            lhs = NULL;
+            rhs = NULL;
+            while (cursor != NIL) {
+              if (lhs == NULL) {
+                lhs = CONS_CAR(cursor);
+              } else {
+                rhs = CONS_CAR(cursor);
+              }
+              cursor = CONS_CDR(cursor);
+              ++length;
+              if (length > 2) {
+                if (get_object_type(rhs) == type_fixnum || get_object_type(rhs) == type_ufixnum) {
+                  if (FIXNUM_VALUE(rhs) < 0) {
+                   C_PUSH_CODE(op_subi);
+                  } else {
+                    C_PUSH_CODE(op_addi);
+                  }
+                  marshal_ufixnum_t(FIXNUM_VALUE(rhs) < 0 ? -FIXNUM_VALUE(rhs) : FIXNUM_VALUE(rhs), C_CODE, 0);
+                } else {
+                  C_COMPILE(rhs);
+                  C_PUSH_CODE(op_add);
+                }
+              } else if (length == 2) {
+                if (get_object_type(lhs) == type_fixnum || get_object_type(lhs) == type_ufixnum) {
+                  if (get_object_type(rhs) == type_fixnum ||
+                      get_object_type(rhs) == type_ufixnum) {
+                        /* adding two numbers -- constant fold them */
+                      C_COMPILE(fixnum(FIXNUM_VALUE(lhs) + FIXNUM_VALUE(rhs)));
+                  } else {
+                    /* lhs is constant but rhs is not */
+                    C_COMPILE(rhs);
+                    if (FIXNUM_VALUE(lhs) < 0) {
+                      C_PUSH_CODE(op_subi);
+                    } else {
+                      C_PUSH_CODE(op_addi);
+                    }
+                    marshal_ufixnum_t(FIXNUM_VALUE(lhs) < 0 ? -FIXNUM_VALUE(lhs)
+                                                            : FIXNUM_VALUE(lhs),
+                                      C_CODE, 0);
+                  }
+                } else {
+                  if (get_object_type(rhs) == type_fixnum ||
+                      get_object_type(rhs) == type_ufixnum) {
+                        /* rhs is number but lhs is not */
+                        C_COMPILE(lhs);
+                        if (FIXNUM_VALUE(rhs) < 0) {
+                          C_PUSH_CODE(op_subi);
+                        } else {
+                          C_PUSH_CODE(op_addi);
+                        }
+                        marshal_ufixnum_t(FIXNUM_VALUE(rhs) < 0
+                                              ? -FIXNUM_VALUE(rhs)
+                                              : FIXNUM_VALUE(rhs),
+                                          C_CODE, 0);
+                  } else { /* both are not constant numbers */
+                    C_COMPILE(lhs);
+                    C_COMPILE(rhs);
+                    C_PUSH_CODE(op_add);
+                  }
+                }
+              }
+            }
             break;
           } else if (car == gis->sub_symbol) {
             COMPILE_DO_AGG_EACH({ C_PUSH_CODE(op_sub); });
@@ -2925,7 +2989,18 @@ struct object *run(struct gis *gis) {
         SC("add", 2);
         v1 = pop(); /* y */
         v0 = pop(); /* x */
+        /* TODO: it isn't great to make a new fixnum each time. there are cases where you can do a side effecting add instead */
         push(fixnum(FIXNUM_VALUE(v0) + FIXNUM_VALUE(v1))); /* TODO: support flonum/ufixnum */
+        break;
+      case op_addi: /* add-i <n> ( x -- ) */
+        READ_OP_ARG();
+        v0 = pop(); /* x */
+        FIXNUM_VALUE(v0) += a0;
+        break;
+      case op_subi: /* add-i <n> ( x -- ) */
+        READ_OP_ARG();
+        v0 = pop(); /* x */
+        FIXNUM_VALUE(v0) -= a0;
         break;
       case op_sub: /* sub ( x y -- x-y ) */
         SC("sub", 2);
@@ -3799,34 +3874,23 @@ void run_tests() {
 
   BEGIN_BC_TEST("(+ 1 2 3 4 5)");
   T_BYTE(op_const_0);
-  T_BYTE(op_const_1);
-  T_BYTE(op_add);
-  T_BYTE(op_const_2);
-  T_BYTE(op_add);
-  T_BYTE(op_const_3);
-  T_BYTE(op_add);
-  T_BYTE(op_const_4);
-  T_BYTE(op_add);
-  T_CONST(fixnum(1)); T_CONST(fixnum(2));
-  T_CONST(fixnum(3)); T_CONST(fixnum(4));
-  T_CONST(fixnum(5));
+  T_BYTE(op_addi); T_BYTE(3);
+  T_BYTE(op_addi); T_BYTE(4);
+  T_BYTE(op_addi); T_BYTE(5);
+  T_CONST(fixnum(3));
   END_BC_TEST();
 
   BEGIN_BC_TEST("(+ 1 (- 8 9 33) 4 5)");
   T_BYTE(op_const_0);
   T_BYTE(op_const_1);
+  T_BYTE(op_sub);
   T_BYTE(op_const_2);
   T_BYTE(op_sub);
-  T_BYTE(op_const_3);
-  T_BYTE(op_sub);
-  T_BYTE(op_add);
-  T_BYTE(op_const_4);
-  T_BYTE(op_add);
-  T_BYTE(op_const_5);
-  T_BYTE(op_add);
-  T_CONST(fixnum(1)); T_CONST(fixnum(8));
-  T_CONST(fixnum(9)); T_CONST(fixnum(33));
-  T_CONST(fixnum(4)); T_CONST(fixnum(5));
+  T_BYTE(op_addi); T_BYTE(1);
+  T_BYTE(op_addi); T_BYTE(4);
+  T_BYTE(op_addi); T_BYTE(5);
+  T_CONST(fixnum(8)); T_CONST(fixnum(9));
+  T_CONST(fixnum(33));
   END_BC_TEST();
 
   BEGIN_BC_TEST("(if 1 2 3)");
