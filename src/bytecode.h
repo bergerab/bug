@@ -6,6 +6,7 @@
 #include <math.h>
 #include <float.h>
 
+#define RUN_TIME_CHECKS
 
 #define DEFAULT_INITIAL_CAPACITY 100
 
@@ -313,7 +314,7 @@ struct function {
   struct object *name; /** a symbol - optional */
   struct object *code; /** the code (a byte-array) */
   struct object *constants; /** an array of constants used within the code (an array) */
-  ufixnum_t stack_size; /** how many items to reserve on the stack - includes */
+  ufixnum_t stack_size; /** how many items to reserve on the stack - includes arguments */
   ufixnum_t nargs; /** how many arguments does this require? */
   char is_builtin; /** is this a builtin function? */
 };
@@ -351,7 +352,6 @@ struct gis {
   struct object *i; /** the index of the next instruction in bc to execute */
   struct object *f; /** the currently executing function */
 
-  struct object *sp; /** the call stack pointer (a ufixnum) */
   struct object *package; /** the current package being evaluated */
   struct object *packages; /** all packages */
 
@@ -399,9 +399,14 @@ struct gis {
   struct object *nil_symbol;
   struct object *t_symbol;
   struct object *if_symbol;
+
+  struct object *impl_function_symbol;
+  struct object *instruction_index_symbol;
+  struct object *data_stack_symbol;
   struct object *call_stack_symbol;
 
   struct object *package_symbol;
+  struct object *find_package_symbol;
   struct object *use_package_symbol;
 
   /* cached strings that should be used internally */
@@ -440,9 +445,14 @@ struct gis {
   struct object *nil_string;
   struct object *t_string;
   struct object *if_string;
+
+  struct object *impl_function_string;
+  struct object *instruction_index_string;
+  struct object *data_stack_string;
   struct object *call_stack_string;
 
   struct object *package_string; 
+  struct object *find_package_string; 
   struct object *use_package_string; 
 
   struct object *var_string;
@@ -463,6 +473,8 @@ struct gis {
   struct object *pop_string;
 
   struct object *use_package_builtin;
+  struct object *find_package_builtin;
+  struct object *impl_function_builtin;
 };
 
 enum marshaled_type {

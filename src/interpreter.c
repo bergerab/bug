@@ -197,8 +197,8 @@ struct object *dynamic_byte_array(ufixnum_t initial_capacity) {
 
 struct object *function(struct object *constants, struct object *code, ufixnum_t stack_size) {
   struct object *o;
-  TC("function", 0, constants, type_dynamic_array);
-  TC("function", 1, code, type_dynamic_byte_array);
+  TC2("function", 0, constants, type_dynamic_array, type_nil);
+  TC2("function", 1, code, type_dynamic_byte_array, type_nil);
   o = object(type_function);
   NC(o, "Failed to allocate function object.");
   o->w1.value.function = malloc(sizeof(struct function));
@@ -913,6 +913,18 @@ void symbol_export(struct object *sym) {
   SYMBOL_IS_EXTERNAL(sym) = 1;
 }
 
+struct object *get_string_designator(struct object *sd) {
+  enum type t = get_object_type(sd);
+  if (t == type_string)
+    return sd;
+  else if (t == type_symbol)
+    return SYMBOL_NAME(sd);
+  else {
+    printf("Invalid string designator %s.\n", get_type_name(t));
+    exit(1);
+  }
+}
+
 /* uses NULL as a sentinel value for "did not find" */
 struct object *do_find_symbol(struct object *string, struct object *package, char include_internal) {
   struct object *cursor, *package_cursor, *pack, *sym;
@@ -1110,7 +1122,7 @@ void gis_init() {
   gis->id = intern(gis->str_id, gis->pack); \
   symbol_export(gis->id);
 
-  gis->f = NULL; /* the instruction index */
+  gis->f = NIL; /* the function being executed */
   gis->i = ufixnum(0); /* the instruction index */
 
   /* nil must be boostrapped because other functions relies on it */
@@ -1130,7 +1142,6 @@ void gis_init() {
 
   gis->stack = dynamic_array(10);
   gis->call_stack = dynamic_array(10); /* using a dynamic array to make looking up arguments on the stack faster */
-  gis->sp = ufixnum(0);
 
   /* initialize packages (note: lisp package is above for nil bootstrap) */
   gis->keyword_string = string("keyword");
@@ -1184,10 +1195,15 @@ void gis_init() {
   symbol_set_value(gis->t_symbol, gis->t_symbol); /* t has itself as its value */
   GIS_SYM(if_symbol, if_string, "if", lisp_package);
 
-  GIS_SYM(package_symbol, package_string, "package", lisp_package);
-  GIS_SYM(use_package_symbol, use_package_string, "use-package", lisp_package);
+  GIS_SYM(package_symbol, package_string, "package", impl_package);
+  GIS_SYM(use_package_symbol, use_package_string, "use-package", impl_package);
+  GIS_SYM(find_package_symbol, find_package_string, "find-package", impl_package);
 
+  GIS_SYM(instruction_index_symbol, instruction_index_string, "instruction-index", impl_package);
+  GIS_SYM(impl_function_symbol, impl_function_string, "function", impl_package);
+  GIS_SYM(data_stack_symbol, data_stack_string, "data-stack", impl_package);
   GIS_SYM(call_stack_symbol, call_stack_string, "call-stack", impl_package);
+
   GIS_SYM(pop_symbol, pop_string, "pop", impl_package);
   GIS_SYM(push_symbol, push_string, "push", impl_package);
   GIS_SYM(drop_symbol, drop_string, "drop", impl_package);
@@ -1205,11 +1221,27 @@ void gis_init() {
   gis->use_package_builtin = function(NIL, NIL, 0);
   FUNCTION_IS_BUILTIN(gis->use_package_builtin) = 1;
   FUNCTION_NARGS(gis->use_package_builtin) = 1; /* takes the package */
+  FUNCTION_STACK_SIZE(gis->use_package_builtin) = 1;
   symbol_set_function(gis->use_package_symbol, gis->use_package_builtin);
+
+  gis->find_package_builtin = function(NIL, NIL, 0);
+  FUNCTION_IS_BUILTIN(gis->find_package_builtin) = 1;
+  FUNCTION_NARGS(gis->find_package_builtin) = 1; /* takes the name of the package */
+  FUNCTION_STACK_SIZE(gis->find_package_builtin) = 1;
+  symbol_set_function(gis->find_package_symbol, gis->find_package_builtin);
+
+  /* this is a builtin function because the value changes frequently and it is better to look it up at one moment than update it everytime gis->f changes */
+  gis->impl_function_builtin = function(NIL, NIL, 0);
+  FUNCTION_IS_BUILTIN(gis->impl_function_builtin) = 1;
+  symbol_set_function(gis->impl_function_symbol, gis->impl_function_builtin);
+
+  symbol_set_value(gis->impl_function_symbol, gis->f); 
 
   /* all symbols with special values */
   symbol_set_value(gis->package_symbol, gis->package);
-  symbol_set_value(gis->call_stack_symbol, gis->call_stack); /* */
+  symbol_set_value(gis->call_stack_symbol, gis->call_stack);
+  symbol_set_value(gis->data_stack_symbol, gis->stack); 
+  symbol_set_value(gis->instruction_index_symbol, gis->i); 
 }
 
 /* 
@@ -2907,10 +2939,25 @@ void dup() {
   dynamic_array_push(gis->stack, DYNAMIC_ARRAY_VALUES(gis->stack)[DYNAMIC_ARRAY_LENGTH(gis->stack) - 1]);
 }
 
+#define GET_LOCAL(n)                                                  \
+  dynamic_array_get_ufixnum_t(gis->call_stack,                        \
+                              DYNAMIC_ARRAY_LENGTH(gis->call_stack) - \
+                                  (FUNCTION_STACK_SIZE(gis->f) - (n)) - 2)
+
+/* minus two to skip the f and i */
+#define SET_LOCAL(n, x)                                                    \
+  dynamic_array_set_ufixnum_t(gis->call_stack,                             \
+                              DYNAMIC_ARRAY_LENGTH(gis->call_stack) -      \
+                                  (FUNCTION_STACK_SIZE(gis->f) - (n)) - 2, \
+                              (x))
+
 /** evaluates a builtin function */
 void eval_builtin(struct object *f) {
   if (f == gis->use_package_builtin) {
 
+  } else if (f == gis->find_package_builtin) {
+    print(gis->call_stack);
+    push(find_package(get_string_designator(GET_LOCAL(0))));
   } else {
 
   }
@@ -3150,32 +3197,29 @@ struct object *run(struct gis *gis) {
       case op_load_from_stack: /* load-from-stack ( -- ) */
         READ_OP_ARG();
         /* minus two to skip the f and i */
-        v0 = dynamic_array_get_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (FUNCTION_STACK_SIZE(gis->f) - a0) - 2);
-        push(v0);
+        push(GET_LOCAL(a0));
         break;
       /* two hard coded index versions for the most common cases (functions that take one or two arguments) */
       case op_load_from_stack_0:
         /* minus two to skip the f and i */
-        push(dynamic_array_get_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (FUNCTION_STACK_SIZE(gis->f) - 0) - 2));
+        push(GET_LOCAL(0));
         break;
       case op_load_from_stack_1:
         /* minus two to skip the f and i */
-        push(dynamic_array_get_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (FUNCTION_STACK_SIZE(gis->f) - 1) - 2));
+        push(GET_LOCAL(1));
         break;
       case op_store_to_stack: /* store-to-stack ( -- ) */
         SC("store-to-stack", 1);
         READ_CONST_ARG();
         /* minus two to skip the f and i */
-        dynamic_array_set_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (FUNCTION_STACK_SIZE(gis->f) - a0) - 2, pop());
+        SET_LOCAL(a0, pop());
         break;
       /* two hard coded index versions for the most common cases (functions that take one or two arguments) */
       case op_store_to_stack_0:
-        /* minus two to skip the f and i */
-        dynamic_array_set_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (FUNCTION_STACK_SIZE(gis->f) - 0) - 2, pop());
+        SET_LOCAL(0, pop());
         break;
       case op_store_to_stack_1:
-        /* minus two to skip the f and i */
-        dynamic_array_set_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (FUNCTION_STACK_SIZE(gis->f) - 1) - 2, pop());
+        SET_LOCAL(1, pop());
         break;
       /* this could be specified as  */
       /* TODO; this doesn't need to be its own op, we can tell by the argumen type */
@@ -3202,9 +3246,16 @@ struct object *run(struct gis *gis) {
         UFIXNUM_VALUE(gis->i) += 1; /* resume at the next instruction */
         dynamic_array_push(gis->call_stack, temp_i);
         dynamic_array_push(gis->call_stack, temp_f);
-        gis->i = ufixnum(0); /* start the bytecode interpreter at the first instruction */
-        goto eval_restart; /* restart the evaluation loop */
+        if (FUNCTION_IS_BUILTIN(gis->f)) {
+          gis->i = NIL; /* a NIL instruction index -- for consistency gis->i of NIL should be set for all builtins */
+          eval_builtin(gis->f);
+          goto return_function_label; /* return */
+        } else {
+          gis->i = ufixnum(0); /* start the bytecode interpreter at the first instruction */
+          goto eval_restart; /* restart the evaluation loop */
+        }
       case op_return_function: /* return-function ( x -- ) */
+        return_function_label:
         #ifdef RUN_TIME_CHECKS
         if (DYNAMIC_ARRAY_LENGTH(gis->call_stack) == FUNCTION_STACK_SIZE(gis->f)) {
           printf("Attempted to return from top-level.");
