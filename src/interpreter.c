@@ -208,6 +208,7 @@ struct object *function(struct object *constants, struct object *code, ufixnum_t
   FUNCTION_STACK_SIZE(o) = stack_size;
   FUNCTION_NAME(o) = NIL;
   FUNCTION_NARGS(o) = 0;
+  FUNCTION_IS_BUILTIN(o) = 0;
   return o;
 }
 
@@ -1183,6 +1184,9 @@ void gis_init() {
   symbol_set_value(gis->t_symbol, gis->t_symbol); /* t has itself as its value */
   GIS_SYM(if_symbol, if_string, "if", lisp_package);
 
+  GIS_SYM(package_symbol, package_string, "package", lisp_package);
+  GIS_SYM(use_package_symbol, use_package_string, "use-package", lisp_package);
+
   GIS_SYM(call_stack_symbol, call_stack_string, "call-stack", impl_package);
   GIS_SYM(pop_symbol, pop_string, "pop", impl_package);
   GIS_SYM(push_symbol, push_string, "push", impl_package);
@@ -1196,6 +1200,16 @@ void gis_init() {
   gis->temp_string = string("temp");
   gis->var_string = string("var");
   gis->list_string = string("list");
+
+  /* all builtin functions go here */
+  gis->use_package_builtin = function(NIL, NIL, 0);
+  FUNCTION_IS_BUILTIN(gis->use_package_builtin) = 1;
+  FUNCTION_NARGS(gis->use_package_builtin) = 1; /* takes the package */
+  symbol_set_function(gis->use_package_symbol, gis->use_package_builtin);
+
+  /* all symbols with special values */
+  symbol_set_value(gis->package_symbol, gis->package);
+  symbol_set_value(gis->call_stack_symbol, gis->call_stack); /* */
 }
 
 /* 
@@ -2331,18 +2345,6 @@ void gen_load_constant(struct object *bc, struct object *value) {
     case 3:
       dynamic_byte_array_push_char(FUNCTION_CODE(bc), op_const_3);
       break;
-    case 4:
-      dynamic_byte_array_push_char(FUNCTION_CODE(bc), op_const_4);
-      break;
-    case 5:
-      dynamic_byte_array_push_char(FUNCTION_CODE(bc), op_const_5);
-      break;
-    case 6:
-      dynamic_byte_array_push_char(FUNCTION_CODE(bc), op_const_6);
-      break;
-    case 7:
-      dynamic_byte_array_push_char(FUNCTION_CODE(bc), op_const_7);
-      break;
     default:
       dynamic_byte_array_push_char(FUNCTION_CODE(bc), op_const);
       /* bugs could show up when the number of constants exceeds 127 (will make
@@ -2560,8 +2562,6 @@ struct object *compile(struct object *ast, struct object *f, struct object *st) 
               C_COMPILE(CONS_CAR(cursor));
               cursor = CONS_CDR(cursor);
             }
-          } else if (car == gis->call_stack_symbol) {
-            C_PUSH_CODE(op_load_call_stack);
           } else if (car == gis->function_symbol) {
             /* (function [name] [params] body) */
             name = C_ARG0();
@@ -2907,6 +2907,15 @@ void dup() {
   dynamic_array_push(gis->stack, DYNAMIC_ARRAY_VALUES(gis->stack)[DYNAMIC_ARRAY_LENGTH(gis->stack) - 1]);
 }
 
+/** evaluates a builtin function */
+void eval_builtin(struct object *f) {
+  if (f == gis->use_package_builtin) {
+
+  } else {
+
+  }
+}
+
 /* (7F)_16 is (0111 1111)_2, it extracts the numerical value from the temporary
  */
 /* (80)_16 is (1000 0000)_2, it extracts the flag from the temporary */
@@ -3126,18 +3135,6 @@ struct object *run(struct gis *gis) {
       case op_const_3:
         push(constants->values[3]);
         break;
-      case op_const_4:
-        push(constants->values[4]);
-        break;
-      case op_const_5:
-        push(constants->values[5]);
-        break;
-      case op_const_6:
-        push(constants->values[6]);
-        break;
-      case op_const_7:
-        push(constants->values[7]);
-        break;
       case op_const: /* const ( -- x ) */
         READ_CONST_ARG();
         push(c0);
@@ -3179,9 +3176,6 @@ struct object *run(struct gis *gis) {
       case op_store_to_stack_1:
         /* minus two to skip the f and i */
         dynamic_array_set_ufixnum_t(gis->call_stack, DYNAMIC_ARRAY_LENGTH(gis->call_stack) - (FUNCTION_STACK_SIZE(gis->f) - 1) - 2, pop());
-        break;
-      case op_load_call_stack:
-        push(gis->call_stack);
         break;
       /* this could be specified as  */
       /* TODO; this doesn't need to be its own op, we can tell by the argumen type */
@@ -3278,8 +3272,8 @@ struct object *run(struct gis *gis) {
 /* evaluates the given bytecode starting at the given instruction index */
 struct object *eval_at_instruction(struct object *f, ufixnum_t i) {
   ufixnum_t j;
-  gis->call_stack = dynamic_array(10);
   gis->f = f;
+  DYNAMIC_ARRAY_LENGTH(gis->call_stack) = 0; /* clear the call stack */
   UFIXNUM_VALUE(gis->i) = i;
   /* prepare the call stack by making room for stack args */
   /* TODO: this can be optimized to just increment the length instead of pushing NILs */

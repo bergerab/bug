@@ -125,6 +125,9 @@ typedef double flonum_t;
 #define FUNCTION_NAME(o)\
   o->w1.value.function->name
 
+#define FUNCTION_IS_BUILTIN(o)\
+  o->w1.value.function->is_builtin
+
 #define STRING_LENGTH(o)\
   DYNAMIC_BYTE_ARRAY_LENGTH(o)
 
@@ -195,10 +198,6 @@ enum ops {
   op_const_1,
   op_const_2,
   op_const_3,
-  op_const_4,
-  op_const_5,
-  op_const_6,
-  op_const_7,
   op_push_arg,
   op_push_args,
   op_print,
@@ -226,8 +225,7 @@ enum ops {
   op_store_to_stack_1,
   op_call_function,
   op_call_symbol_function,
-  op_return_function,
-  op_load_call_stack
+  op_return_function
 };
 
 /* The types defined below are not the same as the types that will
@@ -317,6 +315,7 @@ struct function {
   struct object *constants; /** an array of constants used within the code (an array) */
   ufixnum_t stack_size; /** how many items to reserve on the stack - includes */
   ufixnum_t nargs; /** how many arguments does this require? */
+  char is_builtin; /** is this a builtin function? */
 };
 
 struct file {
@@ -402,6 +401,9 @@ struct gis {
   struct object *if_symbol;
   struct object *call_stack_symbol;
 
+  struct object *package_symbol;
+  struct object *use_package_symbol;
+
   /* cached strings that should be used internally */
   struct object *value_string;
   struct object *internal_string;
@@ -440,6 +442,9 @@ struct gis {
   struct object *if_string;
   struct object *call_stack_string;
 
+  struct object *package_string; 
+  struct object *use_package_string; 
+
   struct object *var_string;
   struct object *x_string;
   struct object *y_string;
@@ -456,6 +461,8 @@ struct gis {
   struct object *push_string;
   struct object *drop_string;
   struct object *pop_string;
+
+  struct object *use_package_builtin;
 };
 
 enum marshaled_type {
