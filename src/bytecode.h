@@ -6,7 +6,6 @@
 #include <math.h>
 #include <float.h>
 
-#define RUN_TIME_CHECKS
 
 #define DEFAULT_INITIAL_CAPACITY 100
 
@@ -211,6 +210,7 @@ enum ops {
   op_gt,
   op_gte,
   op_lt,
+  op_lti,
   op_lte,
   op_set_symbol_value,
   op_set_symbol_function,

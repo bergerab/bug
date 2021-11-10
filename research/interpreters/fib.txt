@@ -1,0 +1,112 @@
+        .file   "fib.c"
+        .text
+        .type   fib, @function
+fib:
+.LFB0:
+        .cfi_startproc
+        endbr64
+        pushq   %rbp
+        .cfi_def_cfa_offset 16
+        .cfi_offset 6, -16
+        movq    %rsp, %rbp
+        .cfi_def_cfa_register 6
+        pushq   %rbx
+        subq    $24, %rsp
+        .cfi_offset 3, -24
+        movq    %rdi, -24(%rbp)
+        cmpq    $1, -24(%rbp)
+        ja      .L2
+        movl    $1, %eax
+        jmp     .L3
+.L2:
+        movq    -24(%rbp), %rax
+        subq    $1, %rax
+        movq    %rax, %rdi
+        call    fib
+        movq    %rax, %rbx
+        movq    -24(%rbp), %rax
+        subq    $2, %rax
+        movq    %rax, %rdi
+        call    fib
+        addq    %rbx, %rax
+.L3:
+        addq    $24, %rsp
+        popq    %rbx
+        popq    %rbp
+        .cfi_def_cfa 7, 8
+        ret
+        .cfi_endproc
+.LFE0:
+        .size   fib, .-fib
+        .section        .rodata
+.LC0:
+        .string "%llu \n"
+        .text
+        .globl  main
+        .type   main, @function
+main:
+main:
+.LFB1:
+        .cfi_startproc
+        endbr64
+        pushq   %rbp
+        .cfi_def_cfa_offset 16
+        .cfi_offset 6, -16
+        movq    %rsp, %rbp
+        .cfi_def_cfa_register 6
+        movl    $46, %edi
+        call    fib
+        movq    %rax, %rsi
+        leaq    .LC0(%rip), %rdi
+        movl    $0, %eax
+        call    printf@PLT
+        movl    $0, %eax
+        popq    %rbp
+        .cfi_def_cfa 7, 8
+        ret
+        .cfi_endproc
+.LFE1:
+        .size   main, .-main
+        .ident  "GCC: (Ubuntu 9.3.0-17ubuntu1~20.04) 9.3.0"
+        .section        .note.GNU-stack,"",@progbits
+        .section        .note.gnu.property,"a"
+        .align 8
+        .long    1f - 0f
+        .long    4f - 1f
+        .long    5
+0:
+        .string  "GNU"
+1:
+        .align 8
+        .long    0xc0000002
+        .long    3f - 2f
+2:
+        .long    0x3
+3:
+        .align 8
+4:
+
+
+
+
+
+
+
+
+
+
+
+
+
+0  #include <stdio.h>
+1  #include <stdint.h>
+2  
+3  static uint64_t fib(uint64_t n) {
+4    if (n <= 1) return 1;
+5    return fib(n - 1) + fib(n - 2);
+6  }
+7  
+8  int main(void) {
+9    printf("%llu \n", fib(46));
+10   return 0;
+11 }

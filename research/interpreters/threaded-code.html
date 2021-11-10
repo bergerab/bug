@@ -1,0 +1,559 @@
+
+<!-- saved from url=(0058)https://www.complang.tuwien.ac.at/forth/threaded-code.html -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>Threaded Code</title>
+</head><body><h1>Threaded Code</h1>
+
+[<a href="http://webhostingrating.com/libs/threaded-code-be">Belorussian translation by Bohdan Zograf</a>]
+
+<p><a href="https://www.complang.tuwien.ac.at/forth/threaded-code.html#what">What is threaded code?</a> <a href="https://www.complang.tuwien.ac.at/forth/threaded-code.html#motivation">What
+is it good for?</a> <a href="https://www.complang.tuwien.ac.at/forth/threaded-code.html#techniques">What are the differences
+between the various threading techniques?</a> <a href="https://www.complang.tuwien.ac.at/forth/threaded-code.html#portability">How do I implement threaded code portably?</a> <a href="http://www.complang.tuwien.ac.at/forth/threading/">How fast are
+various threading techniques?</a>
+
+</p><h2><a name="motivation">What is Threaded Code Good for?</a></h2>
+
+Threaded code is a technique for implementing <a href="http://wombat.doc.ic.ac.uk/?virtual+machine">virtual machine</a>
+<a href="http://wombat.doc.ic.ac.uk/?interpreter">interpreters</a>.
+There are various ways to implement interpreters: Some of the more
+popular are:
+
+<ul>
+
+<li>Direct string interpretation.
+
+</li><li>Compilation into a tree (typically, an <a href="http://wombat.doc.ic.ac.uk/?abstract+syntax+tree">abstract
+syntax tree</a>) and interpret that tree.
+
+</li><li>Compilation into a virtual machine, and interpret the virtual machine code.
+
+</li></ul>
+
+If you are interested in performance, the virtual machine approach is
+the way to go (because fetching and decoding is simpler, and therefore
+faster). If you are not interested in performance (yet), you still may
+want to consider the virtual machine approach, because it often is
+as simple as the others.
+
+<p>Threaded code, in its original meaning [<a href="https://www.complang.tuwien.ac.at/forth/threaded-code.html#bell73">bell73</a>], is one of the techniques for implementing
+virtual machine interpreters. Nowadays, at least the Forth community
+uses the term <em>threading</em> for almost any technique used for
+implementing Forth's virtual machine.
+
+
+</p><h2><a name="what">What is Threaded Code?</a></h2>
+
+Let's look at a piece of straight-line code consisting of the virtual
+machine instructions A, B and C. We could write machine-level
+subroutines Ar, Br and Cr for performing the action of the virtual
+machine instructions. Then we could write the following machine code
+to execute these virtual machine instructions:
+
+<pre>call Ar
+call Br
+call Cr
+</pre>
+
+This is known as <em>subroutine-threaded code</em>, although it is not
+threaded code in the original sense; in fact, subroutine threading is
+not even an interpretive technique. 
+
+<p>Now, let's eliminate the <code>call</code>s:
+
+</p><pre>Ar
+Br
+Cr
+</pre>
+
+i.e., a sequence of <em>code addresses</em> that represent the virtual
+machine instructions.
+
+<p>As a consequence, we cannot execute this piece of code by jumping
+to its start. We also have to keep track of the pointer to the current
+instruction in a separate register (instead of using the processor's
+program counter register and return address stack/register).
+
+</p><p>How do we execute the next instruction? Let's assume that the
+instruction pointer register (<em>ip</em>) always points to the word
+in the code sequence that directly follows the current instruction
+word. Then we just have to load the word, jump to the routine pointed
+to by it, and increment the instruction pointer. E.g., in MIPS
+assembly language:
+
+</p><pre>lw   $2,0($4) #get next instruction, $4=inst.ptr.
+addu $4,$4,4  #advance instruction pointer
+j    $2       #execute next instruction
+#nop          #branch delay slot
+</pre>
+
+This routine is the interpreter (aka <em>inner interpreter</em> in the
+Forth community). It is also known as NEXT routine. Either every
+virtual machine instruction routine has a copy of NEXT at the end, or
+they share one copy of NEXT and jump to it. With modern processors,
+the shared NEXT not only costs a jump, but also dramatically increases
+the misprediction rate of the indirect jump on CPUs with BTBs and
+similar indirect branch predictors [<a href="https://www.complang.tuwien.ac.at/forth/threaded-code.html#jilp">ertl&amp;gregg03jilp</a>]. Therefore, I recommend not to
+share NEXT.
+
+<p>The method described above is the one described in [<a href="https://www.complang.tuwien.ac.at/forth/threaded-code.html#bell73">bell73</a>] as <em>threaded code</em> and has later
+been called <em>direct threaded code</em>.
+
+</p><p>Note that, in contrast to popular myths, <a href="http://www.complang.tuwien.ac.at/forth/threading/">subroutine
+threading is usually slower than direct threading</a>. But it is a
+starting point for native code generation.
+
+</p><h2><a name="techniques">Threading Techniques</a></h2>
+
+Several variations on the scheme were developed:
+
+<h3>Indirect Threaded Code</h3>
+
+Let's consider constants: They can be represented by the virtual
+machine instruction <code>lit</code> (for <em>literal</em>), followed
+by the value of the constant. If the constant occurs frequently, it is
+more space-efficient to have a virtual machine instruction for this
+constant. If we have several constants, the code for their virtual
+machine instructions will look very similar. So, we may want to share
+the code, while having separate data.
+
+<p>We can do this by adding a level of indirection in NEXT (resulting
+in <em>indirect threaded code</em>. Each word (a generalization of the
+virtual machine instruction) has a code field and a parameter
+field. E.g., in the case of the constant:
+
+</p><pre>code-field:      docon #code address of shared CONstant code
+parameter-field: value #value of constant
+</pre>
+
+The virtual machine code is now represented by a sequence of <em>code
+field addresses</em>, not code addresses. Simple virtual machine
+instructions (<em>primitives</em>) are typically represented like
+this:
+
+<pre>code-field2:      parameter-field2
+parameter-field2: code #machine code of the primitive
+</pre>
+
+The NEXT of indirect threaded code looks like this in MIPS assembly language:
+
+<pre>lw   $2,0($4) #get the code-field address of the next word, $4=inst.ptr.
+#nop          #load delay slot
+lw   $3,0($2) #get the code address of the word
+addu $4,$4,4  #advance instruction pointer
+j    $3       #execute code for the word
+#nop          #branch delay slot
+</pre>
+
+The code for the next instruction can compute the parameter-field
+address from the code-field address in <code>$2</code>.
+
+<h4>Forth and Direct Threading</h4>
+
+Traditionally Forth is implemented using indirect
+threading. Therefore, direct threaded Forth implementations have much
+in common with indirect threaded implementations: Non-primitives have
+a code field, but it now contains a jump to the code instead of its
+address. On most processors this jump costs more time than the
+additional load of indirect threading, so direct threading only pays
+off when primitives are executed. The resulting speedup is 2%-8% on
+the 486.
+
+<p>(Note: On the Pentium, the K5 and the K6(-2) it is extremely <a href="https://www.complang.tuwien.ac.at/misc/pentium-switch/">expensive to mix code and data</a>, so
+this form of direct threading is much slower on this processor than
+indirect threading.)
+
+</p><h3>Token Threaded Code</h3>
+
+Direct threaded code cannot be simply transported from one machine to
+another, because it contains code addresses, which vary from machine
+to machine. Token threaded code uses a fixed virtual machine
+instruction encoding, allowing code portability at the price of a
+table lookup (that maps the intruction token to its code address) in
+each NEXT. Indirect threading and token threading are orthogonal, so
+they can be combined into indirect token threading (with an even
+slower NEXT).
+
+<h3>Other Terms</h3>
+
+<dl>
+
+<dt>Switch Threading</dt><dd>A method used for implementing virtual machine
+interpreters in languages like C. See <a href="https://www.complang.tuwien.ac.at/forth/threaded-code.html#switch-threading">below</a>.
+
+</dd><dt>Call Threading</dt><dd>Another method used in languages like C. See <a href="https://www.complang.tuwien.ac.at/forth/threaded-code.html#call-threading">below</a>.
+
+</dd><dt>Segment Threading </dt><dd>A technique used for the 8086
+architecture. The code consists of a sequence of segments instead of a
+sequence of code addresses. This allows using the whole address space
+of the 8086 for threaded code with sixteen-bit "pointers", but
+requires 16-byte alignment for all words.
+
+</dd><dt>Native Code </dt><dd>This is not a threading technique. This is the
+term used in the Forth community and elsewhere for implementations
+that generate machine code instead of some interpreted code. Simple
+native code systems start with subroutine-threaded code, then <a href="http://wombat.doc.ic.ac.uk/?inline">inline</a> and <a href="http://wombat.doc.ic.ac.uk/?peephole+optimization">peephole-optimize</a>
+some subroutines. Related terms are <em>true compiler</em>,
+<em>just-in-time compiler</em> etc.
+
+</dd><dt>Byte code</dt><dd>Each virtual machine instruction is represented by
+one byte. This can be seen as a variant of token threading.
+
+</dd></dl>
+
+<h2><a name="portability">How do I Implement Threaded Code
+Portably?</a></h2>
+
+Many languages don't offer a way to produce indirect jumps, so they
+cannot be used for implementing direct or indirect threaded code. This
+section presents the available options. You can find more on this
+topic in [<a href="https://www.complang.tuwien.ac.at/forth/threaded-code.html#ertl95pldi">ertl95pldi</a>] and [<a href="https://www.complang.tuwien.ac.at/forth/threaded-code.html#ertl93">ertl93</a>].
+
+<p>Here I present variants corresponding to direct threading. Add an
+indirection in NEXT to get the indirect threaded version.
+
+</p><h3><a href="http://ebweb.tuwien.ac.at/gnu-docs/gcc/gcc_58.html">GNU
+C's Labels as Values</a></h3>
+
+This is one of GNU C's extensions to standard C, and it is currently
+the most portable method for implementing threaded code. A similar
+feature is FORTRAN's <em>assigned goto</em> (not the <em>computed
+goto</em>, which is more similar to C's <code>switch</code>
+statement).
+
+<p>In GNU C, a direct threaded NEXT looks like this:
+
+</p><pre>typedef void *Inst;
+Inst *ip; /* you should use a local variable for this */
+#define NEXT goto **ip++
+</pre>
+
+<h3>Continuation-passing style</h3>
+
+In <a href="http://wombat.doc.ic.ac.uk/?continuation+passing+style">continuation-passing
+style</a>, all calls are tail-calls, and can be tail-call-optimized
+into jumps. Thus, we could implement the indirect jumps of threaded
+code as indirect tail-calls by writing the interpreter in
+continuation-passing style and using a language or compiler that
+guarantees tail-call optimization (Scheme? ML?).  In C (which, AFAIK
+has no compilers that guarantee tail-call optimization) direct
+threading with this technique would look like this:
+
+<pre>typedef void (* Inst)();
+
+void inst1(Inst *ip, /* other regs */)
+{
+  ...
+  (*ip)(ip+1, /* other registers */);
+}
+</pre>
+
+<h3><a name="switch-threading">Switch Threading</a></h3>
+
+Switch threading (aka switch dispatch) uses the C <code>switch</code>
+statement (or similar statements in other languages, e.g., Pascal's
+<code>CASE</code>). The result has the same advantages as token
+threaded code; the disadvantage over token threaded code is the lower
+speed due to the range check generated by most (all?) C compilers for
+the switch; moreover, with the right encoding token threaded code can
+avoid scaling, while the C compilers I have seen do not avoid it.
+
+<p>The main performance drawback of switch threading on modern CPUs is
+is that it uses one shared indirect branch; this leads to close to
+100% mispredictions in the BTB (branch target buffer) used for
+indirect branch prediction on many modern CPUs (e.g., Athlon 64,
+Pentium 4, PPC 970), whereas threaded code with separate NEXTs has
+only about 50% mispredictions [<a href="https://www.complang.tuwien.ac.at/forth/threaded-code.html#jilp">ertl&amp;gregg03jilp</a>].
+
+</p><p>Switch threading in C looks like this:
+
+</p><pre>typedef enum {
+  add /* ... */
+} Inst;
+
+void engine()
+{
+  static Inst program[] = { inst1 /* ... */ };
+
+  Inst *ip;
+
+  for (;;)
+    switch (*ip++) {
+    case inst1:
+      ...
+      break;
+    ...
+    }
+}
+
+Separate NEXTs and the resulting reduction in BTB mispredictions and
+increased performance can be implemented with switch, too, by <a href="http://compilers.iecc.com/comparch/article/07-05-044">replicating
+the switch</a>, as follows:
+
+<pre>typedef enum {
+  add /* ... */
+} Inst;
+
+void engine()
+{
+  static Inst program[] = { inst1 /* ... */ };
+
+  Inst *ip;
+
+  switch (*ip++) {
+  case inst1: goto label1;
+    ...
+  }
+
+  label1:
+    ...
+    switch (*ip++) {
+    case inst1: goto label1;
+      ...
+    }
+  ...
+}
+</pre>
+
+While this technique gives the same branch prediction advantages as
+the separate NEXTs in threaded code, it does not eliminate the other
+performance disadvantages of switch threading.
+
+</pre>
+
+<h3><a name="call-threading">Call Threading</a></h3>
+
+Call threading uses indirect calls (which most programming languages
+have) instead of indirect jumps. For every call, there must also be a
+return (except for optimized tail-calls, which don't occur here). So
+the cost of this method is that of using a call-return sequence
+instead of a simple jump.
+
+<p>Moreover, each virtual machine instruction is represented by a
+function (procedure). This is very elegant to look at, and allows
+separate compilation, but it means that global variables have to be
+used for the virtual machine registers (e.g., the instruction pointer
+<code>ip</code>), which most (all?) compilers allocate into memory; in
+contrast, with switch threading you can use local variables, which are
+(hopefully) allocated into registers.
+
+</p><p>Call threading looks like this:
+
+</p><pre>typedef void (* Inst)();
+
+Inst *ip;
+
+void inst1()
+{
+  ...
+}
+
+void engine()
+{
+  for (;;)
+    (*ip++)();
+}
+</pre>
+
+Note: <em>Call threading</em> is a term I have used for this
+technique. There seems to be no established term yet. I have seen
+<em>subroutine threading</em> used for this technique, but that term
+has a well-established and different meaning (see <a href="https://www.complang.tuwien.ac.at/forth/threaded-code.html#what">above</a>).
+
+<h2>History</h2>
+
+Charles Moore invented (indirect) threaded Code in 1970, while working
+at the National Radio Astronomy Observatory (NRAO), according to [<a href="https://www.complang.tuwien.ac.at/forth/threaded-code.html#moore87">moore87</a>]. The first publication is [<a href="https://www.complang.tuwien.ac.at/forth/threaded-code.html#bell73">bell73</a>], which was first received by CACM in June
+1971; this paper does not contain any historic information.
+
+<p>Interestingly, the system described in [<a href="https://www.complang.tuwien.ac.at/forth/threaded-code.html#moore%26leach70">moore&amp;leach70</a>] (before Moore worked at NRAO)
+does not use threaded code, but string interpretation.  However, it
+uses a code field, i.e., it has the seed for indirect threading; Then
+again, code fields were folklore at that time [<a href="https://www.complang.tuwien.ac.at/forth/threaded-code.html#kay96">kay96</a>].
+
+</p><h2>References</h2>
+
+<ul>
+
+<li><a href="http://www.complang.tuwien.ac.at/forth/threading/">Threading speed microbenchmark</a>.
+
+</li><li><a href="http://www.zetetics.com/bj/papers/moving1.htm">Forth
+inner interpreter design</a>
+
+</li><li><a href="http://www-lp.doc.ic.ac.uk/alp/net/impl/emulate.html">Threaded
+Code Implementations of Prolog</a>.
+
+</li><li><a href="http://www.freebsd.org/info/gcc/gcc.info.Labels_as_Values.html">GNU
+C's Labels as Values</a>.
+
+</li><li><a href="http://starship.python.net/crew/vlad/cevalc/threaded_code/">Python
+and Indirect Threading</a>.
+
+</li><li><a href="http://minnow.cc.gatech.edu/squeak.320">Threaded code in the Squeak Smalltalk implementation</a>
+
+</li></ul>
+
+<pre>@Article{<a name="bell73">bell73</a>,
+  author = 	 "James R. Bell",
+  title = 	 "Threaded Code",
+  journal =	 cacm,
+  year =	 1973,
+  volume =	 16,
+  number =	 6,
+  pages =	 "370--372"
+}
+
+@Article{<a name="dewar75">dewar75</a>,
+  author = 	 {Robert B.K. Dewar},
+  title = 	 {Indirect Threaded Code},
+  journal = 	 cacm,
+  year = 	 {1975},
+  volume =	 {18},
+  number =	 {6},
+  month =	 jun,
+  pages =	 {330--331}
+}
+
+@string{ieeecomputer="Computer"}
+
+@Article{<a name="kogge82">kogge82</a>,
+  author = 	 "Peter M. Kogge",
+  title = 	 "An Architectural Trail to Threaded-Code Systems",
+  journal =	 ieeecomputer,
+  year =	 "1982",
+  pages =	 "22--32",
+  month =	 mar,
+  annote =	 "Explains the design of (a classical
+		  implementation of) Forth, starting with threaded
+		  code, then adding the parameter stack, constants,
+		  variables, control structures, dictionary, outer
+		  interpreter and compiler."
+}
+
+@InProceedings{<a name="ertl93">ertl93</a>,
+  author = 	 "M. Anton Ertl",
+  title = 	 "A Portable {Forth} Engine",
+  booktitle =	 "EuroFORTH '93 conference proceedings",
+  year =	 "1993",
+  address =	 "Mari\'ansk\'e L\'azn\`e (Marienbad)",
+  url =		 "<a href="http://www.complang.tuwien.ac.at/papers/ertl93.ps.Z">http://www.complang.tuwien.ac.at/papers/ertl93.ps.Z</a>",
+  abstract = 	 "The Forth engine discussed in this paper is written
+		  in GNU C, which provides several extensions that are
+		  important for Forth implementation. The indirect
+		  threaded Forth engine is completely
+		  machine-independent, direct threading requires a few
+		  machine-specific lines for each machine. Using
+		  a portable language like GNU C encourages producing
+		  an engine with many primitives. In order to make the
+		  development of primitives easier and less
+		  error-prone, an automatic tool generates most of the
+		  code for a Forth primitive from the stack effect
+		  notation, even if the TOS is kept in a register. The
+		  engine is combined with the parts of the system
+		  written in Forth by loading a machine-independent
+		  image file that contains the executable Forth code
+		  in relocatable form."
+}
+
+@InProceedings{<a name="ertl95pldi">ertl95pldi</a>,
+  author =       "M. Anton Ertl",
+  title =        "Stack Caching for Interpreters",
+  crossref =     "sigplan95",
+  pages =	 "315--327",
+  url =		 "<a href="http://www.complang.tuwien.ac.at/papers/ertl95pldi.ps.gz">http://www.complang.tuwien.ac.at/papers/ertl95pldi.ps.gz</a>",
+  abstract =     "An interpreter can spend a significant part of its
+                  execution time on arguments of virtual machine
+                  instructions. This paper explores two methods to
+                  reduce this overhead for virtual stack machines by
+                  caching top-of-stack values in (real machine)
+                  registers. The {\em dynamic method} is based on
+                  having, for every possible state of the cache, one
+                  specialized version of the whole interpreter; the
+                  execution of an instruction usually changes the
+                  state of the cache and the next instruction is
+                  executed in the version corresponding to the new
+                  state. In the {\em static method} a state machine
+                  that keeps track of the cache state is added to the
+                  compiler. Common instructions exist in specialized
+                  versions for several states, but it is not necessary
+                  to have a version of every instruction for every
+                  cache state. Stack manipulation instructions are
+                  optimized away."
+}
+
+@Proceedings{sigplan95,
+  booktitle =    "SIGPLAN '95 Conference on Programming Language
+                  Design and Implementation",
+  title =        "SIGPLAN '95 Conference on Programming Language
+                  Design and Implementation",
+  year =         "1995",
+  key =          "SIGPLAN '95"
+}
+
+@Article{<a name="jilp">ertl&amp;gregg03jilp</a>,
+  author =	 {M. Anton Ertl and David Gregg},
+  title =	 {The Structure and Performance of \emph{Efficient}
+                  Interpreters},
+  journal =	 {The Journal of Instruction-Level Parallelism},
+  year =	 {2003},
+  volume =	 {5},
+  month =	 nov,
+  url =         {<a href="http://www.complang.tuwien.ac.at/papers/ertl%26gregg03jilp.ps.gz">http://www.complang.tuwien.ac.at/papers/ertl%26gregg03jilp.ps.gz</a>},
+  url2 =	 {<a href="http://www.jilp.org/vol5/v5paper12.pdf">http://www.jilp.org/vol5/v5paper12.pdf</a>},
+  note =	 {<a href="http://www.jilp.org/vol5/">http://www.jilp.org/vol5/</a>},
+  abstract =	 {Interpreters designed for high general-purpose
+                  performance typically perform a large number of
+                  indirect branches (3.2\%--13\% of all executed
+                  instructions in our benchmarks). These branches
+                  consume more than half of the run-time in a number
+                  of configurations we simulated. We evaluate how
+                  accurate various existing and proposed branch
+                  prediction schemes are on a number of interpreters,
+                  how the mispredictions affect the performance of the
+                  interpreters and how two different interpreter
+                  implementation techniques perform with various
+                  branch predictors. We also suggest various ways in
+                  which hardware designers, C compiler writers, and
+                  interpreter writers can improve the performance of
+                  interpreters.}
+}
+
+@TechReport{<a name="moore%26leach70">moore&amp;leach70</a>,
+  author = 	 "Charles H. Moore and Geoffrey C. Leach",
+  title = 	 "FORTH -- A Language for Interactive Computing",
+  institution =  "Mohasco Industries, Inc.",
+  year = 	 "1970",
+  address =	 "Amsterdam, NY",
+  url = 	 "<a href="http://www.ultratechnology.com/F70POST.ZIP">http://www.dnai.com/~jfox/F70POST.ZIP</a>"
+}
+
+@Article{<a name="moore87">moore87</a>,
+  author = 	 {Charles Moore},
+  title = 	 {Forth -- eine persönliche Sprache},
+  journal = 	 {Vierte Dimension},
+  year = 	 {1987},
+  volume =	 {3},
+  number =	 {3},
+  month =	 oct,
+  pages =	 {11--13},
+  note =	 {Translated into German by Klaus Schleisiek, the 
+		  original is probably in <em>More on NC4000</em>},
+}
+
+@InProceedings{<a name="kay96">kay96</a>,
+  author = 	 "Alan C. Kay",
+  title = 	 "The Early History of Smalltalk",
+  crossref =	 "hopl2",
+  pages = 	 "511--579",
+}
+
+@Proceedings{hopl2,
+  title = 	 {History of Programming Languages},
+  booktitle = 	 {History of Programming Languages},
+  year = 	 1996,
+  key =		 {HOPL-II},
+  publisher =	 {ACM Press/Addison-Wesley}
+}
+</pre>
+
+<p>
+<a href="https://www.complang.tuwien.ac.at/anton/home.html">Anton Ertl</a>
+</p></body></html>

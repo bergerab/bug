@@ -1,0 +1,181 @@
+CPython's bytecode interpreter has both a threaded code implementation and a  decode/execute "switch" loop implementation. This is achieved with the USE_COMPUTED_GOTOS preprocessor directive. They observed 15% - 20% faster speeds with the threaded code version. Here is a comment from ceval.c#L1176:
+
+    /* Computed GOTOs, or
+           the-optimization-commonly-but-improperly-known-as-"threaded code"
+       using gcc's labels-as-values extension
+       (http://gcc.gnu.org/onlinedocs/gcc/Labels-as-Values.html).
+       The traditional bytecode evaluation loop uses a "switch" statement, which
+       decent compilers will optimize as a single indirect branch instruction
+       combined with a lookup table of jump addresses. However, since the
+       indirect jump instruction is shared by all opcodes, the CPU will have a
+       hard time making the right prediction for where to jump next (actually,
+       it will be always wrong except in the uncommon case of a sequence of
+       several identical opcodes).
+       "Threaded code" in contrast, uses an explicit jump table and an explicit
+       indirect jump instruction at the end of each opcode. Since the jump
+       instruction is at a different address for each opcode, the CPU will make a
+       separate prediction for each of these instructions, which is equivalent to
+       predicting the second opcode of each opcode pair. These predictions have
+       a much better chance to turn out valid, especially in small bytecode loops.
+       A mispredicted branch on a modern CPU flushes the whole pipeline and
+       can cost several CPU cycles (depending on the pipeline depth),
+       and potentially many more instructions (depending on the pipeline width).
+       A correctly predicted branch, however, is nearly free.
+       At the time of this writing, the "threaded code" version is up to 15-20%
+       faster than the normal "switch" version, depending on the compiler and the
+       CPU architecture.
+       We disable the optimization if DYNAMIC_EXECUTION_PROFILE is defined,
+       because it would render the measurements invalid.
+       NOTE: care must be taken that the compiler doesn't try to "optimize" the
+       indirect jumps by sharing them between all opcodes. Such optimizations
+       can be disabled on gcc by using the -fno-gcse flag (or possibly
+       -fno-crossjumping).
+    */
+
+Computed GOTOs are a GCC extension, and are not ANSI C. This is probably why CPython allows to compile without the extension, to keep compatability with ANSI C.
+
+Later in that same file all opcodes are implemented. Below is an excerpt from ceval.c#L1706 that defines several ops:
+ 
+    /* BEWARE!
+       It is essential that any operation that fails must goto error
+       and that all operation that succeed call DISPATCH() ! */
+    
+    TARGET(NOP) {
+        DISPATCH();
+    }
+    
+    TARGET(LOAD_CLOSURE) {
+        /* We keep LOAD_CLOSURE so that the bytecode stays more readable. */
+        PyObject *value = GETLOCAL(oparg);
+        if (value == NULL) {
+            goto unbound_local_error;
+        }
+        Py_INCREF(value);
+        PUSH(value);
+        DISPATCH();
+    }
+    
+    TARGET(LOAD_FAST) {
+        PyObject *value = GETLOCAL(oparg);
+        if (value == NULL) {
+            goto unbound_local_error;
+        }
+        Py_INCREF(value);
+        PUSH(value);
+        DISPATCH();
+    }
+    
+    TARGET(LOAD_CONST) {
+        PREDICTED(LOAD_CONST);
+        PyObject *value = GETITEM(consts, oparg);
+        Py_INCREF(value);
+        PUSH(value);
+        DISPATCH();
+    }
+    
+    TARGET(STORE_FAST) {
+        PREDICTED(STORE_FAST);
+        PyObject *value = POP();
+        SETLOCAL(oparg, value);
+        DISPATCH();
+    }
+    
+    TARGET(LOAD_FAST__LOAD_FAST) {
+        PyObject *value = GETLOCAL(oparg);
+        if (value == NULL) {
+            goto unbound_local_error;
+        }
+        NEXTOPARG();
+        next_instr++;
+        Py_INCREF(value);
+        PUSH(value);
+        value = GETLOCAL(oparg);
+        if (value == NULL) {
+            goto unbound_local_error;
+        }
+        Py_INCREF(value);
+        PUSH(value);
+        NOTRACE_DISPATCH();
+    }
+
+The macros found in that code hide the implementation. The threaded code implementation is used if USE_COMPOTED_GOTOS is truthy, otherwise it uses the switch implementation:
+
+    #if USE_COMPUTED_GOTOS
+    #define TARGET(op) TARGET_##op: INSTRUCTION_START();
+    #define DISPATCH_GOTO() goto *opcode_targets[opcode]
+    #else
+    #define TARGET(op) case op: INSTRUCTION_START();
+    #define DISPATCH_GOTO() goto dispatch_opcode
+    #endif 
+
+To understand the threaded code version you must know that there is an opcode_targets array of labels defined in opcode_targets.h below is an excerpt: 
+
+    static void *opcode_targets[256] = {
+        &&_unknown_opcode,
+        &&TARGET_POP_TOP,
+        &&TARGET_ROT_TWO,
+        &&TARGET_ROT_THREE,
+        &&TARGET_DUP_TOP,
+        &&TARGET_DUP_TOP_TWO,
+        &&TARGET_ROT_FOUR,
+        &&TARGET_BINARY_ADD_ADAPTIVE,
+        &&TARGET_BINARY_ADD_INT,
+        &&TARGET_NOP,
+        &&TARGET_UNARY_POSITIVE,
+        &&TARGET_UNARY_NEGATIVE,
+
+The file goes on for all 256 ops. Any undefined ones have a value of &&_unknown_opcode that displays an error.
+
+The DISPATCH macro performs some performance tracing and performs DISPATCH_GOTO() which either jumps to the top of the decode/eval switch
+or, if using the threaded code implementation, jumps to the next opcode's label (that was defined by the preprocessor via the TARGET macro -- same with DISPATCH_GOTO).
+
+    #define DISPATCH() \
+        { \
+            NEXTOPARG(); \
+            PRE_DISPATCH_GOTO(); \
+            assert(cframe.use_tracing == 0 || cframe.use_tracing == 255); \
+            opcode |= cframe.use_tracing OR_DTRACE_LINE; \
+            DISPATCH_GOTO(); \
+        }
+
+Notice how there is a PREDICTED macro used in some ops. This is an optimization where the next instruction can be guessed and the benefit of a correct guess outweighs the small cost of a wrong guess. See the excerpt below from ceval.c#L1338:
+
+    /* OpCode prediction macros
+        Some opcodes tend to come in pairs thus making it possible to
+        predict the second code when the first is run.  For example,
+        COMPARE_OP is often followed by POP_JUMP_IF_FALSE or POP_JUMP_IF_TRUE.
+        Verifying the prediction costs a single high-speed test of a register
+        variable against a constant.  If the pairing was good, then the
+        processor's own internal branch predication has a high likelihood of
+        success, resulting in a nearly zero-overhead transition to the
+        next opcode.  A successful prediction saves a trip through the eval-loop
+        including its unpredictable switch-case branch.  Combined with the
+        processor's internal branch prediction, a successful PREDICT has the
+        effect of making the two opcodes run as if they were a single new opcode
+        with the bodies combined.
+        If collecting opcode statistics, your choices are to either keep the
+        predictions turned-on and interpret the results as if some opcodes
+        had been combined or turn-off predictions so that the opcode frequency
+        counter updates for both opcodes.
+        Opcode prediction is disabled with threaded code, since the latter allows
+        the CPU to record separate branch prediction information for each
+        opcode.
+    */
+    
+    #define PREDICT_ID(op)          PRED_##op
+    
+    #if defined(DYNAMIC_EXECUTION_PROFILE) || USE_COMPUTED_GOTOS
+    #define PREDICT(op)             if (0) goto PREDICT_ID(op)
+    #else
+    #define PREDICT(op) \
+        do { \
+            _Py_CODEUNIT word = *next_instr; \
+            opcode = _Py_OPCODE(word) | cframe.use_tracing OR_DTRACE_LINE; \
+            if (opcode == op) { \
+                oparg = _Py_OPARG(word); \
+                INSTRUCTION_START(); \
+                goto PREDICT_ID(op); \
+            } \
+        } while(0)
+    #endif
+    #define PREDICTED(op)           PREDICT_ID(op):
