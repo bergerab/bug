@@ -1196,8 +1196,11 @@ void gis_init() {
   GIS_SYM(if_symbol, if_string, "if", lisp_package);
 
   GIS_SYM(package_symbol, package_string, "package", impl_package);
+  GIS_SYM(packages_symbol, packages_string, "packages", impl_package);
+  GIS_SYM(strings_symbol, strings_string, "strings", impl_package);
   GIS_SYM(use_package_symbol, use_package_string, "use-package", impl_package);
   GIS_SYM(find_package_symbol, find_package_string, "find-package", impl_package);
+  GIS_SYM(package_symbols_symbol, package_symbols_string, "package-symbols", impl_package);
 
   GIS_SYM(instruction_index_symbol, instruction_index_string, "instruction-index", impl_package);
   GIS_SYM(impl_function_symbol, impl_function_string, "function", impl_package);
@@ -1230,7 +1233,14 @@ void gis_init() {
   FUNCTION_STACK_SIZE(gis->find_package_builtin) = 1;
   symbol_set_function(gis->find_package_symbol, gis->find_package_builtin);
 
+  gis->package_symbols_builtin = function(NIL, NIL, 0);
+  FUNCTION_IS_BUILTIN(gis->package_symbols_builtin) = 1;
+  FUNCTION_NARGS(gis->package_symbols_builtin) = 1; /* takes the name of the package */
+  FUNCTION_STACK_SIZE(gis->package_symbols_builtin) = 1;
+  symbol_set_function(gis->package_symbols_symbol, gis->package_symbols_builtin);
+
   /* this is a builtin function because the value changes frequently and it is better to look it up at one moment than update it everytime gis->f changes */
+  /* this crashes the interpreter. why? */
   gis->impl_function_builtin = function(NIL, NIL, 0);
   FUNCTION_IS_BUILTIN(gis->impl_function_builtin) = 1;
   symbol_set_function(gis->impl_function_symbol, gis->impl_function_builtin);
@@ -1239,9 +1249,13 @@ void gis_init() {
 
   /* all symbols with special values */
   symbol_set_value(gis->package_symbol, gis->package);
+  symbol_set_value(gis->packages_symbol, gis->packages);
+  symbol_set_value(gis->strings_symbol, gis->interned_strings);
   symbol_set_value(gis->call_stack_symbol, gis->call_stack);
   symbol_set_value(gis->data_stack_symbol, gis->stack); 
   symbol_set_value(gis->instruction_index_symbol, gis->i); 
+
+
 }
 
 /* 
@@ -2953,11 +2967,14 @@ void dup() {
 
 /** evaluates a builtin function */
 void eval_builtin(struct object *f) {
-  if (f == gis->use_package_builtin) {
 
+  if (f == gis->use_package_builtin) {
+    /* TODO */
   } else if (f == gis->find_package_builtin) {
-    print(gis->call_stack);
     push(find_package(get_string_designator(GET_LOCAL(0))));
+  } else if (f == gis->package_symbols_builtin) {
+    TC("package-symbols", 0, GET_LOCAL(0), type_package);
+    push(PACKAGE_SYMBOLS(GET_LOCAL(0)));
   } else {
 
   }

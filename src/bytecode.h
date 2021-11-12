@@ -45,128 +45,60 @@ typedef double flonum_t;
 
 #define MAX_UFIXNUM UINT64_MAX
 
-#define OBJECT_TYPE(o)\
-  o->w0.type
+#define OBJECT_TYPE(o) o->w0.type
 
-#define FIXNUM_VALUE(o)\
- o->w1.value.fixnum
+#define FIXNUM_VALUE(o) o->w1.value.fixnum
 
-#define UFIXNUM_VALUE(o)\
- o->w1.value.ufixnum
+#define UFIXNUM_VALUE(o) o->w1.value.ufixnum
 
-#define FLONUM_VALUE(o)\
- o->w1.value.flonum
+#define FLONUM_VALUE(o) o->w1.value.flonum
 
-#define SYMBOL_NAME(o)\
-  o->w1.value.symbol->name
+#define SYMBOL_NAME(o) o->w1.value.symbol->name
+#define SYMBOL_PLIST(o) o->w1.value.symbol->plist
+#define SYMBOL_PACKAGE(o) o->w1.value.symbol->package
+#define SYMBOL_IS_EXTERNAL(o) o->w1.value.symbol->is_external
+#define SYMBOL_VALUE_IS_SET(o) o->w1.value.symbol->value_is_set
+#define SYMBOL_FUNCTION_IS_SET(o) o->w1.value.symbol->function_is_set
+#define SYMBOL_VALUE(o) o->w1.value.symbol->value
+#define SYMBOL_FUNCTION(o) o->w1.value.symbol->function
 
-#define SYMBOL_PLIST(o)\
-  o->w1.value.symbol->plist
+#define ARRAY_LENGTH(o) o->w1.value.array->length
+#define ARRAY_VALUES(o) o->w1.value.array->values
 
-#define SYMBOL_PACKAGE(o)\
-  o->w1.value.symbol->package
+#define CONS_CAR(o) o->w0.car
+#define CONS_CDR(o) o->w1.cdr
 
-#define SYMBOL_IS_EXTERNAL(o)\
-  o->w1.value.symbol->is_external
+#define DYNAMIC_BYTE_ARRAY_LENGTH(o) o->w1.value.dynamic_byte_array->length
+#define DYNAMIC_BYTE_ARRAY_CAPACITY(o) o->w1.value.dynamic_byte_array->capacity
+#define DYNAMIC_BYTE_ARRAY_BYTES(o) o->w1.value.dynamic_byte_array->bytes
+#define DYNAMIC_ARRAY_LENGTH(o) o->w1.value.dynamic_array->length
+#define DYNAMIC_ARRAY_CAPACITY(o) o->w1.value.dynamic_array->capacity
+#define DYNAMIC_ARRAY_VALUES(o) o->w1.value.dynamic_array->values
 
-#define SYMBOL_VALUE_IS_SET(o)\
-  o->w1.value.symbol->value_is_set
+#define FUNCTION_CONSTANTS(o) o->w1.value.function->constants
+#define FUNCTION_CODE(o) o->w1.value.function->code
+#define FUNCTION_STACK_SIZE(o) o->w1.value.function->stack_size
+#define FUNCTION_NARGS(o) o->w1.value.function->nargs
+#define FUNCTION_NAME(o) o->w1.value.function->name
+#define FUNCTION_IS_BUILTIN(o) o->w1.value.function->is_builtin
 
-#define SYMBOL_FUNCTION_IS_SET(o)\
-  o->w1.value.symbol->function_is_set
+#define STRING_LENGTH(o) DYNAMIC_BYTE_ARRAY_LENGTH(o)
+#define STRING_CONTENTS(o) DYNAMIC_BYTE_ARRAY_BYTES(o)
 
-#define SYMBOL_VALUE(o)\
-  o->w1.value.symbol->value
+#define FILE_FP(o) o->w1.value.file->fp
+#define FILE_MODE(o) o->w1.value.file->mode
+#define FILE_PATH(o) o->w1.value.file->path
 
-#define SYMBOL_FUNCTION(o)\
-  o->w1.value.symbol->function
+#define VEC2_X(o) o->w1.value.vec2->x
+#define VEC2_Y(o) o->w1.value.vec2->y
 
-#define ARRAY_LENGTH(o)\
-  o->w1.value.array->length
+#define ENUMERATOR_VALUE(o) o->w1.value.enumerator->value
+#define ENUMERATOR_SOURCE(o) o->w1.value.enumerator->source
+#define ENUMERATOR_INDEX(o) o->w1.value.enumerator->index
 
-#define ARRAY_VALUES(o)\
-  o->w1.value.array->values
-
-#define CONS_CAR(o)\
-  o->w0.car
-
-#define CONS_CDR(o)\
-  o->w1.cdr
-
-#define DYNAMIC_BYTE_ARRAY_LENGTH(o)\
-  o->w1.value.dynamic_byte_array->length
-
-#define DYNAMIC_BYTE_ARRAY_CAPACITY(o)\
-  o->w1.value.dynamic_byte_array->capacity
-
-#define DYNAMIC_BYTE_ARRAY_BYTES(o)\
-  o->w1.value.dynamic_byte_array->bytes
-
-#define DYNAMIC_ARRAY_LENGTH(o)\
-  o->w1.value.dynamic_array->length
-
-#define DYNAMIC_ARRAY_CAPACITY(o)\
-  o->w1.value.dynamic_array->capacity
-
-#define DYNAMIC_ARRAY_VALUES(o)\
-  o->w1.value.dynamic_array->values
-
-#define FUNCTION_CONSTANTS(o)\
-  o->w1.value.function->constants
-
-#define FUNCTION_CODE(o)\
-  o->w1.value.function->code
-
-#define FUNCTION_STACK_SIZE(o)\
-  o->w1.value.function->stack_size
-
-#define FUNCTION_NARGS(o)\
-  o->w1.value.function->nargs
-
-#define FUNCTION_NAME(o)\
-  o->w1.value.function->name
-
-#define FUNCTION_IS_BUILTIN(o)\
-  o->w1.value.function->is_builtin
-
-#define STRING_LENGTH(o)\
-  DYNAMIC_BYTE_ARRAY_LENGTH(o)
-
-#define STRING_CONTENTS(o)\
-  DYNAMIC_BYTE_ARRAY_BYTES(o)
-
-#define FILE_FP(o)\
- o->w1.value.file->fp
-
-#define FILE_MODE(o)\
- o->w1.value.file->mode
-
-#define FILE_PATH(o)\
- o->w1.value.file->path
-
-#define VEC2_X(o)\
- o->w1.value.vec2->x
-
-#define VEC2_Y(o)\
- o->w1.value.vec2->y
-
-#define ENUMERATOR_VALUE(o)\
- o->w1.value.enumerator->value
-
-#define ENUMERATOR_SOURCE(o)\
- o->w1.value.enumerator->source
-
-#define ENUMERATOR_INDEX(o)\
- o->w1.value.enumerator->index
-
-#define PACKAGE_NAME(o)\
- o->w1.value.package->name
-
-#define PACKAGE_SYMBOLS(o)\
- o->w1.value.package->symbols
-
-#define PACKAGE_PACKAGES(o)\
- o->w1.value.package->packages
+#define PACKAGE_NAME(o) o->w1.value.package->name
+#define PACKAGE_SYMBOLS(o) o->w1.value.package->symbols
+#define PACKAGE_PACKAGES(o) o->w1.value.package->packages
 
 #define BC_VERSION 1
 
@@ -346,14 +278,17 @@ struct vec2 {
  * The global interpreter state.
  */
 struct gis {
-  struct object *stack; /** the data stack (a cons list) */
-  struct object *call_stack; /** stack for saving stack pointers and values for function calls (a cons list) */
+  /* TODO: all variables in use by the interpreter should be symbols that can be 
+     accessed bug. */
 
-  struct object *i; /** the index of the next instruction in bc to execute */
-  struct object *f; /** the currently executing function */
+  struct object *stack_symbol; /** the data stack (a cons list) */
+  struct object *call_stack_symbol; /** stack for saving stack pointers and values for function calls (a cons list) */
 
-  struct object *package; /** the current package being evaluated */
-  struct object *packages; /** all packages */
+  struct object *i_symbol; /** the index of the next instruction in bc to execute */
+  struct object *f_symbol; /** the currently executing function */
+
+  struct object *package_symbol; /** the current package being evaluated */
+  struct object *packages_symbol; /** all packages */
 
   struct object *interned_strings; /** maybe it shouldn't be in the global interpreter state (originally for marshaling/unmarshaling), 
                                        but it was easier to put it here.
@@ -401,13 +336,13 @@ struct gis {
   struct object *if_symbol;
 
   struct object *impl_function_symbol;
-  struct object *instruction_index_symbol;
-  struct object *data_stack_symbol;
-  struct object *call_stack_symbol;
 
   struct object *package_symbol;
+  struct object *packages_symbol;
+  struct object *strings_symbol;
   struct object *find_package_symbol;
   struct object *use_package_symbol;
+  struct object *package_symbols_symbol; 
 
   /* cached strings that should be used internally */
   struct object *value_string;
@@ -446,14 +381,17 @@ struct gis {
   struct object *t_string;
   struct object *if_string;
 
-  struct object *impl_function_string;
-  struct object *instruction_index_string;
-  struct object *data_stack_string;
+  struct object *f_string;
+  struct object *i_string;
+  struct object *stack_string;
   struct object *call_stack_string;
 
   struct object *package_string; 
+  struct object *packages_string; 
+  struct object *strings_string;
   struct object *find_package_string; 
   struct object *use_package_string; 
+  struct object *package_symbols_string; 
 
   struct object *var_string;
   struct object *x_string;
@@ -474,6 +412,7 @@ struct gis {
 
   struct object *use_package_builtin;
   struct object *find_package_builtin;
+  struct object *package_symbols_builtin;
   struct object *impl_function_builtin;
 };
 
