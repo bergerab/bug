@@ -13,7 +13,7 @@
 #ifdef RUN_TIME_CHECKS
 #define TC(name, argument, o, type) type_check(name, argument, o, type)
 #define TC2(name, argument, o, type0, type1) type_check_or2(name, argument, o, type0, type1)
-#define SC(name, n) stack_check(name, n, UFIXNUM_VALUE(gis->i))
+#define SC(name, n) stack_check(name, n, UFIXNUM_VALUE(i))
 #else
 #define TC(name, argument, o, type) \
   {}
@@ -106,17 +106,6 @@ enum ops {
   op_drop,
   op_dup,
   op_intern,
-  op_dynamic_array,
-  op_dynamic_array_get,
-  op_dynamic_array_set,
-  op_dynamic_array_push,
-  op_dynamic_array_pop,
-  op_dynamic_array_concat,
-  op_dynamic_byte_array_get,
-  op_dynamic_byte_array_set,
-  op_dynamic_byte_array_push,
-  op_dynamic_byte_array_pop,
-  op_dynamic_byte_array_concat,
   op_cons,
   op_car,
   op_cdr,
@@ -126,6 +115,7 @@ enum ops {
   op_subi,
   op_mul,
   op_div,
+  op_load_nil,
   op_const,
   op_const_0,
   op_const_1,
@@ -278,10 +268,10 @@ struct vec2 {
  * The global interpreter state.
  */
 struct gis {
-  /* TODO: all variables in use by the interpreter should be symbols that can be 
-     accessed bug. */
+  struct object *data_stack; /** same as the value in data_stack_symbol */
+  struct object *data_stack_symbol; /** the data stack (a cons list) */
 
-  struct object *stack_symbol; /** the data stack (a cons list) */
+  struct object *call_stack; /** same as the value in call_stack_symbol */
   struct object *call_stack_symbol; /** stack for saving stack pointers and values for function calls (a cons list) */
 
   struct object *i_symbol; /** the index of the next instruction in bc to execute */
@@ -335,14 +325,18 @@ struct gis {
   struct object *t_symbol;
   struct object *if_symbol;
 
-  struct object *impl_function_symbol;
-
-  struct object *package_symbol;
-  struct object *packages_symbol;
   struct object *strings_symbol;
   struct object *find_package_symbol;
   struct object *use_package_symbol;
   struct object *package_symbols_symbol; 
+
+  struct object *compile_symbol;
+  struct object *compile_string;
+  struct object *compile_builtin;
+
+  struct object *eval_symbol;
+  struct object *eval_string;
+  struct object *eval_builtin;
 
   /* cached strings that should be used internally */
   struct object *value_string;
@@ -385,6 +379,7 @@ struct gis {
   struct object *i_string;
   struct object *stack_string;
   struct object *call_stack_string;
+  struct object *data_stack_string;
 
   struct object *package_string; 
   struct object *packages_string; 
@@ -413,8 +408,9 @@ struct gis {
   struct object *use_package_builtin;
   struct object *find_package_builtin;
   struct object *package_symbols_builtin;
-  struct object *impl_function_builtin;
 };
+
+#define GIS_PACKAGE symbol_get_value(gis->package_symbol)
 
 enum marshaled_type {
   marshaled_type_integer,
