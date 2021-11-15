@@ -328,6 +328,17 @@ struct gis {
   struct object *t_symbol;
   struct object *if_symbol;
 
+  struct object *fixnum_symbol;
+  struct object *ufixnum_symbol;
+  struct object *flonum_symbol;
+  struct object *string_symbol;
+
+  struct object *fixnum_string;
+  struct object *ufixnum_string;
+  struct object *flonum_string;
+  struct object *string_string;
+
+
   struct object *strings_symbol;
   struct object *find_package_symbol;
   struct object *use_package_symbol;
@@ -344,6 +355,10 @@ struct gis {
   struct object *macro_symbol;
   struct object *macro_string;
   struct object *macro_builtin;
+
+  struct object *type_of_symbol;
+  struct object *type_of_string;
+  struct object *type_of_builtin;
 
   /* cached strings that should be used internally */
   struct object *value_string;

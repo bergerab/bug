@@ -67,6 +67,26 @@ enum type get_object_type(struct object *o) {
   return type_cons;
 }
 
+struct object *get_object_type_symbol(struct object *o) {
+  if (o == NIL) return NIL;
+  if (OBJECT_TYPE(o) & 0x2) {
+    switch (OBJECT_TYPE(o)) {
+      case type_fixnum:
+        return gis->fixnum_symbol;
+      case type_ufixnum:
+        return gis->ufixnum_symbol;
+      case type_flonum:
+        return gis->flonum_symbol;
+      case type_string:
+        return gis->string_symbol;
+      default:
+        printf("Invalid type -- GIS has no symbol for it.");
+        exit(1);
+    }
+  }
+  return gis->cons_symbol;
+}
+
 char *get_object_type_name(struct object *o) {
   return get_type_name(get_object_type(o));
 }
@@ -349,7 +369,6 @@ struct object *dynamic_array_get(struct object *da, struct object *index) {
 }
 struct object *dynamic_array_set_ufixnum_t(struct object *da, ufixnum_t index, struct object *value) {
   TC("dynamic_array_set", 0, da, type_dynamic_array);
-  TC("dynamic_array_set", 2, value, type_fixnum);
   DYNAMIC_ARRAY_VALUES(da)[index] = value;
   return NIL;
 }
@@ -1183,11 +1202,12 @@ void gis_init(char load_core) {
   GIS_SYM(equals_symbol, equals_string, "=", lisp_package);
   GIS_SYM(progn_symbol, progn_string, "progn", lisp_package);
   GIS_SYM(or_symbol, or_string, "or", lisp_package);
-  GIS_SYM(function_symbol, function_string, "fun", lisp_package);
   GIS_SYM(let_symbol, let_string, "let", lisp_package);
   GIS_SYM(t_symbol, t_string, "true", lisp_package);
   symbol_set_value(gis->t_symbol, gis->t_symbol); /* t has itself as its value */
   GIS_SYM(if_symbol, if_string, "if", lisp_package);
+
+  GIS_SYM(function_symbol, function_string, "function", impl_package);
 
   GIS_SYM(package_symbol, package_string, "package", impl_package);
   GIS_SYM(packages_symbol, packages_string, "packages", impl_package);
@@ -1196,6 +1216,7 @@ void gis_init(char load_core) {
   GIS_SYM(find_package_symbol, find_package_string, "find-package", impl_package);
   GIS_SYM(package_symbols_symbol, package_symbols_string, "package-symbols", impl_package);
   GIS_SYM(compile_symbol, compile_string, "compile", impl_package);
+  GIS_SYM(type_of_symbol, type_of_string, "type-of", impl_package);
 
   GIS_SYM(i_symbol, i_string, "instruction-index", impl_package);
   GIS_SYM(f_symbol, f_string, "current-function", impl_package);
@@ -1205,6 +1226,11 @@ void gis_init(char load_core) {
   GIS_SYM(pop_symbol, pop_string, "pop", impl_package);
   GIS_SYM(push_symbol, push_string, "push", impl_package);
   GIS_SYM(drop_symbol, drop_string, "drop", impl_package);
+
+  GIS_SYM(ufixnum_symbol, ufixnum_string, "ufixnum", impl_package);
+  GIS_SYM(fixnum_symbol, fixnum_string, "fixnum", impl_package);
+  GIS_SYM(flonum_symbol, flonum_string, "flonum", impl_package);
+  GIS_SYM(string_symbol, string_string, "string", impl_package);
 
   /* initialize misc strings */
   gis->x_string = string("x");
@@ -1230,6 +1256,11 @@ void gis_init(char load_core) {
   FUNCTION_IS_BUILTIN(gis->package_symbols_builtin) = 1;
   FUNCTION_NARGS(gis->package_symbols_builtin) = 1; /* takes the package object */
   symbol_set_function(gis->package_symbols_symbol, gis->package_symbols_builtin);
+
+  gis->type_of_builtin = function(NIL, NIL, 1);
+  FUNCTION_IS_BUILTIN(gis->type_of_builtin) = 1;
+  FUNCTION_NARGS(gis->type_of_builtin) = 1; /* takes the package object */
+  symbol_set_function(gis->type_of_symbol, gis->type_of_builtin);
 
   gis->compile_builtin = function(NIL, NIL, 3);
   FUNCTION_IS_BUILTIN(gis->compile_builtin) = 1;
@@ -2463,14 +2494,17 @@ struct object *eval(struct object *bc, struct object* args) {
   return eval_at_instruction(bc, 0, args);
 }
 
-
 struct object *compile_entire_file(struct object *input_file) {
-  struct object *temp = NIL;
+  struct object *temp, *f;
+  temp = NIL;
   while (byte_stream_has(input_file))
     temp = cons(read(input_file, GIS_PACKAGE), temp);
   temp = cons_reverse(temp);
-  temp = cons(intern(gis->progn_string, gis->lisp_package), temp);
-  return compile(temp, NIL, NIL);
+  temp = cons(gis->progn_symbol, temp);
+  f = compile(temp, NIL, NIL);
+  /* drop the value returned by progn -- otherwise there will be garbage on the stack after compiling every file */
+  dynamic_byte_array_push_char(FUNCTION_CODE(f), op_drop);
+  return f;
 }
 
 /*
@@ -2703,20 +2737,14 @@ struct object *compile(struct object *ast, struct object *f, struct object *st) 
             while (cursor != NIL) {
               compile(CONS_CAR(cursor), fun, tst);
               cursor = CONS_CDR(cursor);
-              if (cursor != NIL) /* implicit progn */
-                C_PUSH_CODE(op_drop); /* the last value will still be on the stack when the function body completes */
+              if (cursor != NIL) { /* implicit progn */
+                dynamic_byte_array_push_char(FUNCTION_CODE(fun), op_drop); /* the last value will still be on the stack when the function body completes */
+              }
             }
             /* add an implicit return to every function */
             dynamic_byte_array_push_char(FUNCTION_CODE(fun), op_return_function);
 
-            if (name == NIL) { /* if this is an anonymous function */
-              gen_load_constant(f, fun);
-            } else {
-              gen_load_constant(f, name);
-              gen_load_constant(f, fun);
-              C_PUSH_CODE(op_set_symbol_function);
-            }
-
+            /* macros should not be set at runtime (only exist in the symbol table during compilation) */
             if (car == gis->macro_symbol) {
               FUNCTION_IS_MACRO(fun) = 1;
               /* TODO: I think when searching the ST, you should have to specify the type you're looking for 
@@ -2724,6 +2752,12 @@ struct object *compile(struct object *ast, struct object *f, struct object *st) 
                  a bug when the same name is used twice it won't find the first one. Using a name for a lexical var
                  and a macro. Maybe it won't be a problem */
               st = alist_extend(st, name, fun); /* add the macro to the symbol table -- so we have reference to it later */
+            } else if (name == NIL) { /* if this is an anonymous function */
+              gen_load_constant(f, fun);
+            } else {
+              gen_load_constant(f, name);
+              gen_load_constant(f, fun);
+              C_PUSH_CODE(op_set_symbol_function);
             }
             break;
           } else if (car == gis->symbol_value_symbol) {
@@ -3045,6 +3079,8 @@ void eval_builtin(struct object *f) {
     push(compile(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2)));
   } else if (f == gis->eval_builtin) {
     push(eval_at_instruction(GET_LOCAL(0), FIXNUM_VALUE(GET_LOCAL(1)), NULL));
+  } else if (f == gis->type_of_builtin) {
+    push(get_object_type_symbol(GET_LOCAL(0)));
   } else if (f == gis->package_symbols_builtin) {
     TC("package-symbols", 0, GET_LOCAL(0), type_package);
     push(PACKAGE_SYMBOLS(GET_LOCAL(0)));
@@ -3241,7 +3277,7 @@ struct object *run(struct gis *gis) {
           STACK_I(0) = v1;
         } else if (STACK_I(0) != NIL) {
           /* do nothing - v0 is already on the stack */
-        } else if (STACK_I(0) != NIL) {
+        } else if (v1 != NIL) {
           STACK_I(0) = v1;
         } else {
           STACK_I(0) = NIL;
@@ -3323,6 +3359,11 @@ struct object *run(struct gis *gis) {
 
         /* remove all arguments and the function from the data stack at once */
         DYNAMIC_ARRAY_LENGTH(gis->data_stack) -= a0 + 1;
+
+        /* initialize any temps with NIL -- could be improved by just adding to the call stack's length */
+        for (a1 = 0; a1 < FUNCTION_STACK_SIZE(f) - FUNCTION_NARGS(f); ++a1) {
+          dynamic_array_push(gis->call_stack, NIL);
+        }
         
         /* save the instruction index, and function */
         UFIXNUM_VALUE(i) += 1; /* resume at the next instruction */
@@ -3381,7 +3422,7 @@ struct object *run(struct gis *gis) {
       case op_set_symbol_value: /* set-symbol-value ( sym val -- ) */
         SC("set-symbol-value", 1);
         v1 = pop(); /* val */
-        TC("set-symbol-value", 0, v0, type_symbol);
+        TC("set-symbol-value", 0, STACK_I(0), type_symbol);
         symbol_set_value(STACK_I(0), v1);
         break;
       case op_set_symbol_function: /* set-symbol-function ( sym val -- ) */

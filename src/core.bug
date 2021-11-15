@@ -1,7 +1,70 @@
-(fun caar (x)
+(set 'package-stack nil)
+
+"Sets the current package to be the package named by the given string designator."
+(impl:function find-package (sd)
+  (let ((p (impl:find-package sd)))
+    (if p p (print "error: package not found " sd))))
+
+(impl:function push-package (sd)
+  (set 'package-stack (cons impl:package package-stack))
+  (set 'impl:package (find-package sd)))
+
+(impl:function pop-package (sd)
+  (set 'impl:package (car package-stack))
+  (set 'package-stack (cdr package-stack)))
+
+"Use the lisp package"
+(push-package 'lisp)
+
+"Cons helpers that should probably be builtins"
+(impl:function caar (x)
   (car (car x)))
-(fun cddr (x)
+
+(impl:function cddr (x)
   (cdr (cdr x)))
-(fun cadr (x)
+
+(impl:function cadr (x)
   (car (cdr x)))
 
+(impl:function list? (x)
+  (let ((type (impl:type-of x)))
+    (or (= type 'cons)
+        (= type nil))))
+
+(impl:function unquoted? (x)
+	 (if (list? x)
+	     (= (car x) 'unquote)
+	   nil))
+
+(impl:function unquote-spliced? (x)
+	 (if (list? x)
+	     (= (car x) 'unquote-splicing)
+	   nil))
+
+(impl:function ununquote (x)
+	 (cadr x))
+
+"This is probably list-overkill -- I think append is needed for splicing
+Could probably do away with one set of lists"
+"
+(impl:macro do-quasiquote (x)
+	 (if (unquoted? x)
+	     (list 'list (ununquote x))
+	   (if (unquote-spliced? x)
+	       (ununquote x)
+	     (if (cons? x)
+		 (list 'list (append (list 'append) (map do-quasiquote x)))
+	       (list 'list (list 'quote x))))))
+         "
+
+"Might be able to re-write so cadr isn't need (doesn't produce an extra list)"
+"
+(impl:macro quasiquote (x)
+	 (cadr (do-quasiquote x)))
+   "
+"
+(impl:macro function &args
+	 `(def ,(car &args) (fn ,(cadr &args) ,@(cdr (cdr &args)))))
+   "
+
+(pop-package)
