@@ -12,6 +12,11 @@
  */
 struct gis *gis;
 
+struct object *compile(struct object *ast, struct object *bc, struct object *st);
+struct object *compile_entire_file(struct object *input_file);
+struct object *eval(struct object *bc, struct object* args);
+struct object *read(struct object *s, struct object *package);
+
 /*===============================*
  *===============================*
  * Utility Procedures            *
@@ -1110,7 +1115,7 @@ char byte_stream_peek_byte(struct object *e) {
 /** creates a new global interpreter state with one package (called "lisp")
  *  which is set to the current package.
  */
-void gis_init() {
+void gis_init(char load_core) {
   gis = malloc(sizeof(struct gis));
   if (gis == NULL) {
     printf("Failed to allocate global interpreter state.");
@@ -1178,7 +1183,7 @@ void gis_init() {
   GIS_SYM(equals_symbol, equals_string, "=", lisp_package);
   GIS_SYM(progn_symbol, progn_string, "progn", lisp_package);
   GIS_SYM(or_symbol, or_string, "or", lisp_package);
-  GIS_SYM(function_symbol, function_string, "function", lisp_package);
+  GIS_SYM(function_symbol, function_string, "fun", lisp_package);
   GIS_SYM(let_symbol, let_string, "let", lisp_package);
   GIS_SYM(t_symbol, t_string, "true", lisp_package);
   symbol_set_value(gis->t_symbol, gis->t_symbol); /* t has itself as its value */
@@ -1255,6 +1260,10 @@ void gis_init() {
 
   symbol_set_value(gis->f_symbol, NIL); /* the function being executed */
   symbol_set_value(gis->i_symbol, ufixnum(0)); /* the instruction index */
+
+  /* Load core.bug */
+  if (load_core)
+    eval(compile_entire_file(open_file(string("./src/core.bug"), string("rb"))), NIL);
 }
 
 /* 
@@ -2373,7 +2382,6 @@ struct object *read(struct object *s, struct object *package) {
  * Compile                       *
  *===============================*
  *===============================*/
-struct object *compile(struct object *ast, struct object *bc, struct object *st);
 
 void gen_load_constant(struct object *bc, struct object *value) {
   ufixnum_t i;
@@ -2455,6 +2463,15 @@ struct object *eval(struct object *bc, struct object* args) {
   return eval_at_instruction(bc, 0, args);
 }
 
+
+struct object *compile_entire_file(struct object *input_file) {
+  struct object *temp = NIL;
+  while (byte_stream_has(input_file))
+    temp = cons(read(input_file, GIS_PACKAGE), temp);
+  temp = cons_reverse(temp);
+  temp = cons(intern(gis->progn_string, gis->lisp_package), temp);
+  return compile(temp, NIL, NIL);
+}
 
 /*
  *
@@ -3388,13 +3405,13 @@ struct object *run(struct gis *gis) {
 /*
  * Sets the default interpreter state
  */
-void init() {
-  gis_init();
+void init(char load_core) {
+  gis_init(load_core);
 }
 
-void reinit() {
+void reinit(char load_core) {
   free(gis); /* TODO: write gis_free */
-  gis_init();
+  gis_init(load_core);
 }
 
 /*===============================*
@@ -3507,7 +3524,7 @@ void run_tests() {
    */
 
   /* Fixnum marshaling */
-  reinit();
+  reinit(0);
 
 #define T_MAR_FIXNUM(n) \
   assert(FIXNUM_VALUE(unmarshal_integer(marshal_fixnum(fixnum(n), NULL))) == n);
@@ -3565,7 +3582,7 @@ void run_tests() {
   T_MAR_STR("nerEW)F9nef09n230(N#EOINWEogiwe");
   T_MAR_STR("");
 
-  reinit();
+  reinit(0);
   T_MAR_SYM_DEF("abcdef");
 
   /* uninterned symbol */
@@ -3876,7 +3893,7 @@ void run_tests() {
   /******* read ***********/
 #define T_READ_TEST(i, o) assert(equals(read(string(i), GIS_PACKAGE), o))
 #define T_SYM(s) intern(string(s), GIS_PACKAGE)
-  reinit();
+  reinit(0);
   /* reading fixnums */
   T_READ_TEST("3", fixnum(3));
   T_READ_TEST("12345", fixnum(12345));
@@ -3953,7 +3970,7 @@ void run_tests() {
   T_READ_TEST("(1\"b\")", cons(fixnum(1), cons(string("b"), NIL)));
 
   /********* symbol interning ************/ 
-  reinit();
+  reinit(0);
   assert(count(PACKAGE_SYMBOLS(GIS_PACKAGE)) == 0);
   o0 = intern(string("a"), GIS_PACKAGE); /* this should create a new symbol and add it to the package */
   assert(count(PACKAGE_SYMBOLS(GIS_PACKAGE)) == 1);
@@ -3993,7 +4010,7 @@ void run_tests() {
 #define T_CONST(c) dynamic_array_push(constants, c);
 #define T_STACK_SIZE(c) stack_size = c;
 
-  reinit();
+  reinit(0);
 
   BEGIN_BC_TEST("3");
   T_BYTE(op_const_0);
@@ -4099,7 +4116,7 @@ int main(int argc, char **argv) {
   char interpret_mode, compile_mode, repl_mode;
   struct object *bc, *input_file, *output_file, *input_filepath, *output_filepath, *temp;
 
-  init();
+  init(1); /* must init before using NIL */
 
   interpret_mode = compile_mode = repl_mode = 0;
   output_filepath = input_filepath = NIL;
@@ -4162,12 +4179,7 @@ int main(int argc, char **argv) {
     close_file(input_file);
     input_file = byte_stream_lift(temp);
     output_file = open_file(output_filepath, string("wb"));
-    temp = NIL;
-    while (byte_stream_has(input_file))
-      temp = cons(read(input_file, GIS_PACKAGE), temp);
-    temp = cons_reverse(temp);
-    temp = cons(intern(gis->progn_string, gis->lisp_package), temp);
-    bc = compile(temp, NIL, NIL);
+    bc = compile_entire_file(input_file);
     write_bytecode_file(output_file, bc);
     close_file(output_file);
   } else if (interpret_mode) { /* add logic to compile the file if given a source file */

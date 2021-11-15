@@ -1,0 +1,7 @@
+(fun caar (x)
+  (car (car x)))
+(fun cddr (x)
+  (cdr (cdr x)))
+(fun cadr (x)
+  (car (cdr x)))
+
