@@ -81,6 +81,7 @@ typedef double flonum_t;
 #define FUNCTION_NARGS(o) o->w1.value.function->nargs
 #define FUNCTION_NAME(o) o->w1.value.function->name
 #define FUNCTION_IS_BUILTIN(o) o->w1.value.function->is_builtin
+#define FUNCTION_IS_MACRO(o) o->w1.value.function->is_macro
 
 #define STRING_LENGTH(o) DYNAMIC_BYTE_ARRAY_LENGTH(o)
 #define STRING_CONTENTS(o) DYNAMIC_BYTE_ARRAY_BYTES(o)
@@ -239,6 +240,7 @@ struct function {
   ufixnum_t stack_size; /** how many items to reserve on the stack - includes arguments */
   ufixnum_t nargs; /** how many arguments does this require? */
   char is_builtin; /** is this a builtin function? */
+  char is_macro; /** is this a macro? */
 };
 
 struct file {
@@ -305,6 +307,7 @@ struct gis {
   struct object *symbol_function_symbol;
   struct object *set_symbol;
   struct object *quote_symbol;
+  struct object *quasiquote_symbol;
   struct object *cons_symbol;
   struct object *progn_symbol;
   struct object *add_symbol;
@@ -338,6 +341,10 @@ struct gis {
   struct object *eval_string;
   struct object *eval_builtin;
 
+  struct object *macro_symbol;
+  struct object *macro_string;
+  struct object *macro_builtin;
+
   /* cached strings that should be used internally */
   struct object *value_string;
   struct object *internal_string;
@@ -355,6 +362,7 @@ struct gis {
   struct object *symbol_function_string;
   struct object *set_string;
   struct object *quote_string;
+  struct object *quasiquote_string;
   struct object *cons_string;
   struct object *progn_string;
   struct object *add_string;
