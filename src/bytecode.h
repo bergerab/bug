@@ -116,6 +116,7 @@ enum ops {
   op_subi,
   op_mul,
   op_div,
+  op_list,
   op_load_nil,
   op_const,
   op_const_0,
@@ -356,6 +357,9 @@ struct gis {
   struct object *macro_string;
   struct object *macro_builtin;
 
+  struct object *list_symbol;
+  struct object *list_string;
+
   struct object *type_of_symbol;
   struct object *type_of_string;
   struct object *type_of_builtin;
@@ -417,7 +421,6 @@ struct gis {
   struct object *a_string;
   struct object *b_string;
   struct object *temp_string;
-  struct object *list_string;
 
   /* symbols from impl package */
   struct object *push_symbol;

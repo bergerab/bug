@@ -1073,3 +1073,6 @@ The steps to evaluating ~(a 3)~ involve:
   4. Evaluate gis->bc->code
 
 How to implement TCO?
+
+
+Integrate language with editor so macros can extend the text editor.

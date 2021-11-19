@@ -1,0 +1,44 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "bug",
+	"patterns": [
+		{
+			"include": "#keywords"
+		},
+		{
+			"include": "#strings"
+		}
+	],
+	"repository": {
+		"keywords": {
+			"patterns": [{
+				"name": "keyword.control.bug",
+				"match": "\\b(if|function|let)\\b"
+			}]
+		},
+		"strings": {
+			"name": "string.quoted.double.bug",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"name": "constant.character.escape.bug",
+					"match": "\\\\."
+				}
+			]
+		}
+	},
+	"onEnterRules": [
+		{
+			"beforeText": "^\\s*(?:async).*?:\\s*$",
+			"action": {
+				"indent": "indent"
+			}
+		}
+	],
+	"scopeName": "source.bug",
+  "indentationRules": {
+    "increaseIndentPattern": "^((?!\\/\\/).)*(\\{[^}\"'`]*|\\([^)\"'`]*|\\[[^\\]\"'`]*)$",
+    "decreaseIndentPattern": "^((?!.*?\\/\\*).*\\*/)?\\s*[\\}\\]].*$"
+  }
+}

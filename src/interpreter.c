@@ -1207,6 +1207,7 @@ void gis_init(char load_core) {
   symbol_set_value(gis->t_symbol, gis->t_symbol); /* t has itself as its value */
   GIS_SYM(if_symbol, if_string, "if", lisp_package);
 
+  GIS_SYM(list_symbol, list_string, "list", lisp_package);
   GIS_SYM(function_symbol, function_string, "function", impl_package);
 
   GIS_SYM(package_symbol, package_string, "package", impl_package);
@@ -2648,6 +2649,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st) 
       printf("A object of type function cannot be compiled.");
       exit(1);
     case type_cons:
+    /* TODO: in SBCL you can say (symbol-function '+) and it gives you a function. that would be cool to be able to do here. */
       car = CONS_CAR(value);
       if (get_object_type(car) == type_symbol) {
         if (alist_get_value(st, car) != NIL) { /* if the value exists in the symbol table */
@@ -2842,6 +2844,10 @@ struct object *compile(struct object *ast, struct object *f, struct object *st) 
             C_PUSH_CODE(op_print_nl);
             C_PUSH_CODE(op_load_nil);
             break;
+          } else if (car == gis->list_symbol) {
+            COMPILE_DO_EACH({});
+            C_PUSH_CODE(op_list);
+            marshal_ufixnum_t(length, C_CODE, 0);
           } else if (car == gis->add_symbol) {
             length = 0;
             cursor = CONS_CDR(value);
@@ -3269,6 +3275,19 @@ struct object *run(struct gis *gis) {
           STACK_I(0) = v1;
         else 
           STACK_I(0) = NIL;
+        break;
+      case op_list: /* list <n> ( ...n... -- ) */
+        READ_OP_ARG();
+        if (a0 == 0) break;
+        else if (a0 == 1) STACK_I(0) = cons(STACK_I(0), NIL);
+        else {
+          STACK_I(0) = cons(STACK_I(0), NIL);
+          for (a1 = 1; a1 < a0; ++a1) {
+            STACK_I(0) = cons(STACK_I(a1), STACK_I(0));
+          }
+          STACK_I(a0 - 1) = STACK_I(0);
+          gis->data_stack->w1.value.dynamic_array->length -= a0 - 1;
+        }
         break;
       case op_or: /* or ( x y -- z ) */
         SC("or", 2);

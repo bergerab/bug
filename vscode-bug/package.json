@@ -1,0 +1,25 @@
+{
+    "name": "bug",
+    "displayName": "bug",
+    "description": "Language support for bug",
+    "version": "0.0.1",
+    "engines": {
+        "vscode": "^1.62.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "contributes": {
+        "languages": [{
+            "id": "bug",
+            "aliases": ["bug"],
+            "extensions": ["bug", "b"],
+            "configuration": "./language-configuration.json"
+        }],
+        "grammars": [{
+            "language": "bug",
+            "scopeName": "source.bug",
+            "path": "./syntaxes/bug.tmLanguage.json"
+        }]
+    }
+}
