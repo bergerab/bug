@@ -1,70 +1,103 @@
-(set 'package-stack nil)
-
-"Sets the current package to be the package named by the given string designator."
 (impl:function find-package (sd)
+	"Sets the current package to be the package named by the given string designator."
   (let ((p (impl:find-package sd)))
     (if p p (print "error: package not found " sd))))
 
-(impl:function push-package (sd)
-  (set 'package-stack (cons impl:package package-stack))
-  (set 'impl:package (find-package sd)))
-
-(impl:function pop-package (sd)
-  (set 'impl:package (car package-stack))
-  (set 'package-stack (cdr package-stack)))
-
-"Use the lisp package"
-(push-package 'lisp)
-
 "Cons helpers that should probably be builtins"
+(impl:function cadr (x)
+	"Gets the second item in a list."
+  (car (cdr x)))
+
 (impl:function caar (x)
+	"Gets the first item in the nested list of a list of lists."
   (car (car x)))
 
 (impl:function cddr (x)
+	"Skips the first two items in a list."
   (cdr (cdr x)))
 
-(impl:function cadr (x)
-  (car (cdr x)))
+(impl:function nil? (x)
+	"Is x nil?"
+	(= x nil))
 
 (impl:function list? (x)
+	"Is x a list (either cons cell or nil)?"
   (let ((type (impl:type-of x)))
     (or (= type 'cons)
         (= type nil))))
 
+(impl:function cons? (x)
+	"Is x a cons cell?"
+  (let ((type (impl:type-of x)))
+    (= type 'cons)))
+
+(impl:function mapcar (f xs)
+	"Applies f to each item in the list xs and returns a new list containing the yielded values."
+	(if xs
+		(cons (impl:call f (car xs)) 
+				  (mapcar f (cdr xs)))
+		nil))
+
+(impl:function foreach (f xs)
+	(if xs
+		(progn
+			(call f (car xs))
+			(foreach f (cdr xs)))
+		nil))
+
+(impl:function concat (xs ys)
+	"Creates a new single list that contains all items in xs followed by all items in ys (maintains ordering)."
+	(if xs
+		(cons (car xs) (concat (cdr xs) ys))
+			(if ys
+				(cons (car ys) (concat xs (cdr ys)))
+					nil)))
+	
 (impl:function unquoted? (x)
-	 (if (list? x)
-	     (= (car x) 'unquote)
-	   nil))
+	"Does x have the form (UNQUOTE ...)?"
+	(if (list? x)
+	    (= (car x) 'unquote)
+	  nil))
 
 (impl:function unquote-spliced? (x)
-	 (if (list? x)
-	     (= (car x) 'unquote-splicing)
-	   nil))
+	"Does x have the form (UNQUOTE-SPLICING ...)?"
+	(if (list? x)
+	    (= (car x) 'unquote-splicing)
+	  nil))
 
-(impl:function ununquote (x)
-	 (cadr x))
-
-"This is probably list-overkill -- I think append is needed for splicing
-Could probably do away with one set of lists"
-"
 (impl:macro do-quasiquote (x)
-	 (if (unquoted? x)
-	     (list 'list (ununquote x))
-	   (if (unquote-spliced? x)
-	       (ununquote x)
-	     (if (cons? x)
-		 (list 'list (append (list 'append) (map do-quasiquote x)))
-	       (list 'list (list 'quote x))))))
-				 "
+	"
+	Takes any expression x and returns the quasiquoted result.
+	Quasiquoting indicates that the given expression's quoting rules will be
+	flipped. Any non-quoted expression will become quoted, and you must explicitly
+	unquote expressions to indicate that they should be evaluated. There is a special
+	case where you can indicate that an expression should be evaluated, and the value
+	(which is a assumed to be a list) will be concatenated to the list it is contained in
+	this is called UNQUOTE-SPLICING.
 
-"Might be able to re-write so cadr isn't need (doesn't produce an extra list)"
-"
+	Examples:
+		(quasiquote 2) => (quote 2)
+		(quasiquote (a b c)) => (quote (a b c))
+		(quasiquote (unquote (my-function 1 2))) => (my-function 1 2)
+		(quasiquote (list (unquote (+ 1 2)) 4)) => (list 3 (quote 4))
+		(quasiquote (+ (unquote-splicing (list 1 2)))) => (+ 1 2)
+
+	Note that the reader usually provides a special syntax for quasiquoting that looks like this:
+
+	Examples (using quasiquoting syntax):
+		`2 => 2
+		`(a b c) => (a b c)
+		`,(my-function 1 2) => (my-function 1 2)
+		`(list ,(+ 1 2) 4) => (list 3 4)
+		`(+ ,@(list 1 2)) => (+ 1 2)
+	"
+	(if (unquoted? x)
+	  (cadr x)
+	  (if (unquote-spliced? x)
+	  	  (cadr x)
+	     	(if (cons? x)
+					3
+	       	(cons 'quote (cons x nil))))))
+
 (impl:macro quasiquote (x)
-	 (cadr (do-quasiquote x)))
-   "
-"
-(impl:macro function &args
-	 `(def ,(car &args) (fn ,(cadr &args) ,@(cdr (cdr &args)))))
-   "
-
-(pop-package)
+	 (do-quasiquote x))

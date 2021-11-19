@@ -12,7 +12,7 @@
  */
 struct gis *gis;
 
-struct object *compile(struct object *ast, struct object *bc, struct object *st);
+struct object *compile(struct object *ast, struct object *bc, struct object *st, struct object *fst);
 struct object *compile_entire_file(struct object *input_file);
 struct object *eval(struct object *bc, struct object* args);
 struct object *read(struct object *s, struct object *package);
@@ -79,6 +79,14 @@ struct object *get_object_type_symbol(struct object *o) {
         return gis->flonum_symbol;
       case type_string:
         return gis->string_symbol;
+      case type_symbol:
+        return gis->symbol_symbol;
+      case type_package:
+        return gis->package_symbol;
+      case type_nil:
+        return gis->nil_symbol;
+      case type_cons:
+        return gis->cons_symbol;
       default:
         printf("Invalid type -- GIS has no symbol for it.");
         exit(1);
@@ -1232,6 +1240,7 @@ void gis_init(char load_core) {
   GIS_SYM(fixnum_symbol, fixnum_string, "fixnum", impl_package);
   GIS_SYM(flonum_symbol, flonum_string, "flonum", impl_package);
   GIS_SYM(string_symbol, string_string, "string", impl_package);
+  GIS_SYM(symbol_symbol, symbol_string, "symbol", impl_package);
 
   /* initialize misc strings */
   gis->x_string = string("x");
@@ -1263,9 +1272,15 @@ void gis_init(char load_core) {
   FUNCTION_NARGS(gis->type_of_builtin) = 1; /* takes the package object */
   symbol_set_function(gis->type_of_symbol, gis->type_of_builtin);
 
-  gis->compile_builtin = function(NIL, NIL, 3);
+  GIS_SYM(call_symbol, call_string, "call", impl_package);
+  gis->call_builtin = function(NIL, NIL, 1);
+  FUNCTION_IS_BUILTIN(gis->call_builtin) = 1;
+  FUNCTION_NARGS(gis->call_builtin) = 1; /* takes either a function value or a symbol */
+  symbol_set_function(gis->call_symbol, gis->call_builtin);
+
+  gis->compile_builtin = function(NIL, NIL, 4);
   FUNCTION_IS_BUILTIN(gis->compile_builtin) = 1;
-  FUNCTION_NARGS(gis->compile_builtin) = 3; /* (compile <expr> <?bytecode> <?symbol-table>) */
+  FUNCTION_NARGS(gis->compile_builtin) = 4; /* (compile <expr> <?bytecode> <?symbol-value-table> <?function-value-table>) */
   symbol_set_function(gis->compile_symbol, gis->compile_builtin);
 
   /* TODO */
@@ -1630,6 +1645,10 @@ struct object *marshal_function(struct object *bc, struct object *ba, char inclu
   marshal_dynamic_array(FUNCTION_CONSTANTS(bc), ba, 0, cache);
   marshal_ufixnum_t(FUNCTION_STACK_SIZE(bc), ba, 0);
   marshal_dynamic_byte_array(FUNCTION_CODE(bc), ba, 0);
+  marshal_ufixnum_t(FUNCTION_NARGS(bc), ba, 0);
+  marshal_ufixnum_t(FUNCTION_NAME(bc) != NIL, ba, 0);
+  if (FUNCTION_NAME(bc) != NIL) 
+    marshal_symbol(FUNCTION_NAME(bc), ba, 0);
   return ba;
 }
 
@@ -1970,7 +1989,7 @@ struct object *unmarshal_vec2(struct object *s, char includes_header) {
 
 struct object *unmarshal_function(struct object *s, char includes_header, struct object *cache) {
   unsigned char t;
-  struct object *constants, *code;
+  struct object *constants, *code, *f;
   ufixnum_t stack_size;
   s = byte_stream_lift(s);
   if (includes_header) {
@@ -1984,7 +2003,12 @@ struct object *unmarshal_function(struct object *s, char includes_header, struct
   constants = unmarshal_dynamic_array(s, 0, cache);
   stack_size = unmarshal_ufixnum_t(s);
   code = unmarshal_dynamic_byte_array(s, 0);
-  return function(constants, code, stack_size);
+  f = function(constants, code, stack_size);
+  FUNCTION_NARGS(f) = unmarshal_ufixnum_t(s);
+  if (unmarshal_ufixnum_t(s)) {
+    FUNCTION_NAME(f) = unmarshal_symbol(s, cache);
+  }
+  return f;
 }
 
 struct object *unmarshal_nil(struct object *s) {
@@ -2474,7 +2498,7 @@ struct object *eval_at_instruction(struct object *f, ufixnum_t i, struct object 
   cursor = args;
   while (j < FUNCTION_NARGS(f)) {
     if (cursor == NIL) {
-      printf("Not enough arguments provided.\n"); 
+      printf("Not enough arguments provided. Expected %lu but got %lu.\n", (unsigned long)FUNCTION_NARGS(f), (unsigned long)j); 
       exit(1);
     }
     dynamic_array_push(gis->call_stack, CONS_CAR(cursor));
@@ -2502,7 +2526,7 @@ struct object *compile_entire_file(struct object *input_file) {
     temp = cons(read(input_file, GIS_PACKAGE), temp);
   temp = cons_reverse(temp);
   temp = cons(gis->progn_symbol, temp);
-  f = compile(temp, NIL, NIL);
+  f = compile(temp, NIL, NIL, NIL);
   /* drop the value returned by progn -- otherwise there will be garbage on the stack after compiling every file */
   dynamic_byte_array_push_char(FUNCTION_CODE(f), op_drop);
   return f;
@@ -2518,9 +2542,13 @@ struct object *compile_entire_file(struct object *input_file) {
  *   load-constant 1
  *   add
  */
-struct object *compile(struct object *ast, struct object *f, struct object *st) {
+/*
+ * st => symbol value table
+ * fst => function symbol table
+ */
+struct object *compile(struct object *ast, struct object *f, struct object *st, struct object *fst) {
   struct object *value, *car, *cursor, *constants, *code, *tst; /* temp symbol table */
-  struct object *name, *params, *body, *k, *v, *kvp, *fun, *temp; /** for compiling functions */
+  struct object *name, *params, *body, *k, *v, *kvp, *fun; /** for compiling functions */
   struct object *lhs, *rhs;
   ufixnum_t length, t0, t1, jump_offset, stack_index;
 
@@ -2546,14 +2574,14 @@ struct object *compile(struct object *ast, struct object *f, struct object *st) 
  * It could also have loaded then printed.
  * 
  */
-#define COMPILE_DO_EACH(block)       \
-  cursor = CONS_CDR(value);           \
-  length = 0;    \
-  while (cursor != NIL) {             \
-    compile(CONS_CAR(cursor), f, st); \
-    cursor = CONS_CDR(cursor);        \
-    ++length; \
-    block;                           \
+#define COMPILE_DO_EACH(block)             \
+  cursor = CONS_CDR(value);                \
+  length = 0;                              \
+  while (cursor != NIL) {                  \
+    compile(CONS_CAR(cursor), f, st, fst); \
+    cursor = CONS_CDR(cursor);             \
+    ++length;                              \
+    block;                                 \
   }
 
 /* compiles each item in the cons list, starting with the first two, then after each item. 
@@ -2570,23 +2598,23 @@ struct object *compile(struct object *ast, struct object *f, struct object *st) 
  *    load 3
  *    subtract 
  */
-#define COMPILE_DO_AGG_EACH(block)    \
-  length = 0;                         \
-  cursor = CONS_CDR(value);           \
-  while (cursor != NIL) {             \
-    compile(CONS_CAR(cursor), f, st); \
-    cursor = CONS_CDR(cursor);        \
-    ++length;                         \
-    if (length >= 2) {                \
-      block;                          \
-    }                                 \
+#define COMPILE_DO_AGG_EACH(block)         \
+  length = 0;                              \
+  cursor = CONS_CDR(value);                \
+  while (cursor != NIL) {                  \
+    compile(CONS_CAR(cursor), f, st, fst); \
+    cursor = CONS_CDR(cursor);             \
+    ++length;                              \
+    if (length >= 2) {                     \
+      block;                               \
+    }                                      \
   }
 
 #define C_ARG0() CONS_CAR(CONS_CDR(value))
 #define C_ARG1() CONS_CAR(CONS_CDR(CONS_CDR(value)))
 #define C_ARG2() CONS_CAR(CONS_CDR(CONS_CDR(CONS_CDR(value))))
 #define C_ARG3() CONS_CAR(CONS_CDR(CONS_CDR(CONS_CDR(CONS_CDR(value)))))
-#define C_COMPILE(expr) compile(expr, f, st);
+#define C_COMPILE(expr) compile(expr, f, st, fst);
 #define C_COMPILE_ARG0 C_COMPILE(C_ARG0())
 #define C_COMPILE_ARG1 C_COMPILE(C_ARG1())
 #define C_COMPILE_ARG2 C_COMPILE(C_ARG2())
@@ -2685,7 +2713,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st) 
               v = CONS_CAR(CONS_CDR(kvp));
               stack_index = FUNCTION_STACK_SIZE(f);
               ++FUNCTION_STACK_SIZE(f);
-              compile(v, f, tst);
+              compile(v, f, tst, fst);
               C_PUSH_CODE(op_store_to_stack);
               C_PUSH_CODE(stack_index); /* TODO: make this a marshaled ufixnum */
               st = alist_extend(st, k, ufixnum(stack_index)); /* add to the symbol table that the body of the let will use */
@@ -2737,7 +2765,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st) 
             }
             cursor = body;
             while (cursor != NIL) {
-              compile(CONS_CAR(cursor), fun, tst);
+              compile(CONS_CAR(cursor), fun, tst, fst);
               cursor = CONS_CDR(cursor);
               if (cursor != NIL) { /* implicit progn */
                 dynamic_byte_array_push_char(FUNCTION_CODE(fun), op_drop); /* the last value will still be on the stack when the function body completes */
@@ -2749,14 +2777,16 @@ struct object *compile(struct object *ast, struct object *f, struct object *st) 
             /* macros should not be set at runtime (only exist in the symbol table during compilation) */
             if (car == gis->macro_symbol) {
               FUNCTION_IS_MACRO(fun) = 1;
-              /* TODO: I think when searching the ST, you should have to specify the type you're looking for 
-                 (e.g. look for macro value instead of regaulr value) because this code below causes 
-                 a bug when the same name is used twice it won't find the first one. Using a name for a lexical var
-                 and a macro. Maybe it won't be a problem */
-              st = alist_extend(st, name, fun); /* add the macro to the symbol table -- so we have reference to it later */
+              if (name == NIL) {
+                printf("Macros must have a name.");
+                exit(1);
+              }
+              symbol_set_function(name, fun); /* this is key -- we set the symbol function value inside of the compiler */
+              gen_load_constant(f, NIL); /* should this be done? shouldn't no evidence of the macro be present at runtime? */
             } else if (name == NIL) { /* if this is an anonymous function */
               gen_load_constant(f, fun);
             } else {
+              symbol_set_function(name, fun); /* this is key to being able to call functions from a macro-- we set the symbol function value inside of the compiler */
               gen_load_constant(f, name);
               gen_load_constant(f, fun);
               C_PUSH_CODE(op_set_symbol_function);
@@ -2847,6 +2877,19 @@ struct object *compile(struct object *ast, struct object *f, struct object *st) 
           } else if (car == gis->list_symbol) {
             COMPILE_DO_EACH({});
             C_PUSH_CODE(op_list);
+            marshal_ufixnum_t(length, C_CODE, 0);
+          } else if (car == gis->call_symbol) {
+            cursor = CONS_CDR(CONS_CDR(value));
+            length = 0;
+            while (cursor != NIL) {
+              C_COMPILE(CONS_CAR(cursor));
+              cursor = CONS_CDR(cursor);
+              ++length;
+            }
+
+            C_COMPILE_ARG0;
+
+            C_PUSH_CODE(op_call_function);
             marshal_ufixnum_t(length, C_CODE, 0);
           } else if (car == gis->add_symbol) {
             length = 0;
@@ -3018,11 +3061,15 @@ struct object *compile(struct object *ast, struct object *f, struct object *st) 
             C_EXE2(op_eq);
             break;
           } else {
-            temp = alist_get_value(st, car);
-            /* if this is a macro, execute it */
-            if (get_object_type(temp) == type_function && FUNCTION_IS_MACRO(temp)) {
-              compile(eval(temp, CONS_CDR(value)), f, st);
-            } else { /* otherwise assume it is a function that can be called at runtime */
+            /* TODO: look up the function value in the function lexical environment */
+            /* temp = alist_get_value(fst, car); */
+
+            /* check if there is a macro defined for this, if so execute that */
+            if (SYMBOL_FUNCTION_IS_SET(car) && get_object_type(SYMBOL_FUNCTION(car)) == type_function && FUNCTION_IS_MACRO(SYMBOL_FUNCTION(car))) {
+              printf("eval\n");
+              print(SYMBOL_FUNCTION(car));
+              compile(eval(SYMBOL_FUNCTION(car), CONS_CDR(value)), f, st, fst);
+            } else {
               COMPILE_DO_EACH({});
               gen_load_constant(f, car);
               C_PUSH_CODE(op_call_symbol_function);
@@ -3082,10 +3129,11 @@ void eval_builtin(struct object *f) {
   } else if (f == gis->find_package_builtin) {
     push(find_package(get_string_designator(GET_LOCAL(0))));
   } else if (f == gis->compile_builtin) {
-    push(compile(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2)));
+    push(compile(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2), GET_LOCAL(3)));
   } else if (f == gis->eval_builtin) {
     push(eval_at_instruction(GET_LOCAL(0), FIXNUM_VALUE(GET_LOCAL(1)), NULL));
   } else if (f == gis->type_of_builtin) {
+    printf("type-of is called\n"); /* why is anything being called?! */
     push(get_object_type_symbol(GET_LOCAL(0)));
   } else if (f == gis->package_symbols_builtin) {
     TC("package-symbols", 0, GET_LOCAL(0), type_package);
@@ -3216,7 +3264,6 @@ struct object *run(struct gis *gis) {
       case op_lt: /* lt ( x y -- x<y ) */
         SC("lt", 2);
         v1 = pop(); /* y */
-        print(STACK_I(0));
         STACK_I(0) = FIXNUM_VALUE(STACK_I(0)) < FIXNUM_VALUE(v1) ? T : NIL; /* TODO: support flonum/ufixnum */
         break;
       case op_lti: /* lti <n> ( x -- x<n ) */
@@ -3405,11 +3452,28 @@ struct object *run(struct gis *gis) {
         }
         #endif
         ufix0 = FUNCTION_STACK_SIZE(f) + 2; /* store the frame size */
-        symbol_set_value(gis->f_symbol, DYNAMIC_ARRAY_VALUES(gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 1]);
-        symbol_set_value(gis->i_symbol, DYNAMIC_ARRAY_VALUES(gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 2]);
-        /* pop off all stack arguments, then pop bc, then pop instruction index */
-        DYNAMIC_ARRAY_LENGTH(gis->call_stack) -= ufix0;
-        goto eval_restart; /* restart the evaluation loop */
+        /* this indicates that we returned to the top level -- used when calling macros directly from c */
+        if (DYNAMIC_ARRAY_VALUES(
+                gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 1] ==
+                NIL &&
+            DYNAMIC_ARRAY_VALUES(
+                gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 2] ==
+                NIL) {
+                  break;
+        } else {
+          symbol_set_value(
+              gis->f_symbol,
+              DYNAMIC_ARRAY_VALUES(
+                  gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 1]);
+          symbol_set_value(
+              gis->i_symbol,
+              DYNAMIC_ARRAY_VALUES(
+                  gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 2]);
+          /* pop off all stack arguments, then pop bc, then pop instruction
+           * index */
+          DYNAMIC_ARRAY_LENGTH(gis->call_stack) -= ufix0;
+          goto eval_restart; /* restart the evaluation loop */
+        }
       case op_jump: /* jump ( -- ) */
         /* can jump ~32,000 in both directions */
         READ_OP_JUMP_ARG();
@@ -3453,7 +3517,7 @@ struct object *run(struct gis *gis) {
         push(v1);
         break;
       default:
-        printf("No cases matched\n");
+        printf("Invalid op.\n");
         exit(1);
         break;
     }
@@ -4051,19 +4115,19 @@ void run_tests() {
   assert(equals(alist_get_value(o0, string("v")), string("abc")));
 
   /********** compilation ****************/
-#define BEGIN_BC_TEST(input_string)                      \
-  bc0 = compile(read(string(input_string), GIS_PACKAGE), NIL, NIL); \
-  code = dynamic_byte_array(10);                         \
-  constants = dynamic_array(10);
+#define BEGIN_BC_TEST(input_string)                                      \
+  bc0 = compile(read(string(input_string), GIS_PACKAGE), NIL, NIL, NIL); \
+  code = dynamic_byte_array(10);                                         \
+  constants = dynamic_array(10);                                         \
   stack_size = 0;
-#define END_BC_TEST()              \
+#define END_BC_TEST()                          \
   bc1 = function(constants, code, stack_size); \
   assert(equals(bc0, bc1));
 #define DEBUG_END_BC_TEST()                    \
   bc1 = function(constants, code, stack_size); \
-  printf("ACTUAL:\t\t");                          \
+  printf("ACTUAL:\t\t");                       \
   print(bc0);                                  \
-  printf("EXPECTED:\t");                        \
+  printf("EXPECTED:\t");                       \
   print(bc1);                                  \
   assert(equals(bc0, bc1));
 #define T_BYTE(op) dynamic_byte_array_push_char(code, op);
@@ -4253,7 +4317,7 @@ int main(int argc, char **argv) {
     output_file = file_stdout();
     while (1) {
       write_file(output_file, string("b> "));
-      bc = compile(read(input_file, NIL), NIL, NIL);
+      bc = compile(read(input_file, NIL), NIL, NIL, NIL);
       eval(bc, NIL);
       print(DYNAMIC_ARRAY_LENGTH(gis->data_stack) ? pop() : NIL);
     }

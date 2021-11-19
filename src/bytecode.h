@@ -333,12 +333,13 @@ struct gis {
   struct object *ufixnum_symbol;
   struct object *flonum_symbol;
   struct object *string_symbol;
+  struct object *symbol_symbol;
 
   struct object *fixnum_string;
   struct object *ufixnum_string;
   struct object *flonum_string;
   struct object *string_string;
-
+  struct object *symbol_string;
 
   struct object *strings_symbol;
   struct object *find_package_symbol;
@@ -359,6 +360,10 @@ struct gis {
 
   struct object *list_symbol;
   struct object *list_string;
+
+  struct object *call_symbol;
+  struct object *call_string;
+  struct object *call_builtin;
 
   struct object *type_of_symbol;
   struct object *type_of_string;
