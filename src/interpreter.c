@@ -1195,6 +1195,8 @@ void gis_init(char load_core) {
   GIS_SYM(symbol_function_symbol, symbol_function_string, "symbol-function", lisp_package);
   GIS_SYM(set_symbol, set_string, "set", lisp_package);
   GIS_SYM(quote_symbol, quote_string, "quote", lisp_package);
+  GIS_SYM(unquote_symbol, unquote_string, "unquote", lisp_package);
+  GIS_SYM(unquote_splicing_symbol, unquote_splicing_string, "unquote-splicing", lisp_package);
   GIS_SYM(quasiquote_symbol, quasiquote_symbol, "quasiquote", lisp_package);
   GIS_SYM(add_symbol, add_string, "+", lisp_package);
   GIS_SYM(sub_symbol, sub_string, "-", lisp_package);
@@ -2288,6 +2290,13 @@ struct object *read(struct object *s, struct object *package) {
   } else if (c == '`') { /* quasiquoted expression */
     byte_stream_read_byte(s); /* throw away the quasiquote */
     return cons(gis->quasiquote_symbol, cons(read(s, package), NIL));
+  } else if (c == ',') { /* unquote expression */
+    byte_stream_read_byte(s); /* throw away the ',' */
+    if (byte_stream_peek_byte(s) == '@') { /* pretty bad -- doesn't let you do whitespace between... but this is fine for now */
+      byte_stream_read_byte(s); /* throw away the '@' */
+      return cons(gis->unquote_splicing_symbol, cons(read(s, package), NIL));
+    }
+    return cons(gis->unquote_symbol, cons(read(s, package), NIL));
   } else { /* either a number or a symbol */
     buf = dynamic_byte_array(10);
     is_numeric = 1; /* assume it is numeric unless proven otherwise */
@@ -3066,8 +3075,6 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
 
             /* check if there is a macro defined for this, if so execute that */
             if (SYMBOL_FUNCTION_IS_SET(car) && get_object_type(SYMBOL_FUNCTION(car)) == type_function && FUNCTION_IS_MACRO(SYMBOL_FUNCTION(car))) {
-              printf("eval\n");
-              print(SYMBOL_FUNCTION(car));
               compile(eval(SYMBOL_FUNCTION(car), CONS_CDR(value)), f, st, fst);
             } else {
               COMPILE_DO_EACH({});
@@ -3133,7 +3140,6 @@ void eval_builtin(struct object *f) {
   } else if (f == gis->eval_builtin) {
     push(eval_at_instruction(GET_LOCAL(0), FIXNUM_VALUE(GET_LOCAL(1)), NULL));
   } else if (f == gis->type_of_builtin) {
-    printf("type-of is called\n"); /* why is anything being called?! */
     push(get_object_type_symbol(GET_LOCAL(0)));
   } else if (f == gis->package_symbols_builtin) {
     TC("package-symbols", 0, GET_LOCAL(0), type_package);

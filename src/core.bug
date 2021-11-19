@@ -41,7 +41,7 @@
 (impl:function foreach (f xs)
 	(if xs
 		(progn
-			(call f (car xs))
+			(impl:call f (car xs))
 			(foreach f (cdr xs)))
 		nil))
 
@@ -52,7 +52,17 @@
 			(if ys
 				(cons (car ys) (concat xs (cdr ys)))
 					nil)))
-	
+
+(impl:function concatn (lists)
+	(do-concatn (car lists) (cdr lists)))
+
+(impl:function do-concatn (list lists)
+	(if list
+		(cons (car list) (do-concatn (cdr list) lists))
+		(if lists
+			(do-concatn (car lists) (cdr lists))
+			nil)))
+
 (impl:function unquoted? (x)
 	"Does x have the form (UNQUOTE ...)?"
 	(if (list? x)
@@ -65,7 +75,7 @@
 	    (= (car x) 'unquote-splicing)
 	  nil))
 
-(impl:macro do-quasiquote (x)
+(impl:function do-quasiquote (x)
 	"
 	Takes any expression x and returns the quasiquoted result.
 	Quasiquoting indicates that the given expression's quoting rules will be
@@ -90,14 +100,17 @@
 		`,(my-function 1 2) => (my-function 1 2)
 		`(list ,(+ 1 2) 4) => (list 3 4)
 		`(+ ,@(list 1 2)) => (+ 1 2)
+
+	The implementation wraps all the values in an additional list to make it easier to
+	apply a UNQUOTE-SPLICING.
 	"
 	(if (unquoted? x)
-	  (cadr x)
-	  (if (unquote-spliced? x)
-	  	  (cadr x)
-	     	(if (cons? x)
-					3
-	       	(cons 'quote (cons x nil))))))
+		     (list (cadr x))
+		   (if (unquote-spliced? x)
+		       (list (cadr x))
+		     (if (cons? x)
+				   	(list (concatn (mapcar (symbol-function 'do-quasiquote) x)))
+		       (list (list 'quote x))))))
 
 (impl:macro quasiquote (x)
-	 (do-quasiquote x))
+	(car (do-quasiquote x)))

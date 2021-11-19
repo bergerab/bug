@@ -308,6 +308,8 @@ struct gis {
   struct object *symbol_function_symbol;
   struct object *set_symbol;
   struct object *quote_symbol;
+  struct object *unquote_symbol;
+  struct object *unquote_splicing_symbol;
   struct object *quasiquote_symbol;
   struct object *cons_symbol;
   struct object *progn_symbol;
@@ -386,6 +388,8 @@ struct gis {
   struct object *symbol_function_string;
   struct object *set_string;
   struct object *quote_string;
+  struct object *unquote_string;
+  struct object *unquote_splicing_string;
   struct object *quasiquote_string;
   struct object *cons_string;
   struct object *progn_string;
