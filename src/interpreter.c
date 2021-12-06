@@ -50,6 +50,10 @@ char *get_type_name(enum type t) {
       return "enumerator";
     case type_vec2:
       return "vec2";
+    case type_dlib:
+      return "dlib";
+    case type_ffun:
+      return "ffun";
     case type_nil:
       return "nil";
     case type_record:
@@ -197,9 +201,43 @@ struct object *vec2(flonum_t x, flonum_t y) {
   struct object *o = object(type_vec2);
   NC(o, "Failed to allocate 2d-vector object.");
   o->w1.value.vec2 = malloc(sizeof(struct vec2));
-  NC(o, "Failed to allocate 2d-vector.");
+  NC(o->w1.value.vec2, "Failed to allocate 2d-vector.");
   VEC2_X(o) = x;
   VEC2_Y(o) = y;
+  return o;
+}
+
+struct object *dlib(struct object *path) {
+  char *cstring;
+  struct object *o = object(type_dlib);
+  NC(o, "Failed to allocate dlib object.");
+  o->w1.value.dlib = malloc(sizeof(struct dlib));
+  NC(o->w1.value.dlib, "Failed to allocate dlib.");
+  DLIB_PATH(o) = path;
+  cstring = bstring_to_cstring(path);
+  DLIB_PTR(o) = LoadLibrary(cstring);
+  if (DLIB_PTR(o) == NULL) {
+    printf("Failed to load dynamic library %s.", cstring);
+    exit(1);
+  }
+  free(cstring);
+  return o;
+}
+
+struct object *ffun(struct object *dlib, struct object *name) {
+  char *cstring;
+  struct object *o = object(type_ffun);
+  NC(o, "Failed to allocate ffun object.");
+  o->w1.value.ffun = malloc(sizeof(struct ffun));
+  FFUN_NAME(o) = name;
+  FFUN_DLIB(o) = dlib;
+  cstring = bstring_to_cstring(name);
+  FFUN_PTR(o) = GetProcAddress(DLIB_PTR(dlib), cstring);
+  if (FFUN_PTR(o) == NULL) {
+    printf("Failed to load foreign function %s.", cstring);
+    exit(1);
+  }
+  free(cstring);
   return o;
 }
 
@@ -755,6 +793,20 @@ struct object *do_to_string(struct object *o, char repr) {
       return str;
     case type_symbol:
       return SYMBOL_NAME(o);
+    case type_dlib:
+      str = string("<dynamic-library \"");
+      str = dynamic_byte_array_concat(str, DLIB_PATH(o));
+      dynamic_byte_array_push_char(str, '"');
+      dynamic_byte_array_push_char(str, '>');
+      return str;
+    case type_ffun:
+      str = string("<foreign-function \"");
+      str = dynamic_byte_array_concat(str, FFUN_NAME(o));
+      dynamic_byte_array_push_char(str, '"');
+      dynamic_byte_array_push_char(str, ' ');
+      str = dynamic_byte_array_concat(str, do_to_string(FFUN_DLIB(o), 1));
+      dynamic_byte_array_push_char(str, '>');
+      return str;
     default:
       printf("Type doesn't support to-string\n");
       exit(1);
@@ -837,6 +889,10 @@ char equals(struct object *o0, struct object *o1) {
              ENUMERATOR_INDEX(o0) == ENUMERATOR_INDEX(o1);
     case type_package:
       return o0 == o1;
+    case type_dlib:
+      return DLIB_PTR(o0) == DLIB_PTR(o1);
+    case type_ffun:
+      return FFUN_PTR(o0) == FFUN_PTR(o1);
     case type_symbol:
       return o0 == o1;
     case type_function:
@@ -1268,6 +1324,18 @@ void gis_init(char load_core) {
   FUNCTION_IS_BUILTIN(gis->package_symbols_builtin) = 1;
   FUNCTION_NARGS(gis->package_symbols_builtin) = 1; /* takes the package object */
   symbol_set_function(gis->package_symbols_symbol, gis->package_symbols_builtin);
+
+  GIS_SYM(dynamic_library_symbol, dynamic_library_string, "dynamic-library", impl_package);
+  gis->dynamic_library_builtin = function(NIL, NIL, 1);
+  FUNCTION_IS_BUILTIN(gis->dynamic_library_builtin) = 1;
+  FUNCTION_NARGS(gis->dynamic_library_builtin) = 1; /* takes the path */
+  symbol_set_function(gis->dynamic_library_symbol, gis->dynamic_library_builtin);
+
+  GIS_SYM(foreign_function_symbol, foreign_function_string, "foreign-function", impl_package);
+  gis->foreign_function_builtin = function(NIL, NIL, 2);
+  FUNCTION_IS_BUILTIN(gis->foreign_function_builtin) = 1;
+  FUNCTION_NARGS(gis->foreign_function_builtin) = 2; /* takes the dlib and the name */
+  symbol_set_function(gis->foreign_function_symbol, gis->foreign_function_builtin);
 
   gis->type_of_builtin = function(NIL, NIL, 1);
   FUNCTION_IS_BUILTIN(gis->type_of_builtin) = 1;
@@ -3093,6 +3161,10 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
       break;
     case type_dynamic_array:
       break;
+    case type_dlib:
+      break;
+    case type_ffun:
+      break;
   }
 
   return f;
@@ -3141,6 +3213,10 @@ void eval_builtin(struct object *f) {
     push(eval_at_instruction(GET_LOCAL(0), FIXNUM_VALUE(GET_LOCAL(1)), NULL));
   } else if (f == gis->type_of_builtin) {
     push(get_object_type_symbol(GET_LOCAL(0)));
+  } else if (f == gis->dynamic_library_builtin) {
+    push(dlib(GET_LOCAL(0)));
+  } else if (f == gis->foreign_function_builtin) {
+    push(ffun(GET_LOCAL(0), GET_LOCAL(1)));
   } else if (f == gis->package_symbols_builtin) {
     TC("package-symbols", 0, GET_LOCAL(0), type_package);
     push(PACKAGE_SYMBOLS(GET_LOCAL(0)));

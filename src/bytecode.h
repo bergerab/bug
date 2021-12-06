@@ -6,6 +6,12 @@
 #include <math.h>
 #include <float.h>
 
+/* for DLL support: */
+#include <windows.h>
+#include <winbase.h>
+#include <windef.h>
+
+
 #define RUN_TIME_CHECKS
 
 #define DEFAULT_INITIAL_CAPACITY 100
@@ -101,6 +107,13 @@ typedef double flonum_t;
 #define PACKAGE_SYMBOLS(o) o->w1.value.package->symbols
 #define PACKAGE_PACKAGES(o) o->w1.value.package->packages
 
+#define DLIB_PATH(o) o->w1.value.dlib->path
+#define DLIB_PTR(o) o->w1.value.dlib->ptr
+
+#define FFUN_NAME(o) o->w1.value.ffun->name
+#define FFUN_DLIB(o) o->w1.value.ffun->dlib
+#define FFUN_PTR(o) o->w1.value.ffun->ptr
+
 #define BC_VERSION 1
 
 enum ops {
@@ -172,7 +185,9 @@ enum type {
   type_nil = 46, /* type_nil won't appear on an object, only from calls to
                    get_object_type(...) */
   type_record = 50,
-  type_vec2 = 54
+  type_vec2 = 54,
+  type_dlib = 58, /** dynamic library */
+  type_ffun = 62 /** foreign function (function from a dynamic library) */
 };
 
 union value {
@@ -188,6 +203,8 @@ union value {
   struct file *file;
   struct record *record;
   struct vec2 *vec2;
+  struct dlib *dlib;
+  struct ffun *ffun;
 };
 
 union w0 { /** The first word of an object. */
@@ -232,6 +249,17 @@ struct package {
   struct object *name; /** the name of the package (a string) */
   struct object *symbols; /** all top-level symbols the package has created (a cons list) */
   struct object *packages; /** packages this package uses -- all external symbols of these packages become internal symbols (can be exported) */
+};
+
+struct dlib {
+  struct object *path; /** path to the dynamic library (a string) */
+  HINSTANCE ptr;
+};
+
+struct ffun {
+  struct object *name; /** the name of the function (a string) */
+  struct object *dlib; /** the dynamic library this function is from */
+  FARPROC ptr;
 };
 
 struct function {
@@ -366,6 +394,18 @@ struct gis {
   struct object *call_symbol;
   struct object *call_string;
   struct object *call_builtin;
+
+  struct object *dynamic_library_symbol;
+  struct object *dynamic_library_string;
+  struct object *dynamic_library_builtin;
+
+  struct object *foreign_function_symbol;
+  struct object *foreign_function_string;
+  struct object *foreign_function_builtin;
+
+  struct object *foreign_function_call_symbol;
+  struct object *foreign_function_call_string;
+  struct object *foreign_function_call_builtin;
 
   struct object *type_of_symbol;
   struct object *type_of_string;
