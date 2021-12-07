@@ -1,1 +1,1 @@
-gcc main.c --pedantic --std=c89 -Wall
+gcc main.c --pedantic --std=c89 -Wall -lffi

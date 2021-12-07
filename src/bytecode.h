@@ -113,6 +113,7 @@ typedef double flonum_t;
 #define FFUN_NAME(o) o->w1.value.ffun->name
 #define FFUN_DLIB(o) o->w1.value.ffun->dlib
 #define FFUN_PTR(o) o->w1.value.ffun->ptr
+#define FFUN_PARAMS(o) o->w1.value.ffun->params
 
 #define BC_VERSION 1
 
@@ -259,6 +260,7 @@ struct dlib {
 struct ffun {
   struct object *name; /** the name of the function (a string) */
   struct object *dlib; /** the dynamic library this function is from */
+  struct object *params; /** the type parameters this function takes */
   FARPROC ptr;
 };
 
@@ -402,10 +404,6 @@ struct gis {
   struct object *foreign_function_symbol;
   struct object *foreign_function_string;
   struct object *foreign_function_builtin;
-
-  struct object *foreign_function_call_symbol;
-  struct object *foreign_function_call_string;
-  struct object *foreign_function_call_builtin;
 
   struct object *type_of_symbol;
   struct object *type_of_string;

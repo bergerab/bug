@@ -224,7 +224,7 @@ struct object *dlib(struct object *path) {
   return o;
 }
 
-struct object *ffun(struct object *dlib, struct object *name) {
+struct object *ffun(struct object *dlib, struct object *name, struct object *params) {
   char *cstring;
   struct object *o = object(type_ffun);
   NC(o, "Failed to allocate ffun object.");
@@ -238,6 +238,7 @@ struct object *ffun(struct object *dlib, struct object *name) {
     exit(1);
   }
   free(cstring);
+  FFUN_PARAMS(o) = params;
   return o;
 }
 
@@ -1331,10 +1332,14 @@ void gis_init(char load_core) {
   FUNCTION_NARGS(gis->dynamic_library_builtin) = 1; /* takes the path */
   symbol_set_function(gis->dynamic_library_symbol, gis->dynamic_library_builtin);
 
+  //
+  // (foreign-function sdl "SDL_Init"
+  //   '(ctype:int32))
+  //
   GIS_SYM(foreign_function_symbol, foreign_function_string, "foreign-function", impl_package);
-  gis->foreign_function_builtin = function(NIL, NIL, 2);
+  gis->foreign_function_builtin = function(NIL, NIL, 3);
   FUNCTION_IS_BUILTIN(gis->foreign_function_builtin) = 1;
-  FUNCTION_NARGS(gis->foreign_function_builtin) = 2; /* takes the dlib and the name */
+  FUNCTION_NARGS(gis->foreign_function_builtin) = 3; /* takes the dlib, the name, and the parameter types */
   symbol_set_function(gis->foreign_function_symbol, gis->foreign_function_builtin);
 
   gis->type_of_builtin = function(NIL, NIL, 1);
@@ -3216,7 +3221,7 @@ void eval_builtin(struct object *f) {
   } else if (f == gis->dynamic_library_builtin) {
     push(dlib(GET_LOCAL(0)));
   } else if (f == gis->foreign_function_builtin) {
-    push(ffun(GET_LOCAL(0), GET_LOCAL(1)));
+    push(ffun(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2)));
   } else if (f == gis->package_symbols_builtin) {
     TC("package-symbols", 0, GET_LOCAL(0), type_package);
     push(PACKAGE_SYMBOLS(GET_LOCAL(0)));
