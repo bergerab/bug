@@ -110,9 +110,10 @@ typedef double flonum_t;
 #define DLIB_PATH(o) o->w1.value.dlib->path
 #define DLIB_PTR(o) o->w1.value.dlib->ptr
 
-#define FFUN_NAME(o) o->w1.value.ffun->name
+#define FFUN_FFNAME(o) o->w1.value.ffun->ffname
 #define FFUN_DLIB(o) o->w1.value.ffun->dlib
 #define FFUN_PTR(o) o->w1.value.ffun->ptr
+#define FFUN_RET(o) o->w1.value.ffun->ret
 #define FFUN_PARAMS(o) o->w1.value.ffun->params
 
 #define BC_VERSION 1
@@ -258,10 +259,11 @@ struct dlib {
 };
 
 struct ffun {
-  struct object *name; /** the name of the function (a string) */
+  struct object *ffname; /** the foreign function name */
   struct object *dlib; /** the dynamic library this function is from */
+  struct object *ret; /** the return type */
   struct object *params; /** the type parameters this function takes */
-  FARPROC ptr;
+  FARPROC ptr; /* a pointer to the foreign function */
 };
 
 struct function {
@@ -323,6 +325,7 @@ struct gis {
   struct object *lisp_package;
   struct object *user_package;
   struct object *impl_package;
+  struct object *ffi_package;
 
   /* keywords */
   struct object *value_keyword;
@@ -337,6 +340,7 @@ struct gis {
   struct object *symbol_value_symbol;
   struct object *symbol_function_symbol;
   struct object *set_symbol;
+  struct object *set_symbol_function_symbol;
   struct object *quote_symbol;
   struct object *unquote_symbol;
   struct object *unquote_splicing_symbol;
@@ -409,6 +413,22 @@ struct gis {
   struct object *type_of_string;
   struct object *type_of_builtin;
 
+  /* FFI */
+  struct object *ffi_string;
+
+  struct object *ffi_ptr_symbol;
+  struct object *ffi_ptr_string;
+
+  struct object *ffi_char_symbol;
+  struct object *ffi_char_string;
+
+  struct object *ffi_int_symbol;
+  struct object *ffi_int_string;
+
+  struct object *ffi_uint_symbol;
+  struct object *ffi_uint_string;
+
+
   /* cached strings that should be used internally */
   struct object *value_string;
   struct object *internal_string;
@@ -425,6 +445,7 @@ struct gis {
   struct object *symbol_value_string;
   struct object *symbol_function_string;
   struct object *set_string;
+  struct object *set_symbol_function_string;
   struct object *quote_string;
   struct object *unquote_string;
   struct object *unquote_splicing_string;

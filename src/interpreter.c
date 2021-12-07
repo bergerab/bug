@@ -166,6 +166,10 @@ void stack_check(char *name, int n, unsigned long i) {
 }
 #endif
 
+
+struct object *get_string_designator(struct object *sd);
+void print(struct object *o);
+
 /*
  * Value constructors
  */
@@ -224,14 +228,14 @@ struct object *dlib(struct object *path) {
   return o;
 }
 
-struct object *ffun(struct object *dlib, struct object *name, struct object *params) {
+struct object *ffun(struct object *dlib, struct object *ffname, struct object* ret_type, struct object *params) {
   char *cstring;
   struct object *o = object(type_ffun);
   NC(o, "Failed to allocate ffun object.");
   o->w1.value.ffun = malloc(sizeof(struct ffun));
-  FFUN_NAME(o) = name;
+  FFUN_FFNAME(o) = get_string_designator(ffname);
   FFUN_DLIB(o) = dlib;
-  cstring = bstring_to_cstring(name);
+  cstring = bstring_to_cstring(FFUN_FFNAME(o));
   FFUN_PTR(o) = GetProcAddress(DLIB_PTR(dlib), cstring);
   if (FFUN_PTR(o) == NULL) {
     printf("Failed to load foreign function %s.", cstring);
@@ -239,6 +243,7 @@ struct object *ffun(struct object *dlib, struct object *name, struct object *par
   }
   free(cstring);
   FFUN_PARAMS(o) = params;
+  FFUN_RET(o) = ret_type;
   return o;
 }
 
@@ -802,7 +807,7 @@ struct object *do_to_string(struct object *o, char repr) {
       return str;
     case type_ffun:
       str = string("<foreign-function \"");
-      str = dynamic_byte_array_concat(str, FFUN_NAME(o));
+      str = dynamic_byte_array_concat(str, FFUN_FFNAME(o));
       dynamic_byte_array_push_char(str, '"');
       dynamic_byte_array_push_char(str, ' ');
       str = dynamic_byte_array_concat(str, do_to_string(FFUN_DLIB(o), 1));
@@ -1233,6 +1238,8 @@ void gis_init(char load_core) {
   gis->user_package = package(gis->user_string, cons(gis->lisp_package, NIL));
   gis->impl_string = string("impl");
   gis->impl_package = package(gis->impl_string, NIL);
+  gis->ffi_string = string("ffi");
+  gis->ffi_package = package(gis->ffi_string, NIL);
 
   /* strings that will be re-used. the strings should NEVER be modified */
   /* TODO */
@@ -1251,6 +1258,7 @@ void gis_init(char load_core) {
   GIS_SYM(symbol_value_symbol, symbol_value_string, "symbol-value", lisp_package);
   GIS_SYM(symbol_function_symbol, symbol_function_string, "symbol-function", lisp_package);
   GIS_SYM(set_symbol, set_string, "set", lisp_package);
+  GIS_SYM(set_symbol_function_symbol, set_symbol_function_string, "set-symbol-function", lisp_package);
   GIS_SYM(quote_symbol, quote_string, "quote", lisp_package);
   GIS_SYM(unquote_symbol, unquote_string, "unquote", lisp_package);
   GIS_SYM(unquote_splicing_symbol, unquote_splicing_string, "unquote-splicing", lisp_package);
@@ -1301,6 +1309,12 @@ void gis_init(char load_core) {
   GIS_SYM(string_symbol, string_string, "string", impl_package);
   GIS_SYM(symbol_symbol, symbol_string, "symbol", impl_package);
 
+  /* FFI */
+  GIS_SYM(ffi_ptr_symbol, ffi_ptr_string, "*", ffi_package);
+  GIS_SYM(ffi_char_symbol, ffi_char_string, "char", ffi_package);
+  GIS_SYM(ffi_int_symbol, ffi_int_string, "int", ffi_package);
+  GIS_SYM(ffi_uint_symbol, ffi_uint_string, "uint", ffi_package);
+
   /* initialize misc strings */
   gis->x_string = string("x");
   gis->y_string = string("y");
@@ -1332,14 +1346,10 @@ void gis_init(char load_core) {
   FUNCTION_NARGS(gis->dynamic_library_builtin) = 1; /* takes the path */
   symbol_set_function(gis->dynamic_library_symbol, gis->dynamic_library_builtin);
 
-  //
-  // (foreign-function sdl "SDL_Init"
-  //   '(ctype:int32))
-  //
   GIS_SYM(foreign_function_symbol, foreign_function_string, "foreign-function", impl_package);
-  gis->foreign_function_builtin = function(NIL, NIL, 3);
+  gis->foreign_function_builtin = function(NIL, NIL, 4);
   FUNCTION_IS_BUILTIN(gis->foreign_function_builtin) = 1;
-  FUNCTION_NARGS(gis->foreign_function_builtin) = 3; /* takes the dlib, the name, and the parameter types */
+  FUNCTION_NARGS(gis->foreign_function_builtin) = 4; /* takes the dlib, the name, and the parameter types */
   symbol_set_function(gis->foreign_function_symbol, gis->foreign_function_builtin);
 
   gis->type_of_builtin = function(NIL, NIL, 1);
@@ -1378,7 +1388,8 @@ void gis_init(char load_core) {
                   cons(gis->user_package, 
                     cons(gis->lisp_package, 
                       cons(gis->keyword_package, 
-                        cons(gis->impl_package, NIL)))));
+                        cons(gis->impl_package, 
+                          cons(gis->ffi_package, NIL))))));
 
   symbol_set_value(gis->f_symbol, NIL); /* the function being executed */
   symbol_set_value(gis->i_symbol, ufixnum(0)); /* the instruction index */
@@ -2898,6 +2909,9 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
                otherwise, set the symbol value slot */
             C_EXE2(op_set_symbol_value);
             break;
+          } else if (car == gis->set_symbol_function_symbol) {
+            C_EXE2(op_set_symbol_function);
+            break;
           } else if (car == gis->if_symbol) {
             /* compile the condition part if the if */
             C_COMPILE_ARG0;
@@ -3221,7 +3235,7 @@ void eval_builtin(struct object *f) {
   } else if (f == gis->dynamic_library_builtin) {
     push(dlib(GET_LOCAL(0)));
   } else if (f == gis->foreign_function_builtin) {
-    push(ffun(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2)));
+    push(ffun(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2), GET_LOCAL(3)));
   } else if (f == gis->package_symbols_builtin) {
     TC("package-symbols", 0, GET_LOCAL(0), type_package);
     push(PACKAGE_SYMBOLS(GET_LOCAL(0)));

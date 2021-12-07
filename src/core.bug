@@ -114,3 +114,18 @@
 
 (impl:macro quasiquote (x)
 	(car (do-quasiquote x)))
+
+"FFI testing"
+(set 'sdl2 (impl:dynamic-library "experiments/sdl/SDL2.dll"))
+(set-symbol-function 'init
+  (impl:foreign-function
+  	sdl2 'SDL_Init
+  	'ffi:int '(ffi:int)))
+(set-symbol-function 'create-window
+  (impl:foreign-function
+  	sdl2 'SDL_CreateWindow
+    'ffi:int '((ffi:* ffi:char) ffi:int ffi:int ffi:int ffi:int ffi:int)))
+(set-symbol-function 'delay
+  (impl:foreign-function
+  	sdl2 'SDL_Delay
+    'ffi:int '(ffi:int)))
