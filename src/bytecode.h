@@ -59,6 +59,8 @@ typedef double flonum_t;
 
 #define FLONUM_VALUE(o) o->w1.value.flonum
 
+#define OBJECT_POINTER(o) o->w1.value.ptr
+
 #define SYMBOL_NAME(o) o->w1.value.symbol->name
 #define SYMBOL_PLIST(o) o->w1.value.symbol->plist
 #define SYMBOL_PACKAGE(o) o->w1.value.symbol->package
@@ -189,7 +191,8 @@ enum type {
   type_record = 50,
   type_vec2 = 54,
   type_dlib = 58, /** dynamic library */
-  type_ffun = 62 /** foreign function (function from a dynamic library) */
+  type_ffun = 62, /** foreign function (function from a dynamic library) */
+  type_ptr = 66 /** used in FFI */
 };
 
 union value {
@@ -207,6 +210,7 @@ union value {
   struct vec2 *vec2;
   struct dlib *dlib;
   struct ffun *ffun;
+  void *ptr;
 };
 
 union w0 { /** The first word of an object. */
@@ -415,6 +419,9 @@ struct gis {
 
   /* FFI */
   struct object *ffi_string;
+
+  struct object *ffi_void_symbol;
+  struct object *ffi_void_string;
 
   struct object *ffi_ptr_symbol;
   struct object *ffi_ptr_string;

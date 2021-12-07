@@ -56,6 +56,8 @@ char *get_type_name(enum type t) {
       return "ffun";
     case type_nil:
       return "nil";
+    case type_ptr:
+      return "pointer";
     case type_record:
       return "record";
     case type_function:
@@ -244,6 +246,13 @@ struct object *ffun(struct object *dlib, struct object *ffname, struct object* r
   free(cstring);
   FFUN_PARAMS(o) = params;
   FFUN_RET(o) = ret_type;
+  return o;
+}
+
+struct object *pointer(void *ptr) {
+  struct object *o = object(type_ptr);
+  NC(o, "Failed to allocate pointer object.");
+  OBJECT_POINTER(o) = ptr;
   return o;
 }
 
@@ -899,6 +908,8 @@ char equals(struct object *o0, struct object *o1) {
       return DLIB_PTR(o0) == DLIB_PTR(o1);
     case type_ffun:
       return FFUN_PTR(o0) == FFUN_PTR(o1);
+    case type_ptr:
+      return OBJECT_POINTER(o0) == OBJECT_POINTER(o1);
     case type_symbol:
       return o0 == o1;
     case type_function:
@@ -1310,6 +1321,7 @@ void gis_init(char load_core) {
   GIS_SYM(symbol_symbol, symbol_string, "symbol", impl_package);
 
   /* FFI */
+  GIS_SYM(ffi_void_symbol, ffi_void_string, "void", ffi_package);
   GIS_SYM(ffi_ptr_symbol, ffi_ptr_string, "*", ffi_package);
   GIS_SYM(ffi_char_symbol, ffi_char_string, "char", ffi_package);
   GIS_SYM(ffi_int_symbol, ffi_int_string, "int", ffi_package);
@@ -3183,6 +3195,8 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
     case type_dlib:
       break;
     case type_ffun:
+      break;
+    case type_ptr:
       break;
   }
 
