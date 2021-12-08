@@ -173,11 +173,14 @@
   	sdl2 'SDL_Delay
     'ffi:int '(ffi:int)))
 
+(impl:function load-bmp (path)
+	(let ((bmp-file (rw-from-file path "rb")))
+		(load-bmp-rw bmp-file 1)))
+
 (init 3)
 (set 'win (create-window "Hello World!" 100 100 620 387 4))
 (set 'ren (create-renderer win 1 2))
-(set 'bmp-file (rw-from-file "experiments/sdl/grumpy-cat.bmp" "rb"))
-(set 'bmp (load-bmp-rw bmp-file 1))
+(set 'bmp (load-bmp "experiments/sdl/grumpy-cat.bmp"))
 (set 'tex (create-texture-from-surface ren bmp))
 
 (render-clear ren)
