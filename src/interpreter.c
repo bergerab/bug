@@ -3,6 +3,8 @@
  * The Bug Bytecode interpreter
  */
 
+/* TODO: why do I randomly get a "can only car a list" error? */
+
 #include "bytecode.h"
 
 /**
@@ -230,9 +232,47 @@ struct object *dlib(struct object *path) {
   return o;
 }
 
+ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
+  enum type t;
+  struct object *lhs; /* , *rhs; */
+
+  t = get_object_type(o);
+  if (t == type_cons) { /* must be of form (* <any>) */
+    lhs = CONS_CAR(o);
+    if (lhs != gis->ffi_ptr_symbol) {
+      printf("First item in FFI designator cons list must be ffi:*.");
+      exit(1);
+    }
+    if (CONS_CDR(o) == NIL) {
+      printf("ffi:* takes one argument.");
+      exit(1);
+    }
+    /* rhs = CONS_CAR(CONS_CDR(o)); */
+    printf("not impl\n");
+    exit(1);
+  } else if (t == type_symbol) { /* must be a ffi symbol */
+    if (o == gis->ffi_char_symbol) return &ffi_type_schar;
+    else if (o == gis->ffi_int_symbol) return &ffi_type_sint;
+    else if (o == gis->ffi_uint_symbol) return &ffi_type_uint;
+    else if (o == gis->ffi_ptr_symbol) return &ffi_type_pointer;
+    else {
+      printf("Invalid FFI type designator symbol: \n");
+      print(o);
+      exit(1);
+    }
+  } else {
+    printf("Invalid FFI type designator: \n");
+    print(o);
+    exit(1);
+  }
+}
+
 struct object *ffun(struct object *dlib, struct object *ffname, struct object* ret_type, struct object *params) {
+  ffi_status status;
   char *cstring;
+  ffi_type *arg_types[MAX_FFI_NARGS];
   struct object *o = object(type_ffun);
+
   NC(o, "Failed to allocate ffun object.");
   o->w1.value.ffun = malloc(sizeof(struct ffun));
   FFUN_FFNAME(o) = get_string_designator(ffname);
@@ -246,6 +286,24 @@ struct object *ffun(struct object *dlib, struct object *ffname, struct object* r
   free(cstring);
   FFUN_PARAMS(o) = params;
   FFUN_RET(o) = ret_type;
+
+  FFUN_NARGS(o) = 0;
+  while (params != NIL) {
+    arg_types[FFUN_NARGS(o)++] = ffi_type_designator_to_ffi_type(CONS_CAR(params));
+
+    if (FFUN_NARGS(o) > MAX_FFI_NARGS) {
+      printf("Too many arguments for foreign function.");
+      exit(1);
+    }
+    params = CONS_CDR(params);
+  }
+
+  FFUN_CIF(o) = malloc(sizeof(ffi_cif));
+  if ((status = ffi_prep_cif(FFUN_CIF(o), FFI_DEFAULT_ABI, FFUN_NARGS(o), ffi_type_designator_to_ffi_type(ret_type), arg_types)) != FFI_OK) {
+      printf("ERROR preparing CIF.\n");
+      exit(1);
+  }
+
   return o;
 }
 
@@ -1081,7 +1139,7 @@ struct object *intern(struct object *string, struct object *package) {
   struct object *sym;
 
   TC("intern", 0, string, type_string);
-  TC2("intern", 2, package, type_package, type_nil);
+  TC2("intern", 1, package, type_package, type_nil);
 
   sym = do_find_symbol(string, package, 1);
   if (sym != NULL)
@@ -3303,16 +3361,20 @@ struct object *run(struct gis *gis) {
   unsigned long byte_count; /* number of  bytes in this bytecode */
   unsigned char t0, op;        /* temporary for reading bytecode arguments */
   unsigned long a0, a1;       /* the arguments for bytecode parameters */
+  unsigned long a2;
   long sa0; /* argument for jumps */
   struct object *v0, *v1; /* temps for values popped off the stack */
   struct object *c0; /* temps for constants (used for bytecode arguments) */
   struct object *temp_i, *temp_f, *f;
+  struct object *cursor;
   struct dynamic_byte_array
       *code; /* the byte array containing the bytes in the bytecode */
   struct dynamic_array *constants; /* the constants array */
   unsigned long constants_length;  /* the length of the constants array */
   struct object *i;
   ufixnum_t ufix0;
+  void *arg_values[MAX_FFI_NARGS]; /* for calling foreign functions */
+  ffi_arg result;
 
   /* jump to this label after setting a new gis->i and gis->f 
      (and pushing the old i and bc to the call-stack) */
@@ -3344,6 +3406,8 @@ struct object *run(struct gis *gis) {
       case op_intern: /* intern ( string -- symbol ) */
         SC("intern", 1);
         v0 = pop();
+        printf("op_intern is not implemented.");
+        exit(1);
         TC("intern", 0, v0, type_string);
         push(intern(pop(), NIL));
         break;
@@ -3528,11 +3592,49 @@ struct object *run(struct gis *gis) {
         /* set the new function */
         if (op == op_call_symbol_function) {
           f =  symbol_get_function(STACK_I(0));
-          symbol_set_value(gis->f_symbol, f);
         } else {
           f = STACK_I(0);
-          symbol_set_value(gis->f_symbol, f);
         }
+
+        /* if this is a foreign function */
+        if (get_object_type(f) == type_ffun) {
+          cursor = FFUN_PARAMS(f);
+          if (a0 > FFUN_NARGS(f)) {
+            printf("Insufficient arguments were passed to foreign function.");
+            exit(1);
+          }
+
+          a1 = a0; /* for indexing arguments */
+          a2 = 0; /* for indexing arg_values */
+          while (cursor != NIL) {
+            if (get_object_type(STACK_I(a1)) == type_fixnum) {
+              arg_values[a2] = &FIXNUM_VALUE(STACK_I(a1));
+            } else if (get_object_type(STACK_I(a1)) == type_string) {
+              arg_values[a2] = bstring_to_cstring(STACK_I(a1)); /* TODO: clean up garabage */
+            } else {
+              printf("Argument not supported for foreign functions.");
+            }
+            --a1;
+            ++a2;
+            cursor = CONS_CDR(cursor);
+          }
+
+          /* remove all arguments and the function from the data stack at once */
+          DYNAMIC_ARRAY_LENGTH(gis->data_stack) -= a0 + 1;
+
+          ffi_call(FFUN_CIF(f), FFI_FN(FFUN_PTR(f)), &result, arg_values);
+          push(fixnum(result));
+
+          UFIXNUM_VALUE(i) += 1; /* advance to the next instruction */
+          goto eval_restart; /* restart the evaluation loop */
+        } else if (get_object_type(f) != type_function) {
+          printf("Attempted to call a non-function object.");
+          exit(1);
+        }
+
+        /* f_symbol */
+        symbol_set_value(gis->f_symbol, f);
+
         /* transfer arguments from data stack to call stack */
         for (a1 = a0; a1 > 0; --a1) {
           dynamic_array_push(gis->call_stack, STACK_I(a1));

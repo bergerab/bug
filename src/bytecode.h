@@ -11,6 +11,8 @@
 #include <winbase.h>
 #include <windef.h>
 
+#include <ffi.h>
+
 
 #define RUN_TIME_CHECKS
 
@@ -117,6 +119,11 @@ typedef double flonum_t;
 #define FFUN_PTR(o) o->w1.value.ffun->ptr
 #define FFUN_RET(o) o->w1.value.ffun->ret
 #define FFUN_PARAMS(o) o->w1.value.ffun->params
+#define FFUN_CIF(o) o->w1.value.ffun->cif
+#define FFUN_NARGS(o) o->w1.value.ffun->nargs
+
+/* don't allow more than 255 arguments (an arbitrary number). This is to avoid having to malloc when making the arg_types/arg_values arrays -- they can be made on the stack. */
+#define MAX_FFI_NARGS 255
 
 #define BC_VERSION 1
 
@@ -268,6 +275,8 @@ struct ffun {
   struct object *ret; /** the return type */
   struct object *params; /** the type parameters this function takes */
   FARPROC ptr; /* a pointer to the foreign function */
+  ffi_cif *cif;
+  ufixnum_t nargs;
 };
 
 struct function {

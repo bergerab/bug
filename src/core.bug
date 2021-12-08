@@ -116,16 +116,34 @@
 	(car (do-quasiquote x)))
 
 "FFI testing"
+(set 'dinkl (impl:dynamic-library "experiments/mydll/mydll.dll"))
+
+(set-symbol-function 'add-asdf
+  (impl:foreign-function
+  	dinkl 'add
+  	'ffi:int '(ffi:int ffi:int)))
+
+(print (add-asdf 4 23))
+
 (set 'sdl2 (impl:dynamic-library "experiments/sdl/SDL2.dll"))
+
 (set-symbol-function 'init
   (impl:foreign-function
   	sdl2 'SDL_Init
   	'ffi:int '(ffi:int)))
+
 (set-symbol-function 'create-window
   (impl:foreign-function
   	sdl2 'SDL_CreateWindow
-    'ffi:int '((ffi:* ffi:char) ffi:int ffi:int ffi:int ffi:int ffi:int)))
+    'ffi:int '(ffi:* ffi:int ffi:int ffi:int ffi:int ffi:int)))
+
 (set-symbol-function 'delay
   (impl:foreign-function
   	sdl2 'SDL_Delay
     'ffi:int '(ffi:int)))
+
+(print "a")
+(init 3)
+(create-window "hello" 100 100 620 387 4)
+(print "wef")
+(delay 1000)
