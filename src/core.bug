@@ -123,6 +123,11 @@
   	dinkl 'add
   	'ffi:int '(ffi:int ffi:int)))
 
+(set-symbol-function 'doubleprint
+  (impl:foreign-function
+  	dinkl 'doubleprint
+  	'ffi:int '(ffi:*)))
+
 (print (add-asdf 4 23))
 
 (set 'sdl2 (impl:dynamic-library "experiments/sdl/SDL2.dll"))
@@ -135,15 +140,13 @@
 (set-symbol-function 'create-window
   (impl:foreign-function
   	sdl2 'SDL_CreateWindow
-    'ffi:int '(ffi:* ffi:int ffi:int ffi:int ffi:int ffi:int)))
+    'ffi:* '(ffi:* ffi:int ffi:int ffi:int ffi:int ffi:int)))
 
 (set-symbol-function 'delay
   (impl:foreign-function
   	sdl2 'SDL_Delay
     'ffi:int '(ffi:int)))
 
-(print "a")
 (init 3)
-(create-window "hello" 100 100 620 387 4)
-(print "wef")
+(create-window "Hello World!" 100 100 620 387 4)
 (delay 1000)

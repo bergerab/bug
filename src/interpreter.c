@@ -254,8 +254,9 @@ ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
     if (o == gis->ffi_char_symbol) return &ffi_type_schar;
     else if (o == gis->ffi_int_symbol) return &ffi_type_sint;
     else if (o == gis->ffi_uint_symbol) return &ffi_type_uint;
-    else if (o == gis->ffi_ptr_symbol) return &ffi_type_pointer;
-    else {
+    else if (o == gis->ffi_ptr_symbol) {
+      return &ffi_type_pointer;
+    } else {
       printf("Invalid FFI type designator symbol: \n");
       print(o);
       exit(1);
@@ -265,53 +266,6 @@ ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
     print(o);
     exit(1);
   }
-}
-
-struct object *ffun(struct object *dlib, struct object *ffname, struct object* ret_type, struct object *params) {
-  ffi_status status;
-  char *cstring;
-  ffi_type *arg_types[MAX_FFI_NARGS];
-  struct object *o = object(type_ffun);
-
-  NC(o, "Failed to allocate ffun object.");
-  o->w1.value.ffun = malloc(sizeof(struct ffun));
-  FFUN_FFNAME(o) = get_string_designator(ffname);
-  FFUN_DLIB(o) = dlib;
-  cstring = bstring_to_cstring(FFUN_FFNAME(o));
-  FFUN_PTR(o) = GetProcAddress(DLIB_PTR(dlib), cstring);
-  if (FFUN_PTR(o) == NULL) {
-    printf("Failed to load foreign function %s.", cstring);
-    exit(1);
-  }
-  free(cstring);
-  FFUN_PARAMS(o) = params;
-  FFUN_RET(o) = ret_type;
-
-  FFUN_NARGS(o) = 0;
-  while (params != NIL) {
-    arg_types[FFUN_NARGS(o)++] = ffi_type_designator_to_ffi_type(CONS_CAR(params));
-
-    if (FFUN_NARGS(o) > MAX_FFI_NARGS) {
-      printf("Too many arguments for foreign function.");
-      exit(1);
-    }
-    params = CONS_CDR(params);
-  }
-
-  FFUN_CIF(o) = malloc(sizeof(ffi_cif));
-  if ((status = ffi_prep_cif(FFUN_CIF(o), FFI_DEFAULT_ABI, FFUN_NARGS(o), ffi_type_designator_to_ffi_type(ret_type), arg_types)) != FFI_OK) {
-      printf("ERROR preparing CIF.\n");
-      exit(1);
-  }
-
-  return o;
-}
-
-struct object *pointer(void *ptr) {
-  struct object *o = object(type_ptr);
-  NC(o, "Failed to allocate pointer object.");
-  OBJECT_POINTER(o) = ptr;
-  return o;
 }
 
 struct object *dynamic_array(fixnum_t initial_capacity) {
@@ -326,6 +280,7 @@ struct object *dynamic_array(fixnum_t initial_capacity) {
   return o;
 }
 
+void dynamic_byte_array_force_cstr(struct object *dba);
 struct object *dynamic_byte_array(ufixnum_t initial_capacity) {
   struct object *o;
   o = object(type_dynamic_byte_array);
@@ -338,6 +293,52 @@ struct object *dynamic_byte_array(ufixnum_t initial_capacity) {
   DYNAMIC_BYTE_ARRAY_LENGTH(o) = 0;
   return o;
 }
+
+struct object *ffun(struct object *dlib, struct object *ffname, struct object* ret_type, struct object *params) {
+  ffi_status status;
+  struct object *o = object(type_ffun);
+
+  NC(o, "Failed to allocate ffun object.");
+  o->w1.value.ffun = malloc(sizeof(struct ffun));
+  FFUN_FFNAME(o) = get_string_designator(ffname);
+  FFUN_DLIB(o) = dlib;
+  dynamic_byte_array_force_cstr(FFUN_FFNAME(o));
+  FFUN_PTR(o) = GetProcAddress(DLIB_PTR(dlib), STRING_CONTENTS(FFUN_FFNAME(o)));
+  if (FFUN_PTR(o) == NULL) {
+    printf("Failed to load foreign function %s.", STRING_CONTENTS(FFUN_FFNAME(o)));
+    exit(1);
+  }
+  FFUN_PARAMS(o) = params;
+  FFUN_RET(o) = ret_type;
+
+  FFUN_ARGTYPES(o) = malloc(sizeof(ffi_type) * MAX_FFI_NARGS);
+  FFUN_NARGS(o) = 0;
+  while (params != NIL) {
+    FFUN_ARGTYPES(o)[FFUN_NARGS(o)++] = ffi_type_designator_to_ffi_type(CONS_CAR(params));
+
+    if (FFUN_NARGS(o) > MAX_FFI_NARGS) {
+      printf("Too many arguments for foreign function.");
+      exit(1);
+    }
+    params = CONS_CDR(params);
+  }
+
+  FFUN_CIF(o) = malloc(sizeof(ffi_cif));
+  if ((status = ffi_prep_cif(FFUN_CIF(o), FFI_DEFAULT_ABI, FFUN_NARGS(o), ffi_type_designator_to_ffi_type(FFUN_RET(o)), FFUN_ARGTYPES(o))) != FFI_OK) {
+      printf("ERROR preparing CIF.\n");
+      exit(1);
+  }
+
+  return o;
+}
+
+struct object *pointer(void *ptr) {
+  struct object *o = object(type_ptr);
+  NC(o, "Failed to allocate pointer object.");
+  OBJECT_POINTER(o) = ptr;
+  return o;
+}
+
 
 struct object *function(struct object *constants, struct object *code, ufixnum_t stack_size) {
   struct object *o;
@@ -578,6 +579,10 @@ struct object *dynamic_byte_array_push_char(struct object *dba, char x) {
   dynamic_byte_array_ensure_capacity(dba);
   DYNAMIC_BYTE_ARRAY_BYTES(dba)[DYNAMIC_BYTE_ARRAY_LENGTH(dba)++] = x;
   return NIL;
+}
+void dynamic_byte_array_force_cstr(struct object *dba) { /* uses the data outside of the dynamic array to work as a null terminated string */
+  dynamic_byte_array_push_char(dba, '\0');
+  DYNAMIC_BYTE_ARRAY_LENGTH(dba) -= 1;
 }
 /** pushes all items from dba1 to the end of dba0 */
 struct object *dynamic_byte_array_push_all(struct object *dba0, struct object *dba1) {
@@ -3610,7 +3615,8 @@ struct object *run(struct gis *gis) {
             if (get_object_type(STACK_I(a1)) == type_fixnum) {
               arg_values[a2] = &FIXNUM_VALUE(STACK_I(a1));
             } else if (get_object_type(STACK_I(a1)) == type_string) {
-              arg_values[a2] = bstring_to_cstring(STACK_I(a1)); /* TODO: clean up garabage */
+              dynamic_byte_array_force_cstr(STACK_I(a1));
+              arg_values[a2] = &STRING_CONTENTS(STACK_I(a1));
             } else {
               printf("Argument not supported for foreign functions.");
             }
