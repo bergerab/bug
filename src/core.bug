@@ -116,20 +116,6 @@
 	(car (do-quasiquote x)))
 
 "FFI testing"
-(set 'dinkl (impl:dynamic-library "experiments/mydll/mydll.dll"))
-
-(set-symbol-function 'add-asdf
-  (impl:foreign-function
-  	dinkl 'add
-  	'ffi:int '(ffi:int ffi:int)))
-
-(set-symbol-function 'doubleprint
-  (impl:foreign-function
-  	dinkl 'doubleprint
-  	'ffi:int '(ffi:*)))
-
-(print (add-asdf 4 23))
-
 (set 'sdl2 (impl:dynamic-library "experiments/sdl/SDL2.dll"))
 
 (set-symbol-function 'init
@@ -140,7 +126,47 @@
 (set-symbol-function 'create-window
   (impl:foreign-function
   	sdl2 'SDL_CreateWindow
-    'ffi:* '(ffi:* ffi:int ffi:int ffi:int ffi:int ffi:int)))
+    'ffi:* '((ffi:* ffi:char) ffi:int ffi:int ffi:int ffi:int ffi:int)))
+
+(set-symbol-function 'create-renderer
+  (impl:foreign-function
+  	sdl2 'SDL_CreateRenderer
+    'ffi:* '(ffi:* ffi:int ffi:int)))
+
+(set-symbol-function 'get-error
+  (impl:foreign-function
+  	sdl2 'SDL_GetError
+    '(ffi:* ffi:char) '()))
+
+(set-symbol-function 'rw-from-file
+  (impl:foreign-function
+  	sdl2 'SDL_RWFromFile
+    'ffi:* '((ffi:* ffi:char) (ffi:* ffi:char))))
+
+(set-symbol-function 'load-bmp-rw
+  (impl:foreign-function
+  	sdl2 'SDL_LoadBMP_RW
+    'ffi:* '(ffi:* ffi:int)))
+
+(set-symbol-function 'create-texture-from-surface
+  (impl:foreign-function
+  	sdl2 'SDL_CreateTextureFromSurface
+    'ffi:* '(ffi:* ffi:*)))
+
+(set-symbol-function 'render-clear
+  (impl:foreign-function
+  	sdl2 'SDL_RenderClear
+    'ffi:* '(ffi:*)))
+
+(set-symbol-function 'render-copy
+  (impl:foreign-function
+  	sdl2 'SDL_RenderCopy
+    'ffi:* '(ffi:* ffi:* ffi:int ffi:int)))
+
+(set-symbol-function 'render-present
+  (impl:foreign-function
+  	sdl2 'SDL_RenderPresent
+    'ffi:* '(ffi:*)))
 
 (set-symbol-function 'delay
   (impl:foreign-function
@@ -148,5 +174,13 @@
     'ffi:int '(ffi:int)))
 
 (init 3)
-(create-window "Hello World!" 100 100 620 387 4)
-(delay 1000)
+(set 'win (create-window "Hello World!" 100 100 620 387 4))
+(set 'ren (create-renderer win 1 2))
+(set 'bmp-file (rw-from-file "experiments/sdl/grumpy-cat.bmp" "rb"))
+(set 'bmp (load-bmp-rw bmp-file 1))
+(set 'tex (create-texture-from-surface ren bmp))
+
+(render-clear ren)
+(render-copy ren tex 0 0)
+(render-present ren)
+(delay 3000)

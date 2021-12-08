@@ -232,6 +232,13 @@ struct object *dlib(struct object *path) {
   return o;
 }
 
+char ffi_type_designator_is_string(struct object *o) {
+  return get_object_type(o) == type_cons &&
+         CONS_CAR(o) == gis->ffi_ptr_symbol &&
+         CONS_CDR(o) != NIL &&
+         CONS_CAR(CONS_CDR(o)) == gis->ffi_char_symbol;
+}
+
 ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
   enum type t;
   struct object *lhs; /* , *rhs; */
@@ -247,7 +254,9 @@ ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
       printf("ffi:* takes one argument.");
       exit(1);
     }
-    /* rhs = CONS_CAR(CONS_CDR(o)); */
+    if (ffi_type_designator_is_string(o)) {
+      return &ffi_type_pointer;
+    }
     printf("not impl\n");
     exit(1);
   } else if (t == type_symbol) { /* must be a ffi symbol */
@@ -338,7 +347,6 @@ struct object *pointer(void *ptr) {
   OBJECT_POINTER(o) = ptr;
   return o;
 }
-
 
 struct object *function(struct object *constants, struct object *code, ufixnum_t stack_size) {
   struct object *o;
@@ -809,6 +817,7 @@ struct object *to_string_dynamic_array(struct object *da) {
 
 struct object *do_to_string(struct object *o, char repr) {
   struct object *str;
+  char buf[100];
 
   switch (get_object_type(o)) {
     case type_cons:
@@ -883,6 +892,14 @@ struct object *do_to_string(struct object *o, char repr) {
       dynamic_byte_array_push_char(str, '"');
       dynamic_byte_array_push_char(str, ' ');
       str = dynamic_byte_array_concat(str, do_to_string(FFUN_DLIB(o), 1));
+      dynamic_byte_array_push_char(str, '>');
+      return str;
+    case type_ptr:
+      str = string("<pointer ");
+      sprintf(buf, "%p", OBJECT_POINTER(o));
+      dynamic_byte_array_push_char(str, '0');
+      dynamic_byte_array_push_char(str, 'x');
+      str = dynamic_byte_array_concat(str, string(buf));
       dynamic_byte_array_push_char(str, '>');
       return str;
     default:
@@ -3325,21 +3342,22 @@ void eval_builtin(struct object *f) {
  */
 /* (80)_16 is (1000 0000)_2, it extracts the flag from the temporary */
 #define READ_OP_ARG()                                                  \
-  if (UFIXNUM_VALUE(i) >= byte_count) {                                               \
+  if (UFIXNUM_VALUE(i) >= byte_count) {                                \
     printf("BC: expected an op code argument, but bytecode ended.\n"); \
     break;                                                             \
   }                                                                    \
-  t0 = code->bytes[++UFIXNUM_VALUE(i)];                                               \
+  t0 = code->bytes[++UFIXNUM_VALUE(i)];                                \
   a0 = t0 & 0x7F;                                                      \
+  op_arg_byte_count = 1;                                                      \
   while (t0 & 0x80) {                                                  \
-    if (UFIXNUM_VALUE(i) >= byte_count) {                                             \
+    if (UFIXNUM_VALUE(i) >= byte_count) {                              \
       printf(                                                          \
           "BC: expected an extended op code argument, but bytecode "   \
           "ended.\n");                                                 \
       break;                                                           \
     }                                                                  \
-    t0 = code->bytes[++UFIXNUM_VALUE(i)];                                             \
-    a0 = (a0 << 7) | (t0 & 0x7F);                                      \
+    t0 = code->bytes[++UFIXNUM_VALUE(i)];                              \
+    a0 = ((t0 & 0x7F) << (7 * op_arg_byte_count++)) | a0;                     \
   }
 
 #define READ_OP_JUMP_ARG()                                             \
@@ -3363,7 +3381,7 @@ void eval_builtin(struct object *f) {
 /* evaluates gis->function starting at instruction gis->i */
 /* assumes gis->i and gis->f is set and call_stack has been initialized with space for all stack args */
 struct object *run(struct gis *gis) {
-  unsigned long byte_count; /* number of  bytes in this bytecode */
+  unsigned long byte_count, op_arg_byte_count; /* number of  bytes in this bytecode */
   unsigned char t0, op;        /* temporary for reading bytecode arguments */
   unsigned long a0, a1;       /* the arguments for bytecode parameters */
   unsigned long a2;
@@ -3379,7 +3397,8 @@ struct object *run(struct gis *gis) {
   struct object *i;
   ufixnum_t ufix0;
   void *arg_values[MAX_FFI_NARGS]; /* for calling foreign functions */
-  ffi_arg result;
+  ffi_sarg sresult; /* signed result */
+  void *ptr_result;
 
   /* jump to this label after setting a new gis->i and gis->f 
      (and pushing the old i and bc to the call-stack) */
@@ -3617,6 +3636,8 @@ struct object *run(struct gis *gis) {
             } else if (get_object_type(STACK_I(a1)) == type_string) {
               dynamic_byte_array_force_cstr(STACK_I(a1));
               arg_values[a2] = &STRING_CONTENTS(STACK_I(a1));
+            } else if (get_object_type(STACK_I(a1)) == type_ptr) {
+              arg_values[a2] = &OBJECT_POINTER(STACK_I(a1));
             } else {
               printf("Argument not supported for foreign functions.");
             }
@@ -3628,8 +3649,16 @@ struct object *run(struct gis *gis) {
           /* remove all arguments and the function from the data stack at once */
           DYNAMIC_ARRAY_LENGTH(gis->data_stack) -= a0 + 1;
 
-          ffi_call(FFUN_CIF(f), FFI_FN(FFUN_PTR(f)), &result, arg_values);
-          push(fixnum(result));
+          if (FFUN_RET(f) == gis->ffi_ptr_symbol) {
+            ffi_call(FFUN_CIF(f), FFI_FN(FFUN_PTR(f)), &ptr_result, arg_values);
+            push(pointer(ptr_result));
+          } else if (ffi_type_designator_is_string(FFUN_RET(f))) {
+            ffi_call(FFUN_CIF(f), FFI_FN(FFUN_PTR(f)), &ptr_result, arg_values);
+            push(string(ptr_result));
+          } else {
+            ffi_call(FFUN_CIF(f), FFI_FN(FFUN_PTR(f)), &sresult, arg_values);
+            push(fixnum(sresult));
+          }
 
           UFIXNUM_VALUE(i) += 1; /* advance to the next instruction */
           goto eval_restart; /* restart the evaluation loop */
