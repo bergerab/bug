@@ -132,6 +132,18 @@ fixnum_t count(struct object *list) {
   return count;
 }
 
+/* number of elements in a null terminated array */
+size_t count_nta(void **arr) {
+  void *cursor;
+  size_t size = 0;
+  cursor = arr[size];
+  while (cursor != NULL) {
+    ++size;
+    cursor = arr[size];
+  }
+  return size;
+}
+
 #ifdef RUN_TIME_CHECKS
 void type_check(char *name, unsigned int argument, struct object *o,
                 enum type type) {
@@ -239,23 +251,48 @@ char ffi_type_designator_is_string(struct object *o) {
          CONS_CAR(CONS_CDR(o)) == gis->ffi_char_symbol;
 }
 
+char ffi_type_designator_is_struct(struct object *o) {
+  return get_object_type(o) == type_cons &&
+         CONS_CAR(o) == gis->ffi_struct_symbol;
+}
+
 ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
+  ffi_type *ft;
   enum type t;
+  unsigned int i;
+  struct object *cursor;
   struct object *lhs; /* , *rhs; */
 
   t = get_object_type(o);
   if (t == type_cons) { /* must be of form (* <any>) */
     lhs = CONS_CAR(o);
-    if (lhs != gis->ffi_ptr_symbol) {
-      printf("First item in FFI designator cons list must be ffi:*.");
+    if (lhs != gis->ffi_ptr_symbol && lhs != gis->ffi_struct_symbol) {
+      printf("First item in FFI designator cons list must be ffi:* or ffi:struct.");
       exit(1);
     }
     if (CONS_CDR(o) == NIL) {
-      printf("ffi:* takes one argument.");
+      printf("Takes at least argument.");
       exit(1);
     }
     if (ffi_type_designator_is_string(o)) {
       return &ffi_type_pointer;
+    }
+    if (ffi_type_designator_is_struct(o)) {
+      /* make a new ffi_type object */
+      ft = malloc(sizeof(ffi_type)); /* TODO GC clean this up */
+      ft->size = ft->alignment = 0;
+      ft->type = FFI_TYPE_STRUCT;
+      ft->elements = malloc(sizeof(ffi_type*) * (count(CONS_CDR(o)) + 1)); /* TODO: GC */ /* plus one for null termination */
+
+      i = 0;
+      cursor = CONS_CDR(o);
+      while (cursor != NIL) {
+        ft->elements[i] = ffi_type_designator_to_ffi_type(CONS_CAR(cursor));
+        ++i;
+        cursor = CONS_CDR(cursor);
+      }
+      ft->elements[i] = NULL; /* must be null terminated */
+      return ft;
     }
     printf("not impl\n");
     exit(1);
@@ -265,6 +302,10 @@ ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
     else if (o == gis->ffi_uint_symbol) return &ffi_type_uint;
     else if (o == gis->ffi_ptr_symbol) {
       return &ffi_type_pointer;
+    } else if (o == gis->ffi_struct_symbol) {
+      printf("Passing struct directly is not yet implemented, must pass a pointer (ffi:* (ffi:struct ...)) instead.");
+      print(o);
+      exit(1);
     } else {
       printf("Invalid FFI type designator symbol: \n");
       print(o);
@@ -320,7 +361,7 @@ struct object *ffun(struct object *dlib, struct object *ffname, struct object* r
   FFUN_PARAMS(o) = params;
   FFUN_RET(o) = ret_type;
 
-  FFUN_ARGTYPES(o) = malloc(sizeof(ffi_type) * MAX_FFI_NARGS);
+  FFUN_ARGTYPES(o) = malloc(sizeof(ffi_type*) * MAX_FFI_NARGS);
   FFUN_NARGS(o) = 0;
   while (params != NIL) {
     FFUN_ARGTYPES(o)[FFUN_NARGS(o)++] = ffi_type_designator_to_ffi_type(CONS_CAR(params));
@@ -332,11 +373,14 @@ struct object *ffun(struct object *dlib, struct object *ffname, struct object* r
     params = CONS_CDR(params);
   }
 
+  printf("preping cif\n");
   FFUN_CIF(o) = malloc(sizeof(ffi_cif));
+  printf("nargs=%I64u\n", (int)FFUN_NARGS(o));
   if ((status = ffi_prep_cif(FFUN_CIF(o), FFI_DEFAULT_ABI, FFUN_NARGS(o), ffi_type_designator_to_ffi_type(FFUN_RET(o)), FFUN_ARGTYPES(o))) != FFI_OK) {
       printf("ERROR preparing CIF.\n");
       exit(1);
   }
+  printf("done cif\n");
 
   return o;
 }
@@ -1406,6 +1450,7 @@ void gis_init(char load_core) {
   GIS_SYM(ffi_char_symbol, ffi_char_string, "char", ffi_package);
   GIS_SYM(ffi_int_symbol, ffi_int_string, "int", ffi_package);
   GIS_SYM(ffi_uint_symbol, ffi_uint_string, "uint", ffi_package);
+  GIS_SYM(ffi_struct_symbol, ffi_struct_string, "struct", ffi_package);
 
   /* initialize misc strings */
   gis->x_string = string("x");
@@ -3384,12 +3429,14 @@ struct object *run(struct gis *gis) {
   unsigned long byte_count, op_arg_byte_count; /* number of  bytes in this bytecode */
   unsigned char t0, op;        /* temporary for reading bytecode arguments */
   unsigned long a0, a1;       /* the arguments for bytecode parameters */
-  unsigned long a2;
+  unsigned long a2, a3, a4;
+  size_t *offsets; /* for struct ffi */
+  int int_val;
   long sa0; /* argument for jumps */
   struct object *v0, *v1; /* temps for values popped off the stack */
   struct object *c0; /* temps for constants (used for bytecode arguments) */
   struct object *temp_i, *temp_f, *f;
-  struct object *cursor;
+  struct object *cursor, *cursor2;
   struct dynamic_byte_array
       *code; /* the byte array containing the bytes in the bytecode */
   struct dynamic_array *constants; /* the constants array */
@@ -3399,6 +3446,7 @@ struct object *run(struct gis *gis) {
   void *arg_values[MAX_FFI_NARGS]; /* for calling foreign functions */
   ffi_sarg sresult; /* signed result */
   void *ptr_result;
+  void *vp; /* for creating structs ffi */
 
   /* jump to this label after setting a new gis->i and gis->f 
      (and pushing the old i and bc to the call-stack) */
@@ -3638,6 +3686,39 @@ struct object *run(struct gis *gis) {
               arg_values[a2] = &STRING_CONTENTS(STACK_I(a1));
             } else if (get_object_type(STACK_I(a1)) == type_ptr) {
               arg_values[a2] = &OBJECT_POINTER(STACK_I(a1));
+            } else if (get_object_type(STACK_I(a1)) == type_cons) { /* convert to struct* */
+              /* vp = */
+              /* iterate over struct ffi types and input */
+              vp = malloc(FFUN_ARGTYPES(f)[a2]->size); /* TODO: GC clean this up */
+
+              /* fill struct with values */
+              a3 = 0;
+              a4 = count_nta(FFUN_ARGTYPES(f)[a2]->elements);
+              printf("a4=%d\n", a4);
+              offsets = malloc(sizeof(size_t) * a4 + 1); /* TODO: GC clean up */
+              ffi_get_struct_offsets(FFI_DEFAULT_ABI, FFUN_ARGTYPES(f)[a2],
+                                     offsets);
+              cursor2 = STACK_I(a1);
+              for (; a3 < a4; ++a3) {
+                if (cursor2 == NIL) {
+                  printf("Insufficient arguments to struct.");
+                  exit(1);
+                }
+                  printf("offset=%d\n", offsets[a3]);
+                if (FFUN_ARGTYPES(f)[a2]->elements[a3] == &ffi_type_sint) {
+                  if (get_object_type(CONS_CAR(cursor2)) != type_fixnum) {
+                    printf("struct expected fixnum.");
+                    exit(1);
+                  }
+                  printf("fixnum %d\n", FIXNUM_VALUE(CONS_CAR(cursor2)));
+                  int_val = FIXNUM_VALUE(CONS_CAR(cursor2));
+                  /* arithemtic can't be done on void* (size of elements is unknown) so cast to a char* (because we know a4 is # of bytes) */
+                  memcpy(&((char*)vp)[offsets[a3]], &int_val, sizeof(int));
+                }
+                cursor2 = CONS_CDR(cursor2);
+              }
+
+              arg_values[a2] = vp;
             } else {
               printf("Argument not supported for foreign functions.");
             }

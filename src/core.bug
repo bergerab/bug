@@ -116,6 +116,22 @@
 	(car (do-quasiquote x)))
 
 "FFI testing"
+"TODO: make structs work with ffi"
+
+(set 'sdl-rect '(ffi:struct ffi:int ffi:int ffi:int ffi:int))
+
+(set 'mydll (impl:dynamic-library "experiments/mydll/mydll.dll"))
+
+(set-symbol-function 'print_rect
+	(impl:foreign-function
+  	mydll 'print_rect
+  	'ffi:int (list sdl-rect)))
+
+(set-symbol-function 'print_me
+	(impl:foreign-function
+  	mydll 'print_me
+  	'ffi:int nil))
+
 (set 'sdl2 (impl:dynamic-library "experiments/sdl/SDL2.dll"))
 
 (set-symbol-function 'init
@@ -161,7 +177,7 @@
 (set-symbol-function 'render-copy
   (impl:foreign-function
   	sdl2 'SDL_RenderCopy
-    'ffi:* '(ffi:* ffi:* ffi:int ffi:int)))
+    'ffi:* (list 'ffi:* 'ffi:* sdl-rect sdl-rect)))
 
 (set-symbol-function 'render-present
   (impl:foreign-function
@@ -183,7 +199,15 @@
 (set 'bmp (load-bmp "experiments/sdl/grumpy-cat.bmp"))
 (set 'tex (create-texture-from-surface ren bmp))
 
+(delay 1000)
+
+(print "start")
+(print_rect (list 1 2 3 4))
+(print "done")
+
+"
 (render-clear ren)
-(render-copy ren tex 0 0)
+(render-copy ren tex '(10 10 100 100) '(10 10 100 100))
 (render-present ren)
 (delay 3000)
+"

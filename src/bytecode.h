@@ -443,6 +443,9 @@ struct gis {
   struct object *ffi_int_symbol;
   struct object *ffi_int_string;
 
+  struct object *ffi_struct_symbol;
+  struct object *ffi_struct_string;
+
   struct object *ffi_uint_symbol;
   struct object *ffi_uint_string;
 
