@@ -132,6 +132,7 @@
   	mydll 'print_me
   	'ffi:int nil))
 
+"================= sdl2 library ====================="
 (set 'sdl2 (impl:dynamic-library "experiments/sdl/SDL2.dll"))
 
 (set-symbol-function 'init
@@ -188,26 +189,49 @@
   (impl:foreign-function
   	sdl2 'SDL_Delay
     'ffi:int '(ffi:int)))
+"========================================================"
+
+"================= sdl2-tff library ====================="
+(set 'sdl2-ttf (impl:dynamic-library "SDL2_ttf.dll"))
+(set-symbol-function 'ttf-init
+  (impl:foreign-function
+  	sdl2-ttf 'TTF_Init
+    'ffi:int '()))
+(set-symbol-function 'open-font
+  (impl:foreign-function
+  	sdl2-ttf 'TTF_OpenFont
+    'ffi:* '(ffi:* ffi:int)))
+(set-symbol-function 'render-text-solid
+  (impl:foreign-function
+  	sdl2-ttf 'TTF_RenderText_Solid
+    'ffi:* '(ffi:* ffi:* (ffi:struct ffi:int ffi:int ffi:int))))
+
+"helper functions"
 
 (impl:function load-bmp (path)
 	(let ((bmp-file (rw-from-file path "rb")))
 		(load-bmp-rw bmp-file 1)))
 
+(impl:function load-bmp-tex (ren path)
+	(create-texture-from-surface ren (load-bmp path)))
+"========================================================"
+
 (init 3)
-(set 'win (create-window "Hello World!" 100 100 620 387 4))
-(set 'ren (create-renderer win 1 2))
-(set 'bmp (load-bmp "experiments/sdl/grumpy-cat.bmp"))
-(set 'tex (create-texture-from-surface ren bmp))
+(set 'window (create-window "Hello World!" 100 100 620 387 4))
+(set 'renderer (create-renderer window 0 2))
+
+(set 'cat (load-bmp-tex renderer "experiments/sdl/grumpy-cat.bmp"))
+
+(if (nil? (ttf-init))
+	(print "SDL_TTF failed to initialize.")
+	nil)
+(set 'font (open-font "iosevka.ttf" 24))
+(set 'text-surface (render-text-solid font "My message" (list 255 255 255)))
+(set 'text-texture (create-texture-from-surface renderer text-surface))
+
+(render-clear renderer)
+"(render-copy renderer text-texture '(0 0 100 100) '(10 10 100 100))"
+(render-copy renderer cat 0 0)
+(render-present renderer)
 
 (delay 1000)
-
-(print "start")
-(print_rect (list 1 2 3 4))
-(print "done")
-
-"
-(render-clear ren)
-(render-copy ren tex '(10 10 100 100) '(10 10 100 100))
-(render-present ren)
-(delay 3000)
-"

@@ -373,14 +373,11 @@ struct object *ffun(struct object *dlib, struct object *ffname, struct object* r
     params = CONS_CDR(params);
   }
 
-  printf("preping cif\n");
   FFUN_CIF(o) = malloc(sizeof(ffi_cif));
-  printf("nargs=%I64u\n", (int)FFUN_NARGS(o));
   if ((status = ffi_prep_cif(FFUN_CIF(o), FFI_DEFAULT_ABI, FFUN_NARGS(o), ffi_type_designator_to_ffi_type(FFUN_RET(o)), FFUN_ARGTYPES(o))) != FFI_OK) {
       printf("ERROR preparing CIF.\n");
       exit(1);
   }
-  printf("done cif\n");
 
   return o;
 }
@@ -3694,7 +3691,6 @@ struct object *run(struct gis *gis) {
               /* fill struct with values */
               a3 = 0;
               a4 = count_nta(FFUN_ARGTYPES(f)[a2]->elements);
-              printf("a4=%d\n", a4);
               offsets = malloc(sizeof(size_t) * a4 + 1); /* TODO: GC clean up */
               ffi_get_struct_offsets(FFI_DEFAULT_ABI, FFUN_ARGTYPES(f)[a2],
                                      offsets);
@@ -3704,13 +3700,11 @@ struct object *run(struct gis *gis) {
                   printf("Insufficient arguments to struct.");
                   exit(1);
                 }
-                  printf("offset=%d\n", offsets[a3]);
                 if (FFUN_ARGTYPES(f)[a2]->elements[a3] == &ffi_type_sint) {
                   if (get_object_type(CONS_CAR(cursor2)) != type_fixnum) {
                     printf("struct expected fixnum.");
                     exit(1);
                   }
-                  printf("fixnum %d\n", FIXNUM_VALUE(CONS_CAR(cursor2)));
                   int_val = FIXNUM_VALUE(CONS_CAR(cursor2));
                   /* arithemtic can't be done on void* (size of elements is unknown) so cast to a char* (because we know a4 is # of bytes) */
                   memcpy(&((char*)vp)[offsets[a3]], &int_val, sizeof(int));
