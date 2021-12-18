@@ -14,6 +14,8 @@
  */
 struct gis *gis;
 
+void *ffi_null = NULL;
+
 struct object *compile(struct object *ast, struct object *bc, struct object *st, struct object *fst);
 struct object *compile_entire_file(struct object *input_file);
 struct object *eval(struct object *bc, struct object* args);
@@ -298,8 +300,14 @@ ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
     exit(1);
   } else if (t == type_symbol) { /* must be a ffi symbol */
     if (o == gis->ffi_char_symbol) return &ffi_type_schar;
-    else if (o == gis->ffi_int_symbol) return &ffi_type_sint;
+    else if (o == gis->ffi_int_symbol) {
+      return &ffi_type_sint;
+    }
     else if (o == gis->ffi_uint_symbol) return &ffi_type_uint;
+    else if (o == gis->ffi_uint8_symbol) {
+      return &ffi_type_uint8;
+    }
+    else if (o == gis->ffi_void_symbol) return &ffi_type_void;
     else if (o == gis->ffi_ptr_symbol) {
       return &ffi_type_pointer;
     } else if (o == gis->ffi_struct_symbol) {
@@ -1446,6 +1454,7 @@ void gis_init(char load_core) {
   GIS_SYM(ffi_ptr_symbol, ffi_ptr_string, "*", ffi_package);
   GIS_SYM(ffi_char_symbol, ffi_char_string, "char", ffi_package);
   GIS_SYM(ffi_int_symbol, ffi_int_string, "int", ffi_package);
+  GIS_SYM(ffi_uint8_symbol, ffi_uint8_string, "uint8", ffi_package);
   GIS_SYM(ffi_uint_symbol, ffi_uint_string, "uint", ffi_package);
   GIS_SYM(ffi_struct_symbol, ffi_struct_string, "struct", ffi_package);
 
@@ -3429,6 +3438,7 @@ struct object *run(struct gis *gis) {
   unsigned long a2, a3, a4;
   size_t *offsets; /* for struct ffi */
   int int_val;
+  uint8_t uint8_val;
   long sa0; /* argument for jumps */
   struct object *v0, *v1; /* temps for values popped off the stack */
   struct object *c0; /* temps for constants (used for bytecode arguments) */
@@ -3676,7 +3686,10 @@ struct object *run(struct gis *gis) {
           a1 = a0; /* for indexing arguments */
           a2 = 0; /* for indexing arg_values */
           while (cursor != NIL) {
-            if (get_object_type(STACK_I(a1)) == type_fixnum) {
+            if (get_object_type(STACK_I(a1)) == type_nil) {
+              printf("NIILLL\n");
+              arg_values[a2] = NULL;
+            } else if (get_object_type(STACK_I(a1)) == type_fixnum) {
               arg_values[a2] = &FIXNUM_VALUE(STACK_I(a1));
             } else if (get_object_type(STACK_I(a1)) == type_string) {
               dynamic_byte_array_force_cstr(STACK_I(a1));
@@ -3687,6 +3700,10 @@ struct object *run(struct gis *gis) {
               /* vp = */
               /* iterate over struct ffi types and input */
               vp = malloc(FFUN_ARGTYPES(f)[a2]->size); /* TODO: GC clean this up */
+              if (vp == NULL) {
+                printf("failed to malloc struct for ffi.");
+                exit(1);
+              }
 
               /* fill struct with values */
               a3 = 0;
@@ -3705,9 +3722,20 @@ struct object *run(struct gis *gis) {
                     printf("struct expected fixnum.");
                     exit(1);
                   }
-                  int_val = FIXNUM_VALUE(CONS_CAR(cursor2));
                   /* arithemtic can't be done on void* (size of elements is unknown) so cast to a char* (because we know a4 is # of bytes) */
-                  memcpy(&((char*)vp)[offsets[a3]], &int_val, sizeof(int));
+                  memcpy(&((char*)vp)[offsets[a3]], &FIXNUM_VALUE(CONS_CAR(cursor2)), sizeof(int));
+                } else if (FFUN_ARGTYPES(f)[a2]->elements[a3] == &ffi_type_uint8) {
+                  if (get_object_type(CONS_CAR(cursor2)) != type_fixnum) {
+                    printf("struct expected fixnum.");
+                    exit(1);
+                  }
+                  uint8_val = FIXNUM_VALUE(CONS_CAR(cursor2));
+                  /* arithemtic can't be done on void* (size of elements is unknown) so cast to a char* (because we know a4 is # of bytes) */
+                  memcpy(&((char*)vp)[offsets[a3]], &uint8_val, sizeof(uint8_t));
+                  /*((char*)vp)[offsets[a3]] = FIXNUM_VALUE(CONS_CAR(cursor2));*/ /* why didn't this work? */
+                } else {
+                  printf("Unknown value when populating struct");
+                  exit(1);
                 }
                 cursor2 = CONS_CDR(cursor2);
               }

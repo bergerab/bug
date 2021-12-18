@@ -115,24 +115,61 @@
 (impl:macro quasiquote (x)
 	(car (do-quasiquote x)))
 
+"================= mydll library ====================="
 "FFI testing"
 "TODO: make structs work with ffi"
 
-(set 'sdl-rect '(ffi:struct ffi:int ffi:int ffi:int ffi:int))
-
+(set 'mydll-ivec2 '(ffi:struct ffi:int ffi:int))
+(set 'mydll-rect '(ffi:struct ffi:int ffi:int ffi:int ffi:int))
+(set 'mydll-4 '(ffi:struct ffi:int ffi:int ffi:int ffi:int))
+(set 'mydll-3 '(ffi:struct ffi:uint8 ffi:uint8 ffi:uint8))
+(set 'mydll-color '(ffi:struct ffi:uint8 ffi:uint8 ffi:uint8 ffi:uint8))
 (set 'mydll (impl:dynamic-library "experiments/mydll/mydll.dll"))
 
-(set-symbol-function 'print_rect
+(set-symbol-function 'print-rect2
 	(impl:foreign-function
-  	mydll 'print_rect
-  	'ffi:int (list sdl-rect)))
+  	mydll 'print_rect2
+  	'ffi:int (list mydll-rect mydll-rect)))
 
-(set-symbol-function 'print_me
+(set-symbol-function 'print-me
 	(impl:foreign-function
   	mydll 'print_me
   	'ffi:int nil))
 
+(set-symbol-function 'multitest
+	(impl:foreign-function
+  	mydll 'multitest
+  	'ffi:int (list mydll-rect 'ffi:* mydll-color)))
+
+(set-symbol-function 'print-rect
+	(impl:foreign-function
+  	mydll 'print_rect
+  	'ffi:void (list mydll-rect)))
+
+(set-symbol-function 'print-4
+	(impl:foreign-function
+  	mydll 'print_four
+  	'ffi:void (list mydll-4)))
+
+(set-symbol-function 'print-3
+	(impl:foreign-function
+  	mydll 'print_three
+  	'ffi:void (list mydll-3)))
+
+(set-symbol-function 'print-color
+	(impl:foreign-function
+  	mydll 'print_color
+  	'ffi:void (list mydll-color)))
+
+(set-symbol-function 'print-ivec2
+	(impl:foreign-function
+  	mydll 'print_ivec2
+  	'ffi:void (list mydll-ivec2)))
+
+"========================================================"
+
 "================= sdl2 library ====================="
+(set 'sdl-rect '(ffi:struct ffi:int ffi:int ffi:int ffi:int))
 (set 'sdl2 (impl:dynamic-library "experiments/sdl/SDL2.dll"))
 
 (set-symbol-function 'init
@@ -192,6 +229,7 @@
 "========================================================"
 
 "================= sdl2-tff library ====================="
+(set 'sdl-color '(ffi:struct ffi:uint8 ffi:uint8 ffi:uint8 ffi:uint8))
 (set 'sdl2-ttf (impl:dynamic-library "SDL2_ttf.dll"))
 (set-symbol-function 'ttf-init
   (impl:foreign-function
@@ -204,7 +242,7 @@
 (set-symbol-function 'render-text-solid
   (impl:foreign-function
   	sdl2-ttf 'TTF_RenderText_Solid
-    'ffi:* '(ffi:* ffi:* (ffi:struct ffi:int ffi:int ffi:int))))
+    'ffi:* (list 'ffi:* 'ffi:* sdl-color)))
 
 "helper functions"
 
@@ -216,22 +254,29 @@
 	(create-texture-from-surface ren (load-bmp path)))
 "========================================================"
 
-(init 3)
-(set 'window (create-window "Hello World!" 100 100 620 387 4))
-(set 'renderer (create-renderer window 0 2))
+(impl:function sdl-test ()
+	(init 3)
+	(set 'window (create-window "Hello World!" 100 100 620 387 4))
+	(set 'renderer (create-renderer window 0 2))
 
-(set 'cat (load-bmp-tex renderer "experiments/sdl/grumpy-cat.bmp"))
+	(set 'cat (load-bmp-tex renderer "experiments/sdl/grumpy-cat.bmp"))
 
-(if (nil? (ttf-init))
-	(print "SDL_TTF failed to initialize.")
-	nil)
-(set 'font (open-font "iosevka.ttf" 24))
-(set 'text-surface (render-text-solid font "My message" (list 255 255 255)))
-(set 'text-texture (create-texture-from-surface renderer text-surface))
+	(if (nil? (ttf-init))
+		(print "SDL_TTF failed to initialize.")
+		nil)
 
-(render-clear renderer)
-"(render-copy renderer text-texture '(0 0 100 100) '(10 10 100 100))"
-(render-copy renderer cat 0 0)
-(render-present renderer)
+	(set 'font (open-font "iosevka.ttf" 200))
+	(set 'text-surface (render-text-solid font "My message bingus" '(255 255 255 0)))
+	(set 'text-texture (create-texture-from-surface renderer text-surface))
+	(print "text-texture" text-texture)
 
-(delay 1000)
+	(print (render-clear renderer))
+
+	"(render-copy renderer cat nil nil)"
+	(print (render-copy renderer text-texture nil nil))
+	(print (render-present renderer))
+	(print (get-error))
+
+	(delay 1000))
+
+(sdl-test)

@@ -449,6 +449,8 @@ struct gis {
   struct object *ffi_uint_symbol;
   struct object *ffi_uint_string;
 
+  struct object *ffi_uint8_symbol;
+  struct object *ffi_uint8_string;
 
   /* cached strings that should be used internally */
   struct object *value_string;
