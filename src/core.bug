@@ -124,8 +124,8 @@
 				   	(list (concatn (mapcar (symbol-function 'do-quasiquote) x)))
 		       (list (list 'quote x))))))
 
-(impl:macro quasiquote (x)
-	(car (do-quasiquote x)))
+"(impl:macro quasiquote (x)
+	(car (do-quasiquote x)))"
 
 "================= mydll library ====================="
 "FFI testing"
@@ -321,4 +321,10 @@
 
 	(render-loop 0))
 
-(sdl-test)
+"(sdl-test)"
+"
+(impl:struct 'ivec2
+	'((x ffi:int)
+		(y ffi:int)))
+		"
+(print "it worked!")

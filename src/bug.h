@@ -13,6 +13,9 @@
 
 #include <ffi.h>
 
+#define DEBUG 1
+
+#define IF_DEBUG() if (DEBUG)
 
 #define RUN_TIME_CHECKS
 
@@ -69,8 +72,10 @@ typedef double flonum_t;
 #define SYMBOL_IS_EXTERNAL(o) o->w1.value.symbol->is_external
 #define SYMBOL_VALUE_IS_SET(o) o->w1.value.symbol->value_is_set
 #define SYMBOL_FUNCTION_IS_SET(o) o->w1.value.symbol->function_is_set
+#define SYMBOL_STRUCTURE_IS_SET(o) o->w1.value.symbol->structure_is_set
 #define SYMBOL_VALUE(o) o->w1.value.symbol->value
 #define SYMBOL_FUNCTION(o) o->w1.value.symbol->function
+#define SYMBOL_STRUCTURE(o) o->w1.value.symbol->structure
 
 #define ARRAY_LENGTH(o) o->w1.value.array->length
 #define ARRAY_VALUES(o) o->w1.value.array->values
@@ -113,6 +118,11 @@ typedef double flonum_t;
 
 #define DLIB_PATH(o) o->w1.value.dlib->path
 #define DLIB_PTR(o) o->w1.value.dlib->ptr
+
+#define STRUCTURE_NAME(o) o->w1.value.structure->name
+#define STRUCTURE_FIELDS(o) o->w1.value.structure->fields
+#define STRUCTURE_TYPE(o) o->w1.value.structure->type
+#define STRUCTURE_NFIELDS(o) o->w1.value.structure->nfields
 
 #define FFUN_FFNAME(o) o->w1.value.ffun->ffname
 #define FFUN_DLIB(o) o->w1.value.ffun->dlib
@@ -200,7 +210,8 @@ enum type {
   type_vec2 = 54,
   type_dlib = 58, /** dynamic library */
   type_ffun = 62, /** foreign function (function from a dynamic library) */
-  type_ptr = 66 /** used in FFI */
+  type_ptr = 66, /** used in FFI */
+  type_struct = 70
 };
 
 union value {
@@ -214,7 +225,7 @@ union value {
   struct package *package;
   struct enumerator *enumerator;
   struct file *file;
-  struct record *record;
+  struct structure *structure;
   struct vec2 *vec2;
   struct dlib *dlib;
   struct ffun *ffun;
@@ -253,16 +264,25 @@ struct symbol {
   struct object *package; /** the package this symbol is defined in (the "home package") */
   struct object *value; /** the value slot */
   struct object *function; /** the function value slot */
+  struct object *structure; /** the struct value slot */
   struct object *plist; /** a plist that maps from namespace name to value */
   char is_external;
   char value_is_set;
   char function_is_set;
+  char structure_is_set;
 };
 
 struct package {
   struct object *name; /** the name of the package (a string) */
   struct object *symbols; /** all top-level symbols the package has created (a cons list) */
   struct object *packages; /** packages this package uses -- all external symbols of these packages become internal symbols (can be exported) */
+};
+
+struct structure {
+  struct object *name;
+  struct object *fields;
+  ffi_type *type;
+  ufixnum_t nfields;
 };
 
 struct dlib {
@@ -451,6 +471,14 @@ struct gis {
 
   struct object *ffi_uint8_symbol;
   struct object *ffi_uint8_string;
+
+  struct object *struct_symbol;
+  struct object *struct_string;
+  struct object *struct_builtin;
+
+  struct object *alloc_struct_symbol;
+  struct object *alloc_struct_string;
+  struct object *alloc_struct_builtin;
 
   /* cached strings that should be used internally */
   struct object *value_string;
