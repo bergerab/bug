@@ -3559,9 +3559,9 @@ struct object *run(struct gis *gis) {
   constants = f->w1.value.function->constants->w1.value.dynamic_array;
   constants_length = constants->length;
   byte_count = code->length;
+  i = symbol_get_value(gis->i_symbol);
 
   eval_restart:
-  i = symbol_get_value(gis->i_symbol);
 
   while (UFIXNUM_VALUE(i) < byte_count) {
     op = code->bytes[UFIXNUM_VALUE(i)];
@@ -3893,6 +3893,7 @@ struct object *run(struct gis *gis) {
           goto return_function_label; /* return */
         } else {
           symbol_set_value(gis->i_symbol, ufixnum(0));  /* start the bytecode interpreter at the first instruction */
+          i = symbol_get_value(gis->i_symbol); /* reset the local instruction counter -- this is used as a local so its faster for the eval loop */
           goto eval_restart; /* restart the evaluation loop */
         }
       case op_return_function: /* return-function ( x -- ) */
@@ -3921,6 +3922,7 @@ struct object *run(struct gis *gis) {
               gis->i_symbol,
               DYNAMIC_ARRAY_VALUES(
                   gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 2]);
+          i = symbol_get_value(gis->i_symbol); /* update the local instruction counter -- so we don't have to do it everytime at the top of eval_restart */
           /* pop off all stack arguments, then pop bc, then pop instruction
            * index */
           DYNAMIC_ARRAY_LENGTH(gis->call_stack) -= ufix0;
