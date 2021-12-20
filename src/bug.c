@@ -1617,6 +1617,9 @@ void gis_init(char load_core) {
   symbol_set_value(gis->data_stack_symbol, gis->data_stack);
   gis->call_stack = dynamic_array(10);
   symbol_set_value(gis->call_stack_symbol, gis->call_stack); /* using a dynamic array to make looking up arguments on the stack faster */
+  /* by default the top level call stack has a function of NIL, the instruction index doesn't matter so it is also nil */
+  dynamic_array_push(gis->call_stack, NIL);
+  dynamic_array_push(gis->call_stack, NIL);
 
   symbol_set_value(gis->package_symbol, gis->user_package);
   symbol_set_value(gis->packages_symbol,
@@ -2840,9 +2843,6 @@ struct object *eval_at_instruction(struct object *f, ufixnum_t i, struct object 
   /* TODO: this can be optimized to just increment the length instead of pushing NILs */
   for (j = 0; j < FUNCTION_STACK_SIZE(f) - FUNCTION_NARGS(f); ++j)
     dynamic_array_push(gis->call_stack, NIL);
-  /* by default the top level call stack has a function of NIL, the instruction index doesn't matter so it is also nil */
-  dynamic_array_push(gis->call_stack, NIL);
-  dynamic_array_push(gis->call_stack, NIL);
   return run(gis);
 }
 /* evaluates the bytecode starting at instruction index 0 */
@@ -3554,14 +3554,13 @@ struct object *run(struct gis *gis) {
   /* jump to this label after setting a new gis->i and gis->f 
      (and pushing the old i and bc to the call-stack) */
 
+  eval_restart:
   f = symbol_get_value(gis->f_symbol);
   code = f->w1.value.function->code->w1.value.dynamic_byte_array;
   constants = f->w1.value.function->constants->w1.value.dynamic_array;
   constants_length = constants->length;
   byte_count = code->length;
   i = symbol_get_value(gis->i_symbol);
-
-  eval_restart:
 
   while (UFIXNUM_VALUE(i) < byte_count) {
     op = code->bytes[UFIXNUM_VALUE(i)];
@@ -3764,6 +3763,7 @@ struct object *run(struct gis *gis) {
       case op_call_symbol_function: /* an optimization for calling a function given a symbol */
       case op_call_function: /* call-function <n> ( arg_0...arg_n fun -- ) */
         READ_OP_ARG();
+        printf("CALL_FUCNTION\n");
         temp_i = i;
         temp_f = f;
         /* set the new function */
@@ -3892,12 +3892,12 @@ struct object *run(struct gis *gis) {
           eval_builtin(f);
           goto return_function_label; /* return */
         } else {
-          symbol_set_value(gis->i_symbol, ufixnum(0));  /* start the bytecode interpreter at the first instruction */
-          i = symbol_get_value(gis->i_symbol); /* reset the local instruction counter -- this is used as a local so its faster for the eval loop */
+          symbol_set_value(gis->i_symbol, ufixnum(0)); /* start the bytecode interpreter at the first instruction */
           goto eval_restart; /* restart the evaluation loop */
         }
       case op_return_function: /* return-function ( x -- ) */
         return_function_label:
+        printf("RET START\n");
         #ifdef RUN_TIME_CHECKS
         if (DYNAMIC_ARRAY_LENGTH(gis->call_stack) == FUNCTION_STACK_SIZE(f)) {
           printf("Attempted to return from top-level.");
@@ -3912,20 +3912,20 @@ struct object *run(struct gis *gis) {
             DYNAMIC_ARRAY_VALUES(
                 gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 2] ==
                 NIL) {
-                  break;
+                  printf("DEAD?\n");
+                  break; /* TODO: This might be dead code? */
         } else {
           symbol_set_value(
               gis->f_symbol,
               DYNAMIC_ARRAY_VALUES(
                   gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 1]);
-          symbol_set_value(
-              gis->i_symbol,
-              DYNAMIC_ARRAY_VALUES(
-                  gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 2]);
-          i = symbol_get_value(gis->i_symbol); /* update the local instruction counter -- so we don't have to do it everytime at the top of eval_restart */
+          symbol_set_value(gis->i_symbol, DYNAMIC_ARRAY_VALUES(gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 2]);
+          printf("call stack %d\n", DYNAMIC_ARRAY_LENGTH(gis->call_stack));
           /* pop off all stack arguments, then pop bc, then pop instruction
            * index */
           DYNAMIC_ARRAY_LENGTH(gis->call_stack) -= ufix0;
+          print(gis->call_stack);
+          printf("RET CLOSE\n");
           goto eval_restart; /* restart the evaluation loop */
         }
       case op_jump: /* jump ( -- ) */

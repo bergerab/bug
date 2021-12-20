@@ -127,6 +127,15 @@
 "(impl:macro quasiquote (x)
 	(car (do-quasiquote x)))"
 
+"===================== misc =========================="
+"why does (fib 10) crash?"
+(impl:function fib (x)
+  (if (< x 2)
+    x
+    (+ (fib (- x 2)) 
+       (fib (- x 1)))))
+"====================================================="
+
 "================= mydll library ====================="
 "FFI testing"
 "TODO: make structs work with ffi"
