@@ -21,6 +21,8 @@ struct object *compile_entire_file(struct object *input_file);
 struct object *eval(struct object *bc, struct object* args);
 struct object *read(struct object *s, struct object *package);
 
+void dynamic_byte_array_force_cstr(struct object *dba);
+
 /*===============================*
  *===============================*
  * Utility Procedures            *
@@ -139,7 +141,8 @@ fixnum_t count(struct object *list) {
 /* number of elements in a null terminated array */
 size_t count_nta(void **arr) {
   void *cursor;
-  size_t size = 0;
+  size_t size;
+  size = 0;
   cursor = arr[size];
   while (cursor != NULL) {
     ++size;
@@ -348,8 +351,6 @@ struct object *dynamic_array(fixnum_t initial_capacity) {
   DYNAMIC_ARRAY_LENGTH(o) = 0;
   return o;
 }
-
-void dynamic_byte_array_force_cstr(struct object *dba);
 
 struct object *dynamic_byte_array(ufixnum_t initial_capacity) {
   struct object *o;
@@ -591,24 +592,47 @@ void close_file(struct object *file) {
  */
 struct object *dynamic_array_get_ufixnum_t(struct object *da, ufixnum_t index) {
   TC("dynamic_array_get", 0, da, type_dynamic_array);
+  #ifdef RUN_TIME_CHECKS
+    if (index >= DYNAMIC_ARRAY_LENGTH(da)) {
+      printf("Index out of bounds.\n");
+      exit(1);
+    }
+  #endif
   return DYNAMIC_ARRAY_VALUES(da)[index];
 }
 struct object *dynamic_array_get(struct object *da, struct object *index) {
   TC("dynamic_array_get", 0, da, type_dynamic_array);
   TC("dynamic_array_get", 1, index, type_fixnum);
+  #ifdef RUN_TIME_CHECKS
+    if (FIXNUM_VALUE(index) >= DYNAMIC_ARRAY_LENGTH(da)) {
+      printf("Index out of bounds.\n");
+      exit(1);
+    }
+  #endif
   return DYNAMIC_ARRAY_VALUES(da)[FIXNUM_VALUE(index)];
 }
 struct object *dynamic_array_set_ufixnum_t(struct object *da, ufixnum_t index, struct object *value) {
   TC("dynamic_array_set", 0, da, type_dynamic_array);
+  #ifdef RUN_TIME_CHECKS
+    if (index >= DYNAMIC_ARRAY_LENGTH(da)) {
+      printf("Index out of bounds.\n");
+      exit(1);
+    }
+  #endif
   DYNAMIC_ARRAY_VALUES(da)[index] = value;
   return NIL;
 }
-struct object *dynamic_array_set(struct object *da, struct object *index, struct object *value) {
+void dynamic_array_set(struct object *da, struct object *index, struct object *value) {
   TC("dynamic_array_set", 0, da, type_dynamic_array);
   TC("dynamic_array_set", 1, index, type_fixnum);
   TC("dynamic_array_set", 2, value, type_fixnum);
+  #ifdef RUN_TIME_CHECKS
+    if (FIXNUM_VALUE(index) >= DYNAMIC_ARRAY_LENGTH(da)) {
+      printf("Index out of bounds.\n");
+      exit(1);
+    }
+  #endif
   DYNAMIC_ARRAY_VALUES(da)[FIXNUM_VALUE(index)] = value;
-  return NIL;
 }
 struct object *dynamic_array_length(struct object *da) {
   TC("dynamic_array_length", 0, da, type_dynamic_array);
@@ -618,31 +642,22 @@ void dynamic_array_ensure_capacity(struct object *da) {
   struct object **values, **nv;
   size_t size; 
   if (DYNAMIC_ARRAY_LENGTH(da) >= DYNAMIC_ARRAY_CAPACITY(da)) {
-    printf("exceeded cap\n");
     DYNAMIC_ARRAY_CAPACITY(da) = (DYNAMIC_ARRAY_LENGTH(da) + 1) * 3/2.0;
-    printf("updated cap %I64d %p %I64d\n", DYNAMIC_ARRAY_CAPACITY(da), DYNAMIC_ARRAY_VALUES(da), DYNAMIC_ARRAY_CAPACITY(da) * sizeof(struct object*));
-    printf("bugin\n");
     values = DYNAMIC_ARRAY_VALUES(da);
-    printf("got values\n");
     size = DYNAMIC_ARRAY_CAPACITY(da) * sizeof(struct object*);
-    printf("got size\n");
     nv = realloc(values, size);
-    printf("realloc\n");
     DYNAMIC_ARRAY_VALUES(da) = nv;
-    printf("set arr values\n");
     if (DYNAMIC_ARRAY_VALUES(da) == NULL) {
       printf("BC: Failed to realloc dynamic-array.");
       exit(1);
     }
-  printf("cap adjusted %d %d \n", (int)DYNAMIC_ARRAY_LENGTH(da),
-         (int)DYNAMIC_ARRAY_CAPACITY(da));
   }
 }
 void dynamic_array_push(struct object *da, struct object *value) {
   TC("dynamic_array_push", 0, da, type_dynamic_array);
-  printf("before ensure cap\n");
   dynamic_array_ensure_capacity(da);
-  DYNAMIC_ARRAY_VALUES(da)[DYNAMIC_ARRAY_LENGTH(da)++] = value;
+  DYNAMIC_ARRAY_VALUES(da)[DYNAMIC_ARRAY_LENGTH(da)] = value;
+  ++DYNAMIC_ARRAY_LENGTH(da);
 }
 struct object *dynamic_array_pop(struct object *da) {
   TC("dynamic_array_pop", 0, da, type_dynamic_array);
@@ -671,12 +686,23 @@ struct object *dynamic_array_concat(struct object *da0, struct object *da1) {
  */
 char dynamic_byte_array_get(struct object *dba, fixnum_t index) {
   TC2("dynamic_byte_array_get", 0, dba, type_dynamic_byte_array, type_string);
+  #ifdef RUN_TIME_CHECKS
+    if (index >= DYNAMIC_BYTE_ARRAY_LENGTH(dba)) {
+      printf("Index out of bounds.\n");
+      exit(1);
+    }
+  #endif
   return DYNAMIC_BYTE_ARRAY_BYTES(dba)[index];
 }
-struct object *dynamic_byte_array_set(struct object *dba, ufixnum_t index, char value) {
+void dynamic_byte_array_set(struct object *dba, ufixnum_t index, char value) {
   TC2("dynamic_byte_array_set", 0, dba, type_dynamic_byte_array, type_string);
+  #ifdef RUN_TIME_CHECKS
+    if (index >= DYNAMIC_BYTE_ARRAY_LENGTH(dba)) {
+      printf("Index out of bounds.\n");
+      exit(1);
+    }
+  #endif
   DYNAMIC_BYTE_ARRAY_BYTES(dba)[index] = value;
-  return NIL;
 }
 struct object *dynamic_byte_array_length(struct object *dba) {
   TC2("dynamic_byte_array_length", 0, dba, type_dynamic_byte_array, type_string);
@@ -701,10 +727,9 @@ struct object *dynamic_byte_array_push(struct object *dba, struct object *value)
   return NIL;
 }
 /** pushes a single byte (to avoid wrapping in a fixnum object) */
-struct object *dynamic_byte_array_push_char(struct object *dba, char x) {
+void dynamic_byte_array_push_char(struct object *dba, char x) {
   dynamic_byte_array_ensure_capacity(dba);
   DYNAMIC_BYTE_ARRAY_BYTES(dba)[DYNAMIC_BYTE_ARRAY_LENGTH(dba)++] = x;
-  return NIL;
 }
 void dynamic_byte_array_force_cstr(struct object *dba) { /* uses the data outside of the dynamic array to work as a null terminated string */
   dynamic_byte_array_push_char(dba, '\0'); /* TODO: could be improved to check if there is already a null byte at the end */
@@ -720,7 +745,7 @@ struct object *dynamic_byte_array_push_all(struct object *dba0, struct object *d
   return NIL;
 }
 
-struct object *dynamic_byte_array_insert_char(struct object *dba, ufixnum_t i, char x) {
+void dynamic_byte_array_insert_char(struct object *dba, ufixnum_t i, char x) {
   ufixnum_t j;
 
   dynamic_byte_array_ensure_capacity(dba);
@@ -729,8 +754,8 @@ struct object *dynamic_byte_array_insert_char(struct object *dba, ufixnum_t i, c
   }
   DYNAMIC_BYTE_ARRAY_BYTES(dba)[i] = x;
   ++DYNAMIC_BYTE_ARRAY_LENGTH(dba);
-  return NIL;
 }
+
 struct object *dynamic_byte_array_pop(struct object *dba) {
   TC2("dynamic_byte_array_pop", 0, dba, type_dynamic_byte_array, type_string);
   if (DYNAMIC_BYTE_ARRAY_LENGTH(dba) < 1) {
@@ -3465,6 +3490,7 @@ struct object *peek() {
 }
 
 void dup() {
+  printf("dup\n");
   dynamic_array_push(gis->data_stack, DYNAMIC_ARRAY_VALUES(gis->data_stack)[DYNAMIC_ARRAY_LENGTH(gis->data_stack) - 1]);
 }
 
@@ -3543,7 +3569,10 @@ void eval_builtin(struct object *f) {
   }                                                                  \
   c0 = constants->values[a0];
 
-#define STACK_I(i) DYNAMIC_ARRAY_VALUES(gis->data_stack)[DYNAMIC_ARRAY_LENGTH(gis->data_stack) - 1 - (i)]
+/* Gets the item in the data stack at the index i. (e.g. STACK_I(0) is the top of the stack) */
+#define STACK_I(i)                      \
+  DYNAMIC_ARRAY_VALUES(gis->data_stack) \
+  [DYNAMIC_ARRAY_LENGTH(gis->data_stack) - 1 - (i)]
 
 /* returns the top of the stack for convience */
 /* evaluates gis->function starting at instruction gis->i */
@@ -3574,14 +3603,12 @@ struct object *run(struct gis *gis) {
      (and pushing the old i and bc to the call-stack) */
 
   eval_restart:
-  printf("eval_restart top\n");
   f = symbol_get_value(gis->f_symbol);
-  code = f->w1.value.function->code->w1.value.dynamic_byte_array;
-  constants = f->w1.value.function->constants->w1.value.dynamic_array;
+  code = FUNCTION_CODE(f)->w1.value.dynamic_byte_array;
+  constants = FUNCTION_CONSTANTS(f)->w1.value.dynamic_array;
   constants_length = constants->length;
   byte_count = code->length;
   i = symbol_get_value(gis->i_symbol);
-  printf("eval_restart bot\n");
 
   while (UFIXNUM_VALUE(i) < byte_count) {
     op = code->bytes[UFIXNUM_VALUE(i)];
@@ -3643,7 +3670,7 @@ struct object *run(struct gis *gis) {
         STACK_I(0) = FIXNUM_VALUE(STACK_I(0)) < FIXNUM_VALUE(v1) ? T : NIL; /* TODO: support flonum/ufixnum */
         break;
       case op_lti: /* lti <n> ( x -- x<n ) */
-        SC("lt", 1);
+        SC("lti", 1);
         READ_OP_ARG();
         STACK_I(0) = FIXNUM_VALUE(STACK_I(0)) < a0 ? T : NIL; /* TODO: support flonum/ufixnum */
         break;
@@ -3701,13 +3728,13 @@ struct object *run(struct gis *gis) {
         break;
       case op_list: /* list <n> ( ...n... -- ) */
         READ_OP_ARG();
-        if (a0 == 0) break;
+        if (a0 == 0) push(NIL);
         else if (a0 == 1) STACK_I(0) = cons(STACK_I(0), NIL);
         else {
           STACK_I(0) = cons(STACK_I(0), NIL);
-          for (a1 = 1; a1 < a0; ++a1) {
+          for (a1 = 1; a1 < a0; ++a1)
             STACK_I(0) = cons(STACK_I(a1), STACK_I(0));
-          }
+          /* set the earliest stack item to be the result, because so we can simply update the data stack's count to pop the args */
           STACK_I(a0 - 1) = STACK_I(0);
           gis->data_stack->w1.value.dynamic_array->length -= a0 - 1;
         }
@@ -3729,15 +3756,39 @@ struct object *run(struct gis *gis) {
         push(NIL);
         break;
       case op_const_0:
+        #ifdef RUN_TIME_CHECKS
+          if (constants->length < 1) {
+            printf("Out of bounds of constants vector.");
+            exit(1);
+          }
+        #endif
         push(constants->values[0]);
         break;
       case op_const_1:
+        #ifdef RUN_TIME_CHECKS
+          if (constants->length < 2) {
+            printf("Out of bounds of constants vector.");
+            exit(1);
+          }
+        #endif
         push(constants->values[1]);
         break;
       case op_const_2:
+        #ifdef RUN_TIME_CHECKS
+          if (constants->length < 3) {
+            printf("Out of bounds of constants vector.");
+            exit(1);
+          }
+        #endif
         push(constants->values[2]);
         break;
       case op_const_3:
+        #ifdef RUN_TIME_CHECKS
+          if (constants->length < 4) {
+            printf("Out of bounds of constants vector.");
+            exit(1);
+          }
+        #endif
         push(constants->values[3]);
         break;
       case op_const: /* const ( -- x ) */
@@ -3784,7 +3835,7 @@ struct object *run(struct gis *gis) {
       case op_call_symbol_function: /* an optimization for calling a function given a symbol */
       case op_call_function: /* call-function <n> ( arg_0...arg_n fun -- ) */
         READ_OP_ARG();
-        printf("CALL_FUCNTION\n");
+        SC("call_function", a0);
         temp_i = i;
         temp_f = f;
         /* set the new function */
@@ -3793,7 +3844,6 @@ struct object *run(struct gis *gis) {
         } else {
           f = STACK_I(0);
         }
-        printf("got f\n");
 
         /* if this is a foreign function */
         if (get_object_type(f) == type_ffun) {
@@ -3888,48 +3938,37 @@ struct object *run(struct gis *gis) {
           printf("Attempted to call a non-function object.");
           exit(1);
         }
-        printf("not ff\n");
 
         /* f_symbol */
         symbol_set_value(gis->f_symbol, f);
-        printf("f_symbol was set\n");
 
         /* transfer arguments from data stack to call stack */
         for (a1 = a0; a1 > 0; --a1) {
           dynamic_array_push(gis->call_stack, STACK_I(a1));
         }
 
-        printf("transfered args to call stack\n");
         /* remove all arguments and the function from the data stack at once */
         DYNAMIC_ARRAY_LENGTH(gis->data_stack) -= a0 + 1;
 
-        printf("remove all args and functino\n");
         /* initialize any temps with NIL -- could be improved by just adding to the call stack's length */
         for (a1 = 0; a1 < FUNCTION_STACK_SIZE(f) - FUNCTION_NARGS(f); ++a1) {
           dynamic_array_push(gis->call_stack, NIL);
         }
         
-        printf("initialize temps to nil\n");
         /* save the instruction index, and function */
         UFIXNUM_VALUE(i) += 1; /* resume at the next instruction */
         dynamic_array_push(gis->call_stack, temp_i);
-        printf("inc i %p\n", temp_f);
-        printf("%d %d \n", (int)DYNAMIC_ARRAY_LENGTH(gis->call_stack), (int)DYNAMIC_ARRAY_CAPACITY(gis->call_stack));
         dynamic_array_push(gis->call_stack, temp_f);
-        printf("push tempi tempf\n");
         if (FUNCTION_IS_BUILTIN(f)) {
-          printf("builtin\n");
           symbol_set_value(gis->i_symbol, NIL); /* a NIL instruction index -- for consistency gis->i of NIL should be set for all builtins */
           eval_builtin(f);
           goto return_function_label; /* return */
         } else {
-          printf("is not builtin\n");
           symbol_set_value(gis->i_symbol, ufixnum(0)); /* start the bytecode interpreter at the first instruction */
           goto eval_restart; /* restart the evaluation loop */
         }
       case op_return_function: /* return-function ( x -- ) */
         return_function_label:
-        printf("RET START\n");
         #ifdef RUN_TIME_CHECKS
         if (DYNAMIC_ARRAY_LENGTH(gis->call_stack) == FUNCTION_STACK_SIZE(f)) {
           printf("Attempted to return from top-level.");
@@ -3952,12 +3991,9 @@ struct object *run(struct gis *gis) {
               DYNAMIC_ARRAY_VALUES(
                   gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 1]);
           symbol_set_value(gis->i_symbol, DYNAMIC_ARRAY_VALUES(gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 2]);
-          printf("call stack %d\n", DYNAMIC_ARRAY_LENGTH(gis->call_stack));
           /* pop off all stack arguments, then pop bc, then pop instruction
            * index */
           DYNAMIC_ARRAY_LENGTH(gis->call_stack) -= ufix0;
-          print(gis->call_stack);
-          printf("RET CLOSE\n");
           goto eval_restart; /* restart the evaluation loop */
         }
       case op_jump: /* jump ( -- ) */
@@ -3973,7 +4009,7 @@ struct object *run(struct gis *gis) {
         continue; /* continue so the usual increment to i doesn't happen */
       case op_print: /* print ( x -- NIL ) */
         SC("print", 1);
-        print_no_newline(pop());
+        print_no_newline(STACK_I(0));
         /* TODO: this polluting the data stack with nils?! */
         STACK_I(0) = NIL;
         break;
