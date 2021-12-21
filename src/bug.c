@@ -186,7 +186,6 @@ void stack_check(char *name, int n, unsigned long i) {
 }
 #endif
 
-
 struct object *get_string_designator(struct object *sd);
 void print(struct object *o);
 
@@ -232,19 +231,18 @@ struct object *vec2(flonum_t x, flonum_t y) {
 }
 
 struct object *dlib(struct object *path) {
-  char *cstring;
-  struct object *o = object(type_dlib);
+  struct object *o;
+  o = object(type_dlib);
   NC(o, "Failed to allocate dlib object.");
   o->w1.value.dlib = malloc(sizeof(struct dlib));
   NC(o->w1.value.dlib, "Failed to allocate dlib.");
   DLIB_PATH(o) = path;
-  cstring = bstring_to_cstring(path);
-  DLIB_PTR(o) = LoadLibrary(cstring);
+  dynamic_byte_array_force_cstr(path);
+  DLIB_PTR(o) = LoadLibrary(STRING_CONTENTS(path));
   if (DLIB_PTR(o) == NULL) {
-    printf("Failed to load dynamic library %s.", cstring);
+    printf("Failed to load dynamic library %s.", STRING_CONTENTS(o));
     exit(1);
   }
-  free(cstring);
   return o;
 }
 
@@ -345,13 +343,14 @@ struct object *dynamic_array(fixnum_t initial_capacity) {
   o->w1.value.dynamic_array = malloc(sizeof(struct dynamic_array));
   NC(o->w1.value.dynamic_array, "Failed to allocate dynamic-array.");
   DYNAMIC_ARRAY_CAPACITY(o) = initial_capacity < 0 ? DEFAULT_INITIAL_CAPACITY : initial_capacity;
-  o->w1.value.dynamic_array->values = malloc(initial_capacity * sizeof(struct object));
+  DYNAMIC_ARRAY_VALUES(o) = malloc(DYNAMIC_ARRAY_CAPACITY(o) * sizeof(struct object*));
   NC(DYNAMIC_ARRAY_VALUES(o), "Failed to allocate dynamic-array values array.");
   DYNAMIC_ARRAY_LENGTH(o) = 0;
   return o;
 }
 
 void dynamic_byte_array_force_cstr(struct object *dba);
+
 struct object *dynamic_byte_array(ufixnum_t initial_capacity) {
   struct object *o;
   o = object(type_dynamic_byte_array);
@@ -464,8 +463,11 @@ struct object *function(struct object *constants, struct object *code, ufixnum_t
 
 struct object *string(char *contents) {
   struct object *o;
-  ufixnum_t length = strlen(contents);
-  o = dynamic_byte_array(length);
+  ufixnum_t length;
+  length = strlen(contents);
+  o = dynamic_byte_array(length); /* passing length as the capacity so capacity will always be just enough 
+                                     -- it might be worth adding some to the capacity here. 
+                                     I would have to test that to confirm its worth. */
   OBJECT_TYPE(o) = type_string;
   memcpy(DYNAMIC_BYTE_ARRAY_BYTES(o), contents, length);
   DYNAMIC_BYTE_ARRAY_LENGTH(o) = length;
@@ -496,7 +498,9 @@ struct object *package(struct object *name, struct object *packages) {
 }
 
 struct object *cons(struct object *car, struct object *cdr) {
-  struct object *o = object(type_cons);
+  struct object *o;
+  o = object(type_cons);
+  NC(o, "Failed to allocate cons object.");
   o->w0.car = car;
   o->w1.cdr = cdr;
   return o;
@@ -508,16 +512,20 @@ struct object *symbol(struct object *name) {
   NC(o, "Failed to allocate symbol object.");
   o->w1.value.symbol = malloc(sizeof(struct symbol));
   NC(o->w1.value.symbol, "Failed to allocate symbol.");
+
   SYMBOL_NAME(o) = name;
   SYMBOL_PLIST(o) = NIL;
   SYMBOL_PACKAGE(o) = NIL;
   SYMBOL_IS_EXTERNAL(o) = 0;
+
   SYMBOL_VALUE_IS_SET(o) = 0;
   SYMBOL_FUNCTION_IS_SET(o) = 0;
   SYMBOL_STRUCTURE_IS_SET(o) = 0;
+
   SYMBOL_FUNCTION(o) = NIL;
   SYMBOL_VALUE(o) = NIL;
   SYMBOL_STRUCTURE(o) = NIL;
+
   return o;
 }
 
@@ -546,18 +554,15 @@ struct object *file_stdout() {
 struct object *open_file(struct object *path, struct object *mode) {
   FILE *fp;
   struct object *o;
-  char *path_cs, *mode_cs;
 
-  path_cs = bstring_to_cstring(path);
-  mode_cs = bstring_to_cstring(mode);
+  dynamic_byte_array_force_cstr(path);
+  dynamic_byte_array_force_cstr(mode);
 
-  fp = fopen(path_cs, mode_cs);
+  fp = fopen(STRING_CONTENTS(path), STRING_CONTENTS(mode));
 
   if (fp == NULL) {
-    printf("BC: Failed to open file at path %s with mode %s.\n", path_cs,
-           mode_cs);
-    free(path_cs);
-    free(mode_cs);
+    printf("BC: Failed to open file at path %s with mode %s.\n", STRING_CONTENTS(path),
+           STRING_CONTENTS(path));
     exit(1);
   }
 
@@ -567,19 +572,18 @@ struct object *open_file(struct object *path, struct object *mode) {
   NC(o->w1.value.file, "Failed to allocate file value.");
 
   FILE_FP(o) = fp;
-  FILE_MODE(o) = string(mode_cs);
-  FILE_PATH(o) = string(path_cs);
-
-  free(path_cs);
-  free(mode_cs);
+  FILE_PATH(o) = string(STRING_CONTENTS(path)); /* clones the string */
+  FILE_MODE(o) = string(STRING_CONTENTS(mode)); /* clones the string */
 
   return o;
 }
 
-struct object *close_file(struct object *file) {
+void close_file(struct object *file) {
   TC("close_file", 0, file, type_file);
-  fclose(FILE_FP(file)); /* TODO: handle failure */
-  return NIL;
+  if (!fclose(FILE_FP(file))) {
+    printf("failed to close file\n");
+    exit(1);
+  }
 }
 
 /*
@@ -611,17 +615,32 @@ struct object *dynamic_array_length(struct object *da) {
   return fixnum(DYNAMIC_ARRAY_LENGTH(da));
 }
 void dynamic_array_ensure_capacity(struct object *da) {
+  struct object **values, **nv;
+  size_t size; 
   if (DYNAMIC_ARRAY_LENGTH(da) >= DYNAMIC_ARRAY_CAPACITY(da)) {
+    printf("exceeded cap\n");
     DYNAMIC_ARRAY_CAPACITY(da) = (DYNAMIC_ARRAY_LENGTH(da) + 1) * 3/2.0;
-    DYNAMIC_ARRAY_VALUES(da) = realloc(DYNAMIC_ARRAY_VALUES(da), DYNAMIC_ARRAY_CAPACITY(da) * sizeof(struct object*));
+    printf("updated cap %I64d %p %I64d\n", DYNAMIC_ARRAY_CAPACITY(da), DYNAMIC_ARRAY_VALUES(da), DYNAMIC_ARRAY_CAPACITY(da) * sizeof(struct object*));
+    printf("bugin\n");
+    values = DYNAMIC_ARRAY_VALUES(da);
+    printf("got values\n");
+    size = DYNAMIC_ARRAY_CAPACITY(da) * sizeof(struct object*);
+    printf("got size\n");
+    nv = realloc(values, size);
+    printf("realloc\n");
+    DYNAMIC_ARRAY_VALUES(da) = nv;
+    printf("set arr values\n");
     if (DYNAMIC_ARRAY_VALUES(da) == NULL) {
       printf("BC: Failed to realloc dynamic-array.");
       exit(1);
     }
+  printf("cap adjusted %d %d \n", (int)DYNAMIC_ARRAY_LENGTH(da),
+         (int)DYNAMIC_ARRAY_CAPACITY(da));
   }
 }
 void dynamic_array_push(struct object *da, struct object *value) {
   TC("dynamic_array_push", 0, da, type_dynamic_array);
+  printf("before ensure cap\n");
   dynamic_array_ensure_capacity(da);
   DYNAMIC_ARRAY_VALUES(da)[DYNAMIC_ARRAY_LENGTH(da)++] = value;
 }
@@ -688,7 +707,7 @@ struct object *dynamic_byte_array_push_char(struct object *dba, char x) {
   return NIL;
 }
 void dynamic_byte_array_force_cstr(struct object *dba) { /* uses the data outside of the dynamic array to work as a null terminated string */
-  dynamic_byte_array_push_char(dba, '\0');
+  dynamic_byte_array_push_char(dba, '\0'); /* TODO: could be improved to check if there is already a null byte at the end */
   DYNAMIC_BYTE_ARRAY_LENGTH(dba) -= 1;
 }
 /** pushes all items from dba1 to the end of dba0 */
@@ -3555,12 +3574,14 @@ struct object *run(struct gis *gis) {
      (and pushing the old i and bc to the call-stack) */
 
   eval_restart:
+  printf("eval_restart top\n");
   f = symbol_get_value(gis->f_symbol);
   code = f->w1.value.function->code->w1.value.dynamic_byte_array;
   constants = f->w1.value.function->constants->w1.value.dynamic_array;
   constants_length = constants->length;
   byte_count = code->length;
   i = symbol_get_value(gis->i_symbol);
+  printf("eval_restart bot\n");
 
   while (UFIXNUM_VALUE(i) < byte_count) {
     op = code->bytes[UFIXNUM_VALUE(i)];
@@ -3772,6 +3793,7 @@ struct object *run(struct gis *gis) {
         } else {
           f = STACK_I(0);
         }
+        printf("got f\n");
 
         /* if this is a foreign function */
         if (get_object_type(f) == type_ffun) {
@@ -3866,32 +3888,42 @@ struct object *run(struct gis *gis) {
           printf("Attempted to call a non-function object.");
           exit(1);
         }
+        printf("not ff\n");
 
         /* f_symbol */
         symbol_set_value(gis->f_symbol, f);
+        printf("f_symbol was set\n");
 
         /* transfer arguments from data stack to call stack */
         for (a1 = a0; a1 > 0; --a1) {
           dynamic_array_push(gis->call_stack, STACK_I(a1));
         }
 
+        printf("transfered args to call stack\n");
         /* remove all arguments and the function from the data stack at once */
         DYNAMIC_ARRAY_LENGTH(gis->data_stack) -= a0 + 1;
 
+        printf("remove all args and functino\n");
         /* initialize any temps with NIL -- could be improved by just adding to the call stack's length */
         for (a1 = 0; a1 < FUNCTION_STACK_SIZE(f) - FUNCTION_NARGS(f); ++a1) {
           dynamic_array_push(gis->call_stack, NIL);
         }
         
+        printf("initialize temps to nil\n");
         /* save the instruction index, and function */
         UFIXNUM_VALUE(i) += 1; /* resume at the next instruction */
         dynamic_array_push(gis->call_stack, temp_i);
+        printf("inc i %p\n", temp_f);
+        printf("%d %d \n", (int)DYNAMIC_ARRAY_LENGTH(gis->call_stack), (int)DYNAMIC_ARRAY_CAPACITY(gis->call_stack));
         dynamic_array_push(gis->call_stack, temp_f);
+        printf("push tempi tempf\n");
         if (FUNCTION_IS_BUILTIN(f)) {
+          printf("builtin\n");
           symbol_set_value(gis->i_symbol, NIL); /* a NIL instruction index -- for consistency gis->i of NIL should be set for all builtins */
           eval_builtin(f);
           goto return_function_label; /* return */
         } else {
+          printf("is not builtin\n");
           symbol_set_value(gis->i_symbol, ufixnum(0)); /* start the bytecode interpreter at the first instruction */
           goto eval_restart; /* restart the evaluation loop */
         }
