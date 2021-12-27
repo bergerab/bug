@@ -1,0 +1,6 @@
+* TODO
+- implement interface for SDL
+- implement garbage collector
+  - fix all bugs caused by not calling free for 5,000 lines of code :'-)
+- write the compiler in bug
+- implement TCO
