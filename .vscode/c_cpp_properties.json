@@ -11,8 +11,7 @@
                 "_UNICODE"
             ],
             "compilerPath": "C:\\Strawberry\\c\\bin\\gcc.exe",
-            "cStandard": "c17",
-            "cppStandard": "c++17",
+            "cStandard": "c89",
             "intelliSenseMode": "windows-gcc-x64"
         }
     ],

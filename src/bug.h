@@ -123,6 +123,7 @@ typedef double flonum_t;
 #define STRUCTURE_FIELDS(o) o->w1.value.structure->fields
 #define STRUCTURE_TYPE(o) o->w1.value.structure->type
 #define STRUCTURE_NFIELDS(o) o->w1.value.structure->nfields
+#define STRUCTURE_OFFSETS(o) o->w1.value.structure->offsets
 
 #define FFUN_FFNAME(o) o->w1.value.ffun->ffname
 #define FFUN_DLIB(o) o->w1.value.ffun->dlib
@@ -210,9 +211,12 @@ enum type {
   type_vec2 = 54,
   type_dlib = 58, /** dynamic library */
   type_ffun = 62, /** foreign function (function from a dynamic library) */
-  type_ptr = 66, /** used in FFI */
-  type_struct = 70
+  type_struct = 66, /** used in FFI */
+  type_ptr = 70
 };
+/* ATTENTION! when adding a new type, make sure to update this define below!
+   this defines the border between types defined as builtins and the user. */
+#define HIGHEST_TYPE type_ptr
 
 union value {
   fixnum_t fixnum;
@@ -282,6 +286,7 @@ struct structure {
   struct object *name;
   struct object *fields;
   ffi_type *type;
+  size_t *offsets;
   ufixnum_t nfields;
 };
 
@@ -355,6 +360,28 @@ struct gis {
                                        used for any internal strings that shouldn't be repeated in function
                                        for example, frequent use of the same symbol name, or package name would
                                        be put here. */
+
+  struct object *structures;
+
+  struct object *cons_type;
+  struct object *fixnum_type;
+  struct object *ufixnum_type;
+  struct object *flonum_type;
+  struct object *symbol_type;
+  struct object *dynamic_array_type;
+  struct object *string_type;
+  struct object *package_type;
+  struct object *dynamic_byte_array_type;
+  struct object *function_type;
+  struct object *file_type;
+  struct object *enumerator_type;
+  struct object *nil_type;
+  struct object *record_type;
+  struct object vec2_type;
+  struct object dlib_type;
+  struct object ffun_type;
+  struct object struct_type;
+  struct object ptr_type;
 
   struct object *keyword_package;
   struct object *lisp_package;
@@ -479,6 +506,14 @@ struct gis {
   struct object *alloc_struct_symbol;
   struct object *alloc_struct_string;
   struct object *alloc_struct_builtin;
+
+  struct object *get_struct_symbol;
+  struct object *get_struct_string;
+  struct object *get_struct_builtin;
+
+  struct object *set_struct_symbol;
+  struct object *set_struct_string;
+  struct object *set_struct_builtin;
 
   /* cached strings that should be used internally */
   struct object *value_string;

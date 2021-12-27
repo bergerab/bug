@@ -75,9 +75,15 @@ char *get_type_name(enum type t) {
   exit(1);
 }
 
-enum type get_object_type(struct object *o) {
+struct object *get_object_type(struct object *o) {
   if (o == NIL) return type_nil;
-  if (OBJECT_TYPE(o) & 0x2) return OBJECT_TYPE(o);
+  if (OBJECT_TYPE(o) & 2) {
+    if (OBJECT_TYPE(o) > HIGHEST_TYPE) { /* check if this is a struct instance */
+      return (HIGHEST_TYPE >> 2)
+    } else {
+      return OBJECT_TYPE(o);
+    }
+  }
   return type_cons;
 }
 
@@ -422,10 +428,10 @@ struct object *structure(struct object *name, struct object *fields) {
   /* make a new ffi_type object */
   STRUCTURE_TYPE(o)->size = STRUCTURE_TYPE(o)->alignment = 0;
   STRUCTURE_TYPE(o)->type = FFI_TYPE_STRUCT;
-  STRUCTURE_TYPE(o)->elements = malloc(sizeof(ffi_type *) * (count(CONS_CDR(o)) + 1)); /* TODO: make sure to free this */
+  STRUCTURE_TYPE(o)->elements = malloc(sizeof(ffi_type *) * (count(CONS_CDR(fields)) + 1)); /* TODO: make sure to free this */
 
   i = 0;
-  cursor = CONS_CDR(o);
+  cursor = CONS_CDR(fields);
   while (cursor != NIL) {
     type = CONS_CAR(CONS_CDR(CONS_CAR(cursor)));
     STRUCTURE_TYPE(o)->elements[i] = ffi_type_designator_to_ffi_type(type);
@@ -433,6 +439,13 @@ struct object *structure(struct object *name, struct object *fields) {
     cursor = CONS_CDR(cursor);
   }
   STRUCTURE_TYPE(o)->elements[i] = NULL; /* must be null terminated */
+
+  STRUCTURE_NFIELDS(o) = i;
+
+  STRUCTURE_OFFSETS(o) = malloc(sizeof(size_t) * i); /* TODO: GC clean up */ /* TODO: does this need a +1? I removed it not sure why it was ever there */
+  ffi_get_struct_offsets(FFI_DEFAULT_ABI, STRUCTURE_TYPE(o), STRUCTURE_OFFSETS(o));
+
+  dynamic_array_push(gis->structures, o);
 
   return o;
 }
@@ -442,6 +455,58 @@ struct object *pointer(void *ptr) {
   NC(o, "Failed to allocate pointer object.");
   OBJECT_POINTER(o) = ptr;
   return o;
+}
+
+struct object *alloc_struct_builtin(struct object *structure, char init_defaults) {
+  struct object *o;
+  struct object *instance;
+  size_t i, nfields;
+  ffi_type *t;
+  uint8_t default_uint8_val;
+  int default_sint_val;
+
+  /* iterate over struct ffi types and input */
+  t = STRUCTURE_TYPE(structure);
+  instance = malloc(t->size); /* TODO: GC clean this up */
+  if (instance == NULL) {
+    printf("failed to malloc struct for ffi.");
+    exit(1);
+  }
+
+  o = pointer(instance);
+
+  if (init_defaults) {
+    /* fill struct with default values */
+    i = 0;
+    nfields = STRUCTURE_NFIELDS(structure);
+    for (; i < nfields; ++i) {
+      if (t->elements[i] == &ffi_type_sint) {
+        default_sint_val = 0;
+        /* arithemtic can't be done on void* (size of elements is unknown) so
+         * cast to a char* (because we know a4 is # of bytes) */
+        memcpy(&((char *)instance)[STRUCTURE_OFFSETS(structure)[i]], &default_sint_val, sizeof(int));
+      } else if (t->elements[i] == &ffi_type_uint8) {
+        default_uint8_val = 0;
+        /* arithemtic can't be done on void* (size of elements is unknown) so
+         * cast to a char* (because we know a4 is # of bytes) */
+        memcpy(&((char *)instance)[STRUCTURE_OFFSETS(structure)[i]], &default_uint8_val, sizeof(uint8_t));
+        /*((char*)instance)[offsets[a3]] = FIXNUM_VALUE(CONS_CAR(cursor2));*/
+        /* why didn't this work?  */
+      } else {
+        printf("Unknown value when populating struct");
+        exit(1);
+      }
+    }
+  }
+  return o;
+}
+
+struct object *get_struct(struct object *instance, struct object *sdes) {
+
+}
+
+void set_struct(struct object *instance, struct object *sdes, struct object *value) {
+  
 }
 
 struct object *function(struct object *constants, struct object *code, ufixnum_t stack_size) {
@@ -1495,6 +1560,8 @@ void gis_init(char load_core) {
   PACKAGE_SYMBOLS(gis->lisp_package) = cons(NIL, PACKAGE_SYMBOLS(gis->lisp_package));
   symbol_export(NIL); /* export nil */
 
+  gis->structures = dynamic_array(100);
+
   /* initialize packages (note: lisp package is above for nil bootstrap) */
   gis->keyword_string = string("keyword");
   gis->keyword_package = package(gis->keyword_string, NIL);
@@ -1646,6 +1713,18 @@ void gis_init(char load_core) {
   FUNCTION_IS_BUILTIN(gis->alloc_struct_builtin) = 1;
   FUNCTION_NARGS(gis->alloc_struct_builtin) = 1;
   symbol_set_function(gis->alloc_struct_symbol, gis->alloc_struct_builtin);
+
+  GIS_SYM(get_struct_symbol, get_struct_string, "get-struct", impl_package);
+  gis->get_struct_builtin = function(NIL, NIL, 2);
+  FUNCTION_IS_BUILTIN(gis->get_struct_builtin) = 1;
+  FUNCTION_NARGS(gis->get_struct_builtin) = 2;
+  symbol_set_function(gis->get_struct_symbol, gis->get_struct_builtin);
+
+  GIS_SYM(set_struct_symbol, set_struct_string, "set-struct", impl_package);
+  gis->set_struct_builtin = function(NIL, NIL, 3);
+  FUNCTION_IS_BUILTIN(gis->set_struct_builtin) = 1;
+  FUNCTION_NARGS(gis->set_struct_builtin) = 3;
+  symbol_set_function(gis->set_struct_symbol, gis->set_struct_builtin);
 
   /* TODO */
   GIS_SYM(eval_symbol, eval_string, "eval", impl_package);
@@ -3490,7 +3569,6 @@ struct object *peek() {
 }
 
 void dup() {
-  printf("dup\n");
   dynamic_array_push(gis->data_stack, DYNAMIC_ARRAY_VALUES(gis->data_stack)[DYNAMIC_ARRAY_LENGTH(gis->data_stack) - 1]);
 }
 
@@ -3520,6 +3598,14 @@ void eval_builtin(struct object *f) {
     push(get_object_type_symbol(GET_LOCAL(0)));
   } else if (f == gis->struct_builtin) {
     push(structure(GET_LOCAL(0), GET_LOCAL(1)));
+  } else if (f == gis->alloc_struct_builtin) {
+    push(alloc_struct_builtin(GET_LOCAL(0), 1));
+  } else if (f == gis->get_struct_builtin) {
+    push(get_struct(GET_LOCAL(0), GET_LOCAL(1)));
+  } else if (f == gis->set_struct_builtin) {
+    set_struct(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2));
+    push(NIL);
+  } else if (f == gis->alloc_struct_builtin) {
   } else if (f == gis->dynamic_library_builtin) {
     push(dlib(GET_LOCAL(0)));
   } else if (f == gis->foreign_function_builtin) {
@@ -3528,7 +3614,8 @@ void eval_builtin(struct object *f) {
     TC("package-symbols", 0, GET_LOCAL(0), type_package);
     push(PACKAGE_SYMBOLS(GET_LOCAL(0)));
   } else {
-
+    printf("Unknown builtin\n");
+    exit(1);
   }
 }
 
@@ -3581,14 +3668,12 @@ struct object *run(struct gis *gis) {
   unsigned long byte_count, op_arg_byte_count; /* number of  bytes in this bytecode */
   unsigned char t0, op;        /* temporary for reading bytecode arguments */
   unsigned long a0, a1;       /* the arguments for bytecode parameters */
-  unsigned long a2, a3, a4;
-  size_t *offsets; /* for struct ffi */
-  uint8_t uint8_val;
+  unsigned long a2;
   long sa0; /* argument for jumps */
   struct object *v0, *v1; /* temps for values popped off the stack */
   struct object *c0; /* temps for constants (used for bytecode arguments) */
   struct object *temp_i, *temp_f, *f;
-  struct object *cursor, *cursor2;
+  struct object *cursor;
   struct dynamic_byte_array
       *code; /* the byte array containing the bytes in the bytecode */
   struct dynamic_array *constants; /* the constants array */
@@ -3598,7 +3683,6 @@ struct object *run(struct gis *gis) {
   void *arg_values[MAX_FFI_NARGS]; /* for calling foreign functions */
   ffi_sarg sresult; /* signed result */
   void *ptr_result;
-  void *vp; /* for creating structs ffi */
   /* jump to this label after setting a new gis->i and gis->f 
      (and pushing the old i and bc to the call-stack) */
 
@@ -3866,50 +3950,6 @@ struct object *run(struct gis *gis) {
             } else if (get_object_type(STACK_I(a1)) == type_ptr) {
               arg_values[a2] = &OBJECT_POINTER(STACK_I(a1));
             } else if (get_object_type(STACK_I(a1)) == type_cons) { /* convert to struct* */
-              /* vp = */
-              /* iterate over struct ffi types and input */
-              vp = malloc(FFUN_ARGTYPES(f)[a2]->size); /* TODO: GC clean this up */
-              if (vp == NULL) {
-                printf("failed to malloc struct for ffi.");
-                exit(1);
-              }
-
-              /* fill struct with values */
-              a3 = 0;
-              a4 = count_nta((void**)(FFUN_ARGTYPES(f)[a2]->elements));
-              offsets = malloc(sizeof(size_t) * a4 + 1); /* TODO: GC clean up */
-              ffi_get_struct_offsets(FFI_DEFAULT_ABI, FFUN_ARGTYPES(f)[a2],
-                                     offsets);
-              cursor2 = STACK_I(a1);
-              for (; a3 < a4; ++a3) {
-                if (cursor2 == NIL) {
-                  printf("Insufficient arguments to struct.");
-                  exit(1);
-                }
-                if (FFUN_ARGTYPES(f)[a2]->elements[a3] == &ffi_type_sint) {
-                  if (get_object_type(CONS_CAR(cursor2)) != type_fixnum) {
-                    printf("struct expected fixnum.");
-                    exit(1);
-                  }
-                  /* arithemtic can't be done on void* (size of elements is unknown) so cast to a char* (because we know a4 is # of bytes) */
-                  memcpy(&((char*)vp)[offsets[a3]], &FIXNUM_VALUE(CONS_CAR(cursor2)), sizeof(int));
-                } else if (FFUN_ARGTYPES(f)[a2]->elements[a3] == &ffi_type_uint8) {
-                  if (get_object_type(CONS_CAR(cursor2)) != type_fixnum) {
-                    printf("struct expected fixnum.");
-                    exit(1);
-                  }
-                  uint8_val = FIXNUM_VALUE(CONS_CAR(cursor2));
-                  /* arithemtic can't be done on void* (size of elements is unknown) so cast to a char* (because we know a4 is # of bytes) */
-                  memcpy(&((char*)vp)[offsets[a3]], &uint8_val, sizeof(uint8_t));
-                  /*((char*)vp)[offsets[a3]] = FIXNUM_VALUE(CONS_CAR(cursor2));*/ /* why didn't this work? */
-                } else {
-                  printf("Unknown value when populating struct");
-                  exit(1);
-                }
-                cursor2 = CONS_CDR(cursor2);
-              }
-
-              arg_values[a2] = vp;
             } else {
               printf("Argument not supported for foreign functions.");
             }

@@ -331,9 +331,9 @@
 	(render-loop 0))
 
 "(sdl-test)"
-"
+
+(print "before")
 (impl:struct 'ivec2
 	'((x ffi:int)
 		(y ffi:int)))
-		"
-(print "it worked!")
+(print "after")
