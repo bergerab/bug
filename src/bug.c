@@ -26,6 +26,7 @@ void dynamic_byte_array_force_cstr(struct object *dba);
 void dynamic_array_push(struct object *da, struct object *value);
 void dynamic_array_push_no_val(struct object *da, struct object *value);
 struct object *dynamic_array_get_ufixnum_t(struct object *da, ufixnum_t index);
+struct object *dynamic_array_get_ufixnum_t_no_val(struct object *da, ufixnum_t index);
 
 /*===============================*
  *===============================*
@@ -48,8 +49,10 @@ char *type_name_cstr(struct object *o) {
 /* returns object of type type. */
 struct object *type_of(struct object *o) {
   if (o == NIL) return gis->nil_type;
-  if (OBJECT_TYPE(o) & 2)
-    return dynamic_array_get_ufixnum_t(gis->types, OBJECT_TYPE(o) >> 2);
+  if (OBJECT_TYPE(o) & 2) {
+    /* cannot use validation here, because validation calls type_of and infinitely recurses */
+    return dynamic_array_get_ufixnum_t_no_val(gis->types, OBJECT_TYPE(o) >> 2);
+  }
   return gis->cons_type;
 }
 
@@ -106,7 +109,7 @@ void type_check(char *name, unsigned int argument, struct object *o,
     printf(
         "BC: Function \"%s\" was called with an invalid argument "
         "at index %d. Expected type %s, but was %s.\n",
-        name, argument, type_name_cstr(t), type_name_cstr(o));
+        name, argument, type_name_cstr(t), type_name_of_cstr(o));
     exit(1);
   }
 }
@@ -607,6 +610,9 @@ void close_file(struct object *file) {
 /*
  * Dynamic Array
  */
+struct object *dynamic_array_get_ufixnum_t_no_val(struct object *da, ufixnum_t index) {
+  return DYNAMIC_ARRAY_VALUES(da)[index];
+}
 struct object *dynamic_array_get_ufixnum_t(struct object *da, ufixnum_t index) {
   TC("dynamic_array_get", 0, da, gis->dynamic_array_type);
   #ifdef RUN_TIME_CHECKS
@@ -1075,8 +1081,8 @@ struct object *do_to_string(struct object *o, char repr) {
     dynamic_byte_array_push_char(str, '>');
     return str;
   } else if (t == gis->type_type) {
-    str = string("<struct ");
-    str = dynamic_byte_array_concat(str, STRUCTURE_NAME(o));
+    str = string("<type ");
+    str = dynamic_byte_array_concat(str, TYPE_NAME(o));
     dynamic_byte_array_push_char(str, '>');
     return str;
   } else {
@@ -1360,7 +1366,7 @@ struct object *find_symbol(struct object *string, struct object *package, char i
 struct object *intern(struct object *string, struct object *package) {
   struct object *sym;
 
-  TC("intern", 0, string, gis->type_type);
+  TC("intern", 0, string, gis->string_type);
   TC2("intern", 1, package, gis->package_type, gis->nil_type);
 
   sym = do_find_symbol(string, package, 1);
@@ -1532,7 +1538,7 @@ void gis_init(char load_core) {
 
   /* builtin types */
   /* IMPORTANT -- the ordering these types are added to the types array must match the order they are defined in bug.h for the type enum */
-  printf("INIT TYPES\n");
+  /* type_of cannot be called before this is setup */
   gis->type_string = string("type"); gis->type_type = type(gis->type_string);
   gis->cons_string = string("cons"); gis->cons_type= type(gis->cons_string);
   gis->fixnum_string = string("fixnum"); gis->fixnum_type = type(gis->fixnum_string);
@@ -1578,8 +1584,6 @@ void gis_init(char load_core) {
   /* strings that will be re-used. the strings should NEVER be modified */
   /* TODO */
   gis->interned_strings = dynamic_array(100);
-
-
 
   printf("start gis sym\n");
 
