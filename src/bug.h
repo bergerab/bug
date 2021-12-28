@@ -125,6 +125,8 @@ typedef double flonum_t;
 #define STRUCTURE_NFIELDS(o) o->w1.value.structure->nfields
 #define STRUCTURE_OFFSETS(o) o->w1.value.structure->offsets
 
+#define TYPE_NAME(o) o->w1.value.type->name
+
 #define FFUN_FFNAME(o) o->w1.value.ffun->ffname
 #define FFUN_DLIB(o) o->w1.value.ffun->dlib
 #define FFUN_PTR(o) o->w1.value.ffun->ptr
@@ -191,7 +193,7 @@ enum ops {
 
 /* The types defined below are not the same as the types that will
    be defined within the language. */
-enum type {
+enum object_type {
   type_cons = 0,    /* ... 0000 0000 */
   type_fixnum = 2,  /* ... 0000 0010 */
   type_ufixnum = 6, /* ... 0000 0110 */
@@ -212,11 +214,12 @@ enum type {
   type_dlib = 58, /** dynamic library */
   type_ffun = 62, /** foreign function (function from a dynamic library) */
   type_struct = 66, /** used in FFI */
-  type_ptr = 70
+  type_ptr = 70,
+  type_type = 74
 };
 /* ATTENTION! when adding a new type, make sure to update this define below!
    this defines the border between types defined as builtins and the user. */
-#define HIGHEST_TYPE type_ptr
+#define HIGHEST_TYPE type_type
 
 union value {
   fixnum_t fixnum;
@@ -233,11 +236,12 @@ union value {
   struct vec2 *vec2;
   struct dlib *dlib;
   struct ffun *ffun;
+  struct type *type;
   void *ptr;
 };
 
 union w0 { /** The first word of an object. */
-  enum type type;
+  enum object_type type;
   struct object *car;
 };
 
@@ -306,6 +310,10 @@ struct ffun {
   ufixnum_t nargs;
 };
 
+struct type {
+  struct object *name;
+};
+
 struct function {
   struct object *name; /** a symbol - optional */
   struct object *code; /** the code (a byte-array) */
@@ -361,27 +369,36 @@ struct gis {
                                        for example, frequent use of the same symbol name, or package name would
                                        be put here. */
 
-  struct object *structures;
+  struct object *types;
 
+  /* Common Lisp types are just symbols and lists.
+     Maybe having a separate type object will have some benefit?
+     For example, if you know something is a type, you can cache (intern) them.
+     If it is just a list and symbols you waste memory when referencing the same thing multiple times.
+     (e.g. Type specifiers look something like: (type (vector 10)) for a vector of max length 10 and bug
+     could replace it with a compile time constant). This would benefit all calls to "type-of" too. The same
+     object would be returned, and they would be immutable. Maybe some Common Lisp impls already makes the lists that can
+     be returned from type-of immutable? */
+  struct object *type_type; struct object *type_string; /* string for "type" */
   struct object *cons_type;
   struct object *fixnum_type;
   struct object *ufixnum_type;
   struct object *flonum_type;
   struct object *symbol_type;
-  struct object *dynamic_array_type;
+  struct object *dynamic_array_type; struct object *dynamic_array_string; /* string for "dynamic-array" */
   struct object *string_type;
   struct object *package_type;
-  struct object *dynamic_byte_array_type;
+  struct object *dynamic_byte_array_type; struct object *dynamic_byte_array_string; /* string for "dynamic-byte-array" */
   struct object *function_type;
-  struct object *file_type;
-  struct object *enumerator_type;
+  struct object *file_type; struct object *file_string;
+  struct object *enumerator_type; struct object *enumerator_string;
   struct object *nil_type;
-  struct object *record_type;
-  struct object vec2_type;
-  struct object dlib_type;
-  struct object ffun_type;
-  struct object struct_type;
-  struct object ptr_type;
+  struct object *record_type; struct object *record_string;
+  struct object *vec2_type; struct object *vec2_string;
+  struct object *dlib_type;
+  struct object *ffun_type;
+  struct object *struct_type;
+  struct object *ptr_type; struct object *pointer_string;
 
   struct object *keyword_package;
   struct object *lisp_package;
