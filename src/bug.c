@@ -474,6 +474,7 @@ struct object *alloc_struct(struct object *structure, char init_defaults) {
 /* get a field's value from a structure instance */
 struct object *get_struct(struct object *instance, struct object *sdes) {
   struct object *cursor, *field, *field_name, *structure;
+  void *ptr;
   ufixnum_t i;
   fixnum_t fix;
   ufixnum_t ufix;
@@ -506,10 +507,19 @@ struct object *get_struct(struct object *instance, struct object *sdes) {
     exit(1);
   }
 
-  /*memcpy(&fix, &((char *)instance)[STRUCTURE_OFFSETS(structure)[i]], sizeof(int));*/
-  return fixnum(*((int*)(&((char *)OBJECT_POINTER(instance))[STRUCTURE_OFFSETS(structure)[i]])));
-
-  /*return fixnum(fix);*/
+  ptr = &((char *)OBJECT_POINTER(instance))[STRUCTURE_OFFSETS(structure)[i]];
+  if (field == gis->ffi_int_symbol) {
+    return fixnum(*(int*)ptr);
+  } else if (field == gis->ffi_char_symbol) {
+    return fixnum(*(char*)ptr);
+  } else if (field == gis->ffi_uint8_symbol) {
+    return fixnum(*(uint8_t*)ptr);
+  } else if (field == gis->ffi_ptr_symbol) {
+    return pointer((void*)ptr);
+  } else {
+    printf("Unsupported field type.");
+    exit(1);
+  }
 }
 
 /* set a field's value from a structure instance */

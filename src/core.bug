@@ -138,13 +138,33 @@
 
 "================= mydll library ====================="
 "FFI testing"
-"TODO: make structs work with ffi"
+(impl:struct 'mydll-ivec2
+	'((x ffi:int)
+	  (y ffi:int)))
 
-(set 'mydll-ivec2 '(ffi:struct ffi:int ffi:int))
-(set 'mydll-rect '(ffi:struct ffi:int ffi:int ffi:int ffi:int))
-(set 'mydll-4 '(ffi:struct ffi:int ffi:int ffi:int ffi:int))
-(set 'mydll-3 '(ffi:struct ffi:uint8 ffi:uint8 ffi:uint8))
-(set 'mydll-color '(ffi:struct ffi:uint8 ffi:uint8 ffi:uint8 ffi:uint8))
+(impl:struct 'mydll-rect
+	'((x ffi:int)
+	  (y ffi:int)
+		(w ffi:int)
+		(h ffi:int)))
+
+(impl:struct 'mydll-quad
+	'((w ffi:int)
+	  (x ffi:int)
+		(y ffi:int)
+		(z ffi:int)))
+
+(impl:struct 'mydll-tri
+	'((x ffi:uint8)
+	  (y ffi:uint8)
+		(z ffi:uint8)))
+
+(impl:struct 'mydll-tri
+	'((r ffi:uint8)
+	  (g ffi:uint8)
+		(b ffi:uint8)
+		(a ffi:uint8)))
+
 (set 'mydll (impl:dynamic-library "experiments/mydll/mydll.dll"))
 
 (set-symbol-function 'print-rect2
@@ -190,7 +210,23 @@
 "========================================================"
 
 "================= sdl2 library ====================="
-(set 'sdl-rect '(ffi:struct ffi:int ffi:int ffi:int ffi:int))
+(impl:struct 'sdl-rect
+	'((x ffi:int)
+		(y ffi:int)
+		(w ffi:int)
+		(h ffi:int)))
+
+(impl:struct 'sdl-keysym
+	'((scancode ffi:uint8)
+		(sym ffi:int)
+		(mod ffi:int)
+		(unicode ffi:uint16)))
+
+(impl:struct 'sdl-keyboard-event
+	'((type ffi:uint8)
+		(state ffi:uint8)
+		(keysym sdl-keysym)))
+
 (set 'sdl2 (impl:dynamic-library "experiments/sdl/SDL2.dll"))
 
 (set-symbol-function 'init
@@ -236,7 +272,7 @@
 (set-symbol-function 'render-copy
   (impl:foreign-function
   	sdl2 'SDL_RenderCopy
-    'ffi:* (list 'ffi:* 'ffi:* sdl-rect sdl-rect)))
+    'ffi:* (list 'ffi:* 'ffi:* 'sdl-rect 'sdl-rect)))
 
 (set-symbol-function 'render-present
   (impl:foreign-function
@@ -250,8 +286,14 @@
 "========================================================"
 
 "================= sdl2-tff library ====================="
-(set 'sdl-color '(ffi:struct ffi:uint8 ffi:uint8 ffi:uint8 ffi:uint8))
+(impl:struct 'sdl-color
+	'((r ffi:uint8)
+		(g ffi:uint8)
+		(b ffi:uint8)
+		(a ffi:uint8)))
+
 (set 'sdl2-ttf (impl:dynamic-library "SDL2_ttf.dll"))
+
 (set-symbol-function 'ttf-init
   (impl:foreign-function
   	sdl2-ttf 'TTF_Init
@@ -263,7 +305,7 @@
 (set-symbol-function 'render-text-solid
   (impl:foreign-function
   	sdl2-ttf 'TTF_RenderText_Solid
-    'ffi:* (list 'ffi:* 'ffi:* sdl-color)))
+    'ffi:* (list 'ffi:* 'ffi:* 'sdl-color)))
 
 "helper functions"
 
@@ -330,14 +372,16 @@
 
 	(render-loop 0))
 
-"(sdl-test)"
+(impl:function struct-test ()
+	(set 'rect (impl:alloc-struct (impl:symbol-struct 'sdl-rect)))
+	(impl:set-struct-field rect 'x 10)
+	(impl:set-struct-field rect 'y 20)
+	(impl:set-struct-field rect 'w 200)
+	(impl:set-struct-field rect 'h 100)
 
-(impl:struct 'ivec2
-	'((x ffi:int)
-		(y ffi:int)))
+	(print rect)
 
-(set 'x (impl:alloc-struct (impl:symbol-struct 'ivec2)))
-(print x)
-
-(impl:set-struct-field x "x" 42)
-(print (impl:struct-field x "x"))
+	(print (impl:struct-field rect 'x))
+	(print (impl:struct-field rect 'y))
+	(print (impl:struct-field rect 'w))
+	(print (impl:struct-field rect 'h)))

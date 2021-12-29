@@ -4,3 +4,17 @@
   - fix all bugs caused by not calling free for 5,000 lines of code :'-)
 - write the compiler in bug
 - implement TCO
+- allow normal types to be put into structs like:
+  - (struct test ((a uint8) (b any) c)) 
+     - both "(b any)" and "c" mean the same thing
+- allow for nested structs
+  - (struct a (my-field))
+  - (struct b ((nested a)))
+- write function for getting primative struct field without creating a new object each time
+  - e.g.:
+       (set 'buffer (make-buffer))
+       (impl:write-struct-field-to-buffer rect 'x buffer)
+  - this could be used as a way of saving space when frequently accessing a struct, or several structs
+- add way of indexing struct fields (to save time instead of using field name)
+  - e.g.:
+      (impl:struct-field-at-index rect 0) gets the "x" component of a rectangle
