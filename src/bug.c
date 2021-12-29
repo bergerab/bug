@@ -28,6 +28,11 @@ void dynamic_array_push_no_val(struct object *da, struct object *value);
 struct object *dynamic_array_get_ufixnum_t(struct object *da, ufixnum_t index);
 struct object *dynamic_array_get_ufixnum_t_no_val(struct object *da, ufixnum_t index);
 
+void symbol_set_structure(struct object *sym, struct object *s);
+
+struct object *get_string_designator(struct object *sd);
+void print(struct object *o);
+
 /*===============================*
  *===============================*
  * Utility Procedures            *
@@ -105,11 +110,13 @@ size_t count_nta(void **arr) {
 #ifdef RUN_TIME_CHECKS
 void type_check(char *name, unsigned int argument, struct object *o,
                 struct object *t) {
-  if (type_of(o) != t) {
+  struct object *t1;
+  t1 = type_of(o);
+  if (t1 != t) {
     printf(
         "BC: Function \"%s\" was called with an invalid argument "
         "at index %d. Expected type %s, but was %s.\n",
-        name, argument, type_name_cstr(t), type_name_of_cstr(o));
+        name, argument, type_name_cstr(t), type_name_cstr(t1));
     exit(1);
   }
 }
@@ -139,9 +146,6 @@ void stack_check(char *name, int n, unsigned long i) {
   }
 }
 #endif
-
-struct object *get_string_designator(struct object *sd);
-void print(struct object *o);
 
 /*
  * Value constructors
@@ -207,6 +211,8 @@ struct object *type(struct object *name) {
   o->w1.value.type = malloc(sizeof(struct type));
   NC(o->w1.value.type, "Failed to allocate type.");
   TYPE_NAME(o) = name;
+  TYPE_ID(o) = DYNAMIC_ARRAY_LENGTH(gis->types);
+  dynamic_array_push_no_val(gis->types, o);
   return o;
 }
 
@@ -287,7 +293,7 @@ ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
       print(o);
       exit(1);
     } else if (SYMBOL_STRUCTURE_IS_SET(o)) {
-      return STRUCTURE_TYPE(SYMBOL_STRUCTURE(o));
+      return STRUCTURE_FFI_TYPE(SYMBOL_STRUCTURE(o));
     } else {
       printf("Invalid FFI type designator symbol: \n");
       print(o);
@@ -377,30 +383,32 @@ struct object *structure(struct object *name, struct object *fields) {
   STRUCTURE_NAME(o) = get_string_designator(name);
   STRUCTURE_FIELDS(o) = fields;
 
-  STRUCTURE_TYPE(o) = malloc(sizeof(ffi_type));
+  STRUCTURE_FFI_TYPE(o) = malloc(sizeof(ffi_type));
 
   /* make a new ffi_type object */
-  STRUCTURE_TYPE(o)->size = STRUCTURE_TYPE(o)->alignment = 0;
-  STRUCTURE_TYPE(o)->type = FFI_TYPE_STRUCT;
-  STRUCTURE_TYPE(o)->elements = malloc(sizeof(ffi_type *) * (count(CONS_CDR(fields)) + 1)); /* TODO: make sure to free this */
+  STRUCTURE_FFI_TYPE(o)->size = STRUCTURE_FFI_TYPE(o)->alignment = 0;
+  STRUCTURE_FFI_TYPE(o)->type = FFI_TYPE_STRUCT;
+  STRUCTURE_FFI_TYPE(o)->elements = malloc(sizeof(ffi_type *) * (count(CONS_CDR(fields)) + 1)); /* TODO: make sure to free this */
 
   i = 0;
   cursor = CONS_CDR(fields);
   while (cursor != NIL) {
     t = CONS_CAR(CONS_CDR(CONS_CAR(cursor)));
-    STRUCTURE_TYPE(o)->elements[i] = ffi_type_designator_to_ffi_type(t);
+    STRUCTURE_FFI_TYPE(o)->elements[i] = ffi_type_designator_to_ffi_type(t);
     ++i;
     cursor = CONS_CDR(cursor);
   }
-  STRUCTURE_TYPE(o)->elements[i] = NULL; /* must be null terminated */
+  STRUCTURE_FFI_TYPE(o)->elements[i] = NULL; /* must be null terminated */
 
   STRUCTURE_NFIELDS(o) = i;
 
   STRUCTURE_OFFSETS(o) = malloc(sizeof(size_t) * i); /* TODO: GC clean up */ /* TODO: does this need a +1? I removed it not sure why it was ever there */
-  ffi_get_struct_offsets(FFI_DEFAULT_ABI, STRUCTURE_TYPE(o), STRUCTURE_OFFSETS(o));
+  ffi_get_struct_offsets(FFI_DEFAULT_ABI, STRUCTURE_FFI_TYPE(o), STRUCTURE_OFFSETS(o));
 
   /* make new type for this struct -- TODO: needs some way of linking back to struct */
-  dynamic_array_push(gis->types, type(get_string_designator(name)));
+  STRUCTURE_TYPE(o) = type(get_string_designator(name));
+
+  symbol_set_structure(name, o);
 
   return o;
 }
@@ -412,7 +420,7 @@ struct object *pointer(void *ptr) {
   return o;
 }
 
-struct object *alloc_struct_builtin(struct object *structure, char init_defaults) {
+struct object *alloc_struct(struct object *structure, char init_defaults) {
   struct object *o;
   struct object *instance;
   size_t i, nfields;
@@ -421,7 +429,7 @@ struct object *alloc_struct_builtin(struct object *structure, char init_defaults
   int default_sint_val;
 
   /* iterate over struct ffi types and input */
-  t = STRUCTURE_TYPE(structure);
+  t = STRUCTURE_FFI_TYPE(structure);
   instance = malloc(t->size); /* TODO: GC clean this up */
   if (instance == NULL) {
     printf("failed to malloc struct for ffi.");
@@ -453,6 +461,9 @@ struct object *alloc_struct_builtin(struct object *structure, char init_defaults
       }
     }
   }
+
+  OBJECT_TYPE(o) = (TYPE_ID(STRUCTURE_TYPE(structure)) << 2) | 2;
+
   return o;
 }
 
@@ -737,7 +748,6 @@ struct object *dynamic_byte_array_length(struct object *dba) {
   return fixnum(DYNAMIC_BYTE_ARRAY_LENGTH(dba));
 }
 void dynamic_byte_array_ensure_capacity(struct object *dba) {
-  TC2("dynamic_byte_array_ensure_capacity", 0, dba, gis->dynamic_byte_array_type, gis->string_type);
   if (DYNAMIC_BYTE_ARRAY_LENGTH(dba) >= DYNAMIC_BYTE_ARRAY_CAPACITY(dba)) {
     DYNAMIC_BYTE_ARRAY_CAPACITY(dba) = (DYNAMIC_BYTE_ARRAY_LENGTH(dba) + 1) * 3/2.0;
     DYNAMIC_BYTE_ARRAY_BYTES(dba) = realloc(DYNAMIC_BYTE_ARRAY_BYTES(dba), DYNAMIC_BYTE_ARRAY_CAPACITY(dba) * sizeof(char));
@@ -759,6 +769,7 @@ void dynamic_byte_array_push_char(struct object *dba, char x) {
   dynamic_byte_array_ensure_capacity(dba);
   DYNAMIC_BYTE_ARRAY_BYTES(dba)[DYNAMIC_BYTE_ARRAY_LENGTH(dba)++] = x;
 }
+/* It is required that there is no validation done on the dba that is passed here, otherwise it will cause an infinite loop with type_of */
 void dynamic_byte_array_force_cstr(struct object *dba) { /* uses the data outside of the dynamic array to work as a null terminated string */
   dynamic_byte_array_push_char(dba, '\0'); /* TODO: could be improved to check if there is already a null byte at the end */
   DYNAMIC_BYTE_ARRAY_LENGTH(dba) -= 1;
@@ -1095,8 +1106,13 @@ struct object *do_to_string(struct object *o, char repr) {
     dynamic_byte_array_push_char(str, '>');
     return str;
   } else {
-    printf("Type doesn't support to-string\n");
-    exit(1);
+    str = string("<");
+    str = string_concat(str, TYPE_NAME(type_of(o)));
+    dynamic_byte_array_push_char(str, ' ');
+    sprintf(buf, "%p", OBJECT_POINTER(o));
+    str = string_concat(str, string(buf));
+    dynamic_byte_array_push_char(str, '>');
+    return str;
   }
 }
 
@@ -1179,7 +1195,7 @@ char equals(struct object *o0, struct object *o1) {
   } else if (t == gis->dlib_type) {
       return DLIB_PTR(o0) == DLIB_PTR(o1);
   } else if (t == gis->struct_type) {
-      return STRUCTURE_NAME(o0) == STRUCTURE_NAME(o1) && STRUCTURE_TYPE(o0) == STRUCTURE_TYPE(o1);
+      return STRUCTURE_NAME(o0) == STRUCTURE_NAME(o1) && STRUCTURE_FFI_TYPE(o0) == STRUCTURE_FFI_TYPE(o1);
   } else if (t == gis->ffun_type) {
       return FFUN_PTR(o0) == FFUN_PTR(o1);
   } else if (t == gis->ptr_type) {
@@ -1258,7 +1274,7 @@ struct object *symbol_get_function(struct object *sym) {
   }
 }
 
-struct object *symbol_get_structure(struct object *sym) {
+struct object *symbol_get_struct(struct object *sym) {
   if (SYMBOL_STRUCTURE_IS_SET(sym)) {
     return SYMBOL_STRUCTURE(sym);
   } else {
@@ -1271,7 +1287,7 @@ struct object *symbol_get_structure(struct object *sym) {
         printf("::");
     }
     print_no_newline(SYMBOL_NAME(sym));
-    printf(" has no structure.");
+    printf(" has no struct.");
     exit(1);
   }
 }
@@ -1547,8 +1563,7 @@ void gis_init(char load_core) {
   /* builtin types */
   /* IMPORTANT -- the ordering these types are added to the types array must match the order they are defined in bug.h for the type enum */
   /* type_of cannot be called before this is setup */
-  gis->type_string = string("type"); gis->type_type = type(gis->type_string);
-  gis->cons_string = string("cons"); gis->cons_type= type(gis->cons_string);
+  gis->types = dynamic_array(64);
   gis->fixnum_string = string("fixnum"); gis->fixnum_type = type(gis->fixnum_string);
   gis->ufixnum_string = string("ufixnum"); gis->ufixnum_type = type(gis->ufixnum_string);
   gis->flonum_string = string("flonum"); gis->flonum_type = type(gis->flonum_string);
@@ -1560,6 +1575,7 @@ void gis_init(char load_core) {
   gis->function_string = string("function"); gis->function_type = type(gis->function_string);
   gis->file_string = string("file"); gis->file_type = type(gis->file_string);
   gis->enumerator_string = string("enumerator"); gis->enumerator_type = type(gis->enumerator_string);
+  /* nil_type won't appear on an object, only from calls to get_object_type(...) */
   gis->nil_string = string("nil"); gis->nil_type = type(gis->nil_string);
   gis->record_string = string("record"); gis->record_type = type(gis->record_string);
   gis->vec2_string = string("vec2"); gis->vec2_type = type(gis->vec2_string);
@@ -1567,27 +1583,10 @@ void gis_init(char load_core) {
   gis->foreign_function_string = string("foreign-function"); gis->ffun_type = type(gis->foreign_function_string);
   gis->struct_string = string("struct"); gis->struct_type = type(gis->struct_string);
   gis->pointer_string = string("pointer"); gis->ptr_type = type(gis->pointer_string);
+  gis->type_string = string("type"); gis->type_type = type(gis->type_string);
 
-  gis->types = dynamic_array(64);
-  dynamic_array_push_no_val(gis->types, gis->fixnum_type);
-  dynamic_array_push_no_val(gis->types, gis->ufixnum_type);
-  dynamic_array_push_no_val(gis->types, gis->flonum_type);
-  dynamic_array_push_no_val(gis->types, gis->symbol_type);
-  dynamic_array_push_no_val(gis->types, gis->dynamic_array_type);
-  dynamic_array_push_no_val(gis->types, gis->string_type);
-  dynamic_array_push_no_val(gis->types, gis->package_type);
-  dynamic_array_push_no_val(gis->types, gis->dynamic_byte_array_type);
-  dynamic_array_push_no_val(gis->types, gis->function_type);
-  dynamic_array_push_no_val(gis->types, gis->file_type);
-  dynamic_array_push_no_val(gis->types, gis->enumerator_type);
-  dynamic_array_push_no_val(gis->types, gis->nil_type); /* nil_type won't appear on an object, only from calls to get_object_type(...) */
-  dynamic_array_push_no_val(gis->types, gis->record_type);
-  dynamic_array_push_no_val(gis->types, gis->vec2_type);
-  dynamic_array_push_no_val(gis->types, gis->dlib_type);
-  dynamic_array_push_no_val(gis->types, gis->ffun_type);
-  dynamic_array_push_no_val(gis->types, gis->struct_type);
-  dynamic_array_push_no_val(gis->types, gis->ptr_type);
-  dynamic_array_push_no_val(gis->types, gis->type_type);
+  /* cons must be defined last -- it has a special form for the w0 part of an object */
+  gis->cons_string = string("cons"); gis->cons_type= type(gis->cons_string);
 
   /* strings that will be re-used. the strings should NEVER be modified */
   /* TODO */
@@ -1730,6 +1729,12 @@ void gis_init(char load_core) {
   FUNCTION_IS_BUILTIN(gis->alloc_struct_builtin) = 1;
   FUNCTION_NARGS(gis->alloc_struct_builtin) = 1;
   symbol_set_function(gis->alloc_struct_symbol, gis->alloc_struct_builtin);
+
+  GIS_SYM(symbol_struct_symbol, symbol_struct_string, "symbol-struct", impl_package);
+  gis->symbol_struct_builtin = function(NIL, NIL, 1);
+  FUNCTION_IS_BUILTIN(gis->symbol_struct_builtin) = 1;
+  FUNCTION_NARGS(gis->symbol_struct_builtin) = 1;
+  symbol_set_function(gis->symbol_struct_symbol, gis->symbol_struct_builtin);
 
   GIS_SYM(get_struct_symbol, get_struct_string, "get-struct", impl_package);
   gis->get_struct_builtin = function(NIL, NIL, 2);
@@ -3612,14 +3617,15 @@ void eval_builtin(struct object *f) {
     push(type_of(GET_LOCAL(0)));
   } else if (f == gis->struct_builtin) {
     push(structure(GET_LOCAL(0), GET_LOCAL(1)));
+  } else if (f == gis->symbol_struct_builtin) {
+    push(symbol_get_struct(GET_LOCAL(0)));
   } else if (f == gis->alloc_struct_builtin) {
-    push(alloc_struct_builtin(GET_LOCAL(0), 1));
+    push(alloc_struct(GET_LOCAL(0), 1));
   } else if (f == gis->get_struct_builtin) {
     push(get_struct(GET_LOCAL(0), GET_LOCAL(1)));
   } else if (f == gis->set_struct_builtin) {
     set_struct(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2));
     push(NIL);
-  } else if (f == gis->alloc_struct_builtin) {
   } else if (f == gis->dynamic_library_builtin) {
     push(dlib(GET_LOCAL(0)));
   } else if (f == gis->foreign_function_builtin) {

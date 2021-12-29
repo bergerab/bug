@@ -336,4 +336,7 @@
 (impl:struct 'ivec2
 	'((x ffi:int)
 		(y ffi:int)))
+
+(print (impl:alloc-struct (impl:symbol-struct 'ivec2)))
+
 (print "after")

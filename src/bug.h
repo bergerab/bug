@@ -121,11 +121,13 @@ typedef double flonum_t;
 
 #define STRUCTURE_NAME(o) o->w1.value.structure->name
 #define STRUCTURE_FIELDS(o) o->w1.value.structure->fields
+#define STRUCTURE_FFI_TYPE(o) o->w1.value.structure->ffi_type
 #define STRUCTURE_TYPE(o) o->w1.value.structure->type
 #define STRUCTURE_NFIELDS(o) o->w1.value.structure->nfields
 #define STRUCTURE_OFFSETS(o) o->w1.value.structure->offsets
 
 #define TYPE_NAME(o) o->w1.value.type->name
+#define TYPE_ID(o) o->w1.value.type->id
 
 #define FFUN_FFNAME(o) o->w1.value.ffun->ffname
 #define FFUN_DLIB(o) o->w1.value.ffun->dlib
@@ -289,7 +291,8 @@ struct package {
 struct structure {
   struct object *name;
   struct object *fields;
-  ffi_type *type;
+  struct object *type; /** the type that was created for object created from this structure */
+  ffi_type *ffi_type;
   size_t *offsets;
   ufixnum_t nfields;
 };
@@ -312,6 +315,7 @@ struct ffun {
 
 struct type {
   struct object *name;
+  ufixnum_t id; /** the id in gis->types of this type */
 };
 
 struct function {
@@ -519,6 +523,10 @@ struct gis {
   struct object *struct_symbol;
   struct object *struct_string;
   struct object *struct_builtin;
+
+  struct object *symbol_struct_symbol;
+  struct object *symbol_struct_string;
+  struct object *symbol_struct_builtin;
 
   struct object *alloc_struct_symbol;
   struct object *alloc_struct_string;
