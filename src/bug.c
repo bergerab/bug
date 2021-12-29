@@ -482,7 +482,7 @@ struct object *get_struct(struct object *instance, struct object *sdes) {
   structure = TYPE_STRUCT(type_of(instance));
 
   if (structure == NIL) {
-    printf("Type is not a structure.");
+    printf("Type is not a structure.\n");
     exit(1);
   }
 
@@ -493,8 +493,6 @@ struct object *get_struct(struct object *instance, struct object *sdes) {
   field_name = get_string_designator(sdes);
   cursor = STRUCTURE_FIELDS(structure);
   while (cursor != NIL) {
-    printf("FFF\n");
-    print(CONS_CAR(cursor));
     if (equals(field_name, get_string_designator(CONS_CAR(CONS_CAR(cursor))))) {
       field = CONS_CAR(CONS_CDR(CONS_CAR(cursor)));
       break;
@@ -508,14 +506,48 @@ struct object *get_struct(struct object *instance, struct object *sdes) {
     exit(1);
   }
 
-  memcpy(&fix, &((char *)instance)[STRUCTURE_OFFSETS(structure)[i]], sizeof(int));
+  /*memcpy(&fix, &((char *)instance)[STRUCTURE_OFFSETS(structure)[i]], sizeof(int));*/
+  return fixnum(*((int*)(&((char *)OBJECT_POINTER(instance))[STRUCTURE_OFFSETS(structure)[i]])));
 
-  return fixnum(fix);
+  /*return fixnum(fix);*/
 }
 
 /* set a field's value from a structure instance */
 void set_struct(struct object *instance, struct object *sdes, struct object *value) {
-  
+  struct object *cursor, *field, *field_name, *structure;
+  ufixnum_t i;
+  fixnum_t fix;
+  ufixnum_t ufix;
+  flonum_t flo;
+
+  structure = TYPE_STRUCT(type_of(instance));
+
+  if (structure == NIL) {
+    printf("Type is not a structure.\n");
+    exit(1);
+  }
+
+  fix = ufix = flo = 0;
+
+  i = 0;
+  field = NULL;
+  field_name = get_string_designator(sdes);
+  cursor = STRUCTURE_FIELDS(structure);
+  while (cursor != NIL) {
+    if (equals(field_name, get_string_designator(CONS_CAR(CONS_CAR(cursor))))) {
+      field = CONS_CAR(CONS_CDR(CONS_CAR(cursor)));
+      break;
+    }
+    cursor = CONS_CDR(cursor);
+    ++i;
+  }
+
+  if (field == NULL) {
+    printf("Field does not exist on structure.\n");
+    exit(1);
+  }
+
+  memcpy(&((char *)OBJECT_POINTER(instance))[STRUCTURE_OFFSETS(structure)[i]], &FIXNUM_VALUE(value), sizeof(int));
 }
 
 struct object *function(struct object *constants, struct object *code, ufixnum_t stack_size) {
