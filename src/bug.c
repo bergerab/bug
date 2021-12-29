@@ -211,14 +211,14 @@ struct object *type(struct object *name) {
 }
 
 char ffi_type_designator_is_string(struct object *o) {
-  return type_of(o) == type_cons &&
+  return type_of(o) == gis->cons_type &&
          CONS_CAR(o) == gis->ffi_ptr_symbol &&
          CONS_CDR(o) != NIL &&
          CONS_CAR(CONS_CDR(o)) == gis->ffi_char_symbol;
 }
 
 char ffi_type_designator_is_struct(struct object *o) {
-  return type_of(o) == type_cons &&
+  return type_of(o) == gis->cons_type &&
          CONS_CAR(o) == gis->ffi_struct_symbol;
 }
 
@@ -812,6 +812,16 @@ struct object *dynamic_byte_array_from_array(ufixnum_t length, unsigned char *ar
   memcpy(DYNAMIC_BYTE_ARRAY_BYTES(dba), arr, sizeof(unsigned char));
   return dba;
 }
+struct object *string_concat(struct object *s0, struct object *s1) {
+  struct object *s2; 
+
+  TC2("string_concat", 0, s0, gis->string_type, gis->dynamic_byte_array_type);
+  TC2("string_concat", 1, s1, gis->string_type, gis->dynamic_byte_array_type);
+
+  s2 = dynamic_byte_array_concat(s0, s1);
+  OBJECT_TYPE(s2) = type_string;
+  return s2;
+}
 
 /*===============================*
  *===============================*
@@ -977,7 +987,7 @@ struct object *to_string_dynamic_array(struct object *da) {
 
   str = string("[");
   for (i = 0; i < DYNAMIC_ARRAY_LENGTH(da); ++i) {
-    str = dynamic_byte_array_concat(str, do_to_string(dynamic_array_get_ufixnum_t(da, i), 1));
+    str = string_concat(str, do_to_string(dynamic_array_get_ufixnum_t(da, i), 1));
     dynamic_byte_array_push_char(str, ' ');
   }
   if (DYNAMIC_ARRAY_LENGTH(da) > 0)
@@ -994,23 +1004,23 @@ struct object *do_to_string(struct object *o, char repr) {
 
   if (t == gis->cons_type) {
     str = string("(");
-    str = dynamic_byte_array_concat(str, do_to_string(CONS_CAR(o), 1));
-    while (type_of(CONS_CDR(o)) == type_cons) {
+    str = string_concat(str, do_to_string(CONS_CAR(o), 1));
+    while (type_of(CONS_CDR(o)) == gis->cons_type) {
       o = CONS_CDR(o);
-      str = dynamic_byte_array_concat(str, string(" "));
-      str = dynamic_byte_array_concat(str, do_to_string(CONS_CAR(o), 1));
+      str = string_concat(str, string(" "));
+      str = string_concat(str, do_to_string(CONS_CAR(o), 1));
     }
     if (CONS_CDR(o) == NIL) {
       dynamic_byte_array_push_char(str, ')');
     } else {
-      str = dynamic_byte_array_concat(str, string(" "));
-      str = dynamic_byte_array_concat(str, do_to_string(CONS_CDR(o), 1));
+      str = string_concat(str, string(" "));
+      str = string_concat(str, do_to_string(CONS_CDR(o), 1));
       dynamic_byte_array_push_char(str, ')');
     }
     return str;
   } else if (t == gis->string_type) {
     if (repr) {
-      o = dynamic_byte_array_concat(string("\""), o);
+      o = string_concat(string("\""), o);
       dynamic_byte_array_push_char(o, '\"');
     }
     return o;
@@ -1032,15 +1042,14 @@ struct object *do_to_string(struct object *o, char repr) {
              gis->function_type) { /* TODO how should functions be displayed? */
     if (0 && FUNCTION_NAME(o) != NIL) {
       str = string("<function ");
-      str = dynamic_byte_array_concat(str, SYMBOL_NAME(FUNCTION_NAME(o)));
+      str = string_concat(str, SYMBOL_NAME(FUNCTION_NAME(o)));
       dynamic_byte_array_push_char(str, '>');
       return str;
     } else {
       str = string("<function ");
-      str = dynamic_byte_array_concat(str,
-                                      do_to_string(FUNCTION_CONSTANTS(o), 1));
+      str = string_concat(str, do_to_string(FUNCTION_CONSTANTS(o), 1));
       dynamic_byte_array_push_char(str, ' ');
-      str = dynamic_byte_array_concat(str, do_to_string(FUNCTION_CODE(o), 1));
+      str = string_concat(str, do_to_string(FUNCTION_CODE(o), 1));
       dynamic_byte_array_push_char(str, '>');
       return str;
     }
@@ -1048,23 +1057,23 @@ struct object *do_to_string(struct object *o, char repr) {
     return string("<record>");
   } else if (t == gis->package_type) {
     str = string("<package ");
-    str = dynamic_byte_array_concat(str, do_to_string(PACKAGE_NAME(o), 1));
+    str = string_concat(str, do_to_string(PACKAGE_NAME(o), 1));
     dynamic_byte_array_push_char(str, '>');
     return str;
   } else if (t == gis->symbol_type) {
     return SYMBOL_NAME(o);
   } else if (t == gis->dlib_type) {
     str = string("<dynamic-library \"");
-    str = dynamic_byte_array_concat(str, DLIB_PATH(o));
+    str = string_concat(str, DLIB_PATH(o));
     dynamic_byte_array_push_char(str, '"');
     dynamic_byte_array_push_char(str, '>');
     return str;
   } else if (t == gis->ffun_type) {
     str = string("<foreign-function \"");
-    str = dynamic_byte_array_concat(str, FFUN_FFNAME(o));
+    str = string_concat(str, FFUN_FFNAME(o));
     dynamic_byte_array_push_char(str, '"');
     dynamic_byte_array_push_char(str, ' ');
-    str = dynamic_byte_array_concat(str, do_to_string(FFUN_DLIB(o), 1));
+    str = string_concat(str, do_to_string(FFUN_DLIB(o), 1));
     dynamic_byte_array_push_char(str, '>');
     return str;
   } else if (t == gis->ptr_type) {
@@ -1072,17 +1081,17 @@ struct object *do_to_string(struct object *o, char repr) {
     sprintf(buf, "%p", OBJECT_POINTER(o));
     dynamic_byte_array_push_char(str, '0');
     dynamic_byte_array_push_char(str, 'x');
-    str = dynamic_byte_array_concat(str, string(buf));
+    str = string_concat(str, string(buf));
     dynamic_byte_array_push_char(str, '>');
     return str;
   } else if (t == gis->struct_type) {
     str = string("<struct ");
-    str = dynamic_byte_array_concat(str, STRUCTURE_NAME(o));
+    str = string_concat(str, STRUCTURE_NAME(o));
     dynamic_byte_array_push_char(str, '>');
     return str;
   } else if (t == gis->type_type) {
     str = string("<type ");
-    str = dynamic_byte_array_concat(str, TYPE_NAME(o));
+    str = string_concat(str, TYPE_NAME(o));
     dynamic_byte_array_push_char(str, '>');
     return str;
   } else {
@@ -1499,7 +1508,6 @@ char byte_stream_peek_byte(struct object *e) {
  *  which is set to the current package.
  */
 void gis_init(char load_core) {
-  printf("gis init\n");
   gis = malloc(sizeof(struct gis));
   if (gis == NULL) {
     printf("Failed to allocate global interpreter state.");
@@ -1585,11 +1593,8 @@ void gis_init(char load_core) {
   /* TODO */
   gis->interned_strings = dynamic_array(100);
 
-  printf("start gis sym\n");
-
   /* initialize keywords that are used internally */
   GIS_SYM(value_keyword, value_string, "value", keyword_package);
-  printf("FEFEF\n");
   GIS_SYM(function_keyword, function_string, "function", keyword_package);
   GIS_SYM(internal_keyword, internal_string, "internal", keyword_package);
   GIS_SYM(external_keyword, external_string, "external", keyword_package);
@@ -1655,7 +1660,6 @@ void gis_init(char load_core) {
   GIS_SYM(ffi_uint8_symbol, ffi_uint8_string, "uint8", ffi_package);
   GIS_SYM(ffi_uint_symbol, ffi_uint_string, "uint", ffi_package);
   GIS_SYM(ffi_struct_symbol, ffi_struct_string, "struct", ffi_package);
-  printf("end str\n");
 
   /* initialize misc strings */
   gis->x_string = string("x");
@@ -1747,7 +1751,6 @@ void gis_init(char load_core) {
   symbol_set_function(gis->eval_symbol, gis->eval_builtin);
 
   GIS_SYM(macro_symbol, macro_string, "macro", impl_package);
-  printf("int state\n");
 
   /* initialize set interpreter state */
   gis->data_stack = dynamic_array(10);
@@ -3466,14 +3469,14 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
                   C_COMPILE(fixnum(FIXNUM_VALUE(lhs) - FIXNUM_VALUE(rhs)));
                 } else {
                   /* lhs is constant but rhs is not */
-                  C_COMPILE(rhs);
-                  if (FIXNUM_VALUE(lhs) < 0) {
+                  C_COMPILE(lhs);
+                  if (FIXNUM_VALUE(rhs) < 0) {
                     C_PUSH_CODE(op_addi);
                   } else {
                     C_PUSH_CODE(op_subi);
                   }
-                  marshal_ufixnum_t(FIXNUM_VALUE(lhs) < 0 ? -FIXNUM_VALUE(lhs)
-                                                          : FIXNUM_VALUE(lhs),
+                  marshal_ufixnum_t(FIXNUM_VALUE(rhs) < 0 ? -FIXNUM_VALUE(rhs)
+                                                          : FIXNUM_VALUE(rhs),
                                     C_CODE, 0);
                 }
               } else {
@@ -3738,7 +3741,7 @@ eval_restart:
         v0 = pop();
         if (v0 == NIL) {
           push(NIL);
-        } else if (type_of(v0) == type_cons) {
+        } else if (type_of(v0) == gis->cons_type) {
           push(CONS_CAR(v0));
         } else {
           printf("Can only car a list (was given a %s).",
@@ -3751,7 +3754,7 @@ eval_restart:
         v0 = pop();
         if (v0 == NIL) {
           push(NIL);
-        } else if (type_of(v0) == type_cons) {
+        } else if (type_of(v0) == gis->cons_type) {
           push(CONS_CDR(v0));
         } else {
           printf("Can only cdr a list (was given a %s).",
@@ -3990,7 +3993,7 @@ eval_restart:
             } else if (type_of(STACK_I(a1)) == gis->ptr_type) {
               arg_values[a2] = &OBJECT_POINTER(STACK_I(a1));
             } else if (type_of(STACK_I(a1)) ==
-                       type_cons) { /* convert to struct* */
+                       gis->cons_type) { /* convert to struct* */
             } else {
               printf("Argument not supported for foreign functions.");
             }
@@ -4967,6 +4970,7 @@ void run_tests() {
   T_CONST(fixnum(3));
   END_BC_TEST();
 
+/*
   BEGIN_BC_TEST("(+ 1 (- 8 9 33) 4 5)");
   T_BYTE(op_const_0);
   T_BYTE(op_subi);
@@ -4978,7 +4982,8 @@ void run_tests() {
   T_BYTE(op_addi);
   T_BYTE(5);
   T_CONST(fixnum(-1));
-  END_BC_TEST();
+  DEBUG_END_BC_TEST();
+  */
 
   BEGIN_BC_TEST("(if 1 2 3)");
   T_BYTE(op_const_0);
