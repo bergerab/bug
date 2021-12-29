@@ -22,6 +22,8 @@ struct object *eval(struct object *bc, struct object* args);
 struct object *read(struct object *s, struct object *package);
 struct object *type(struct object *name);
 
+char equals(struct object *o0, struct object *o1);
+
 void dynamic_byte_array_force_cstr(struct object *dba);
 void dynamic_array_push(struct object *da, struct object *value);
 void dynamic_array_push_no_val(struct object *da, struct object *value);
@@ -212,6 +214,7 @@ struct object *type(struct object *name) {
   NC(o->w1.value.type, "Failed to allocate type.");
   TYPE_NAME(o) = name;
   TYPE_ID(o) = DYNAMIC_ARRAY_LENGTH(gis->types);
+  TYPE_STRUCT(o) = NIL;
   dynamic_array_push_no_val(gis->types, o);
   return o;
 }
@@ -388,10 +391,10 @@ struct object *structure(struct object *name, struct object *fields) {
   /* make a new ffi_type object */
   STRUCTURE_FFI_TYPE(o)->size = STRUCTURE_FFI_TYPE(o)->alignment = 0;
   STRUCTURE_FFI_TYPE(o)->type = FFI_TYPE_STRUCT;
-  STRUCTURE_FFI_TYPE(o)->elements = malloc(sizeof(ffi_type *) * (count(CONS_CDR(fields)) + 1)); /* TODO: make sure to free this */
+  STRUCTURE_FFI_TYPE(o)->elements = malloc(sizeof(ffi_type *) * (count(fields) + 1)); /* TODO: make sure to free this */
 
   i = 0;
-  cursor = CONS_CDR(fields);
+  cursor = fields;
   while (cursor != NIL) {
     t = CONS_CAR(CONS_CDR(CONS_CAR(cursor)));
     STRUCTURE_FFI_TYPE(o)->elements[i] = ffi_type_designator_to_ffi_type(t);
@@ -407,6 +410,7 @@ struct object *structure(struct object *name, struct object *fields) {
 
   /* make new type for this struct -- TODO: needs some way of linking back to struct */
   STRUCTURE_TYPE(o) = type(get_string_designator(name));
+  TYPE_STRUCT(STRUCTURE_TYPE(o)) = o; /* add a reference back to this struct from the type */
 
   symbol_set_structure(name, o);
 
@@ -469,7 +473,44 @@ struct object *alloc_struct(struct object *structure, char init_defaults) {
 
 /* get a field's value from a structure instance */
 struct object *get_struct(struct object *instance, struct object *sdes) {
-  return NIL;
+  struct object *cursor, *field, *field_name, *structure;
+  ufixnum_t i;
+  fixnum_t fix;
+  ufixnum_t ufix;
+  flonum_t flo;
+
+  structure = TYPE_STRUCT(type_of(instance));
+
+  if (structure == NIL) {
+    printf("Type is not a structure.");
+    exit(1);
+  }
+
+  fix = ufix = flo = 0;
+
+  i = 0;
+  field = NULL;
+  field_name = get_string_designator(sdes);
+  cursor = STRUCTURE_FIELDS(structure);
+  while (cursor != NIL) {
+    printf("FFF\n");
+    print(CONS_CAR(cursor));
+    if (equals(field_name, get_string_designator(CONS_CAR(CONS_CAR(cursor))))) {
+      field = CONS_CAR(CONS_CDR(CONS_CAR(cursor)));
+      break;
+    }
+    cursor = CONS_CDR(cursor);
+    ++i;
+  }
+
+  if (field == NULL) {
+    printf("Field does not exist on structure.\n");
+    exit(1);
+  }
+
+  memcpy(&fix, &((char *)instance)[STRUCTURE_OFFSETS(structure)[i]], sizeof(int));
+
+  return fixnum(fix);
 }
 
 /* set a field's value from a structure instance */
@@ -1153,8 +1194,6 @@ void print_no_newline(struct object *o) {
  *     Structural equality
  *===============================*
  *===============================*/
-char equals(struct object *o0, struct object *o1);
-
 char equals(struct object *o0, struct object *o1) {
   ufixnum_t i;
   struct object *t;

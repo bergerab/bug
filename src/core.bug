@@ -336,4 +336,7 @@
 	'((x ffi:int)
 		(y ffi:int)))
 
-(print (impl:alloc-struct (impl:symbol-struct 'ivec2)))
+(set 'x (impl:alloc-struct (impl:symbol-struct 'ivec2)))
+(print x)
+
+(print (impl:struct-field x 'x))

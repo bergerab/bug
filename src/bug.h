@@ -128,6 +128,7 @@ typedef double flonum_t;
 
 #define TYPE_NAME(o) o->w1.value.type->name
 #define TYPE_ID(o) o->w1.value.type->id
+#define TYPE_STRUCT(o) o->w1.value.type->structure
 
 #define FFUN_FFNAME(o) o->w1.value.ffun->ffname
 #define FFUN_DLIB(o) o->w1.value.ffun->dlib
@@ -316,6 +317,7 @@ struct ffun {
 struct type {
   struct object *name;
   ufixnum_t id; /** the id in gis->types of this type */
+  struct object *structure; /** if this type was created from a struct, this is a link to the struct */
 };
 
 struct function {
