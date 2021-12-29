@@ -467,10 +467,12 @@ struct object *alloc_struct(struct object *structure, char init_defaults) {
   return o;
 }
 
+/* get a field's value from a structure instance */
 struct object *get_struct(struct object *instance, struct object *sdes) {
   return NIL;
 }
 
+/* set a field's value from a structure instance */
 void set_struct(struct object *instance, struct object *sdes, struct object *value) {
   
 }
@@ -1736,13 +1738,13 @@ void gis_init(char load_core) {
   FUNCTION_NARGS(gis->symbol_struct_builtin) = 1;
   symbol_set_function(gis->symbol_struct_symbol, gis->symbol_struct_builtin);
 
-  GIS_SYM(get_struct_symbol, get_struct_string, "get-struct", impl_package);
+  GIS_SYM(get_struct_symbol, get_struct_string, "struct-field", impl_package);
   gis->get_struct_builtin = function(NIL, NIL, 2);
   FUNCTION_IS_BUILTIN(gis->get_struct_builtin) = 1;
   FUNCTION_NARGS(gis->get_struct_builtin) = 2;
   symbol_set_function(gis->get_struct_symbol, gis->get_struct_builtin);
 
-  GIS_SYM(set_struct_symbol, set_struct_string, "set-struct", impl_package);
+  GIS_SYM(set_struct_symbol, set_struct_string, "set-struct-field", impl_package);
   gis->set_struct_builtin = function(NIL, NIL, 3);
   FUNCTION_IS_BUILTIN(gis->set_struct_builtin) = 1;
   FUNCTION_NARGS(gis->set_struct_builtin) = 3;
@@ -3621,6 +3623,8 @@ void eval_builtin(struct object *f) {
     push(symbol_get_struct(GET_LOCAL(0)));
   } else if (f == gis->alloc_struct_builtin) {
     push(alloc_struct(GET_LOCAL(0), 1));
+  } else if (f == gis->get_struct_builtin) {
+    push(get_struct(GET_LOCAL(0), GET_LOCAL(1)));
   } else if (f == gis->get_struct_builtin) {
     push(get_struct(GET_LOCAL(0), GET_LOCAL(1)));
   } else if (f == gis->set_struct_builtin) {
