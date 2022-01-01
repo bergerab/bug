@@ -139,92 +139,92 @@
 "================= mydll library ====================="
 "FFI testing"
 (impl:struct 'mydll-ivec2
-	'((x ffi:int)
-	  (y ffi:int)))
+	'((x int)
+	  (y int)))
 
 (impl:struct 'mydll-rect
-	'((x ffi:int)
-	  (y ffi:int)
-		(w ffi:int)
-		(h ffi:int)))
+	'((x int)
+	  (y int)
+		(w int)
+		(h int)))
 
 (impl:struct 'mydll-quad
-	'((w ffi:int)
-	  (x ffi:int)
-		(y ffi:int)
-		(z ffi:int)))
+	'((w int)
+	  (x int)
+		(y int)
+		(z int)))
 
 (impl:struct 'mydll-tri
-	'((x ffi:uint8)
-	  (y ffi:uint8)
-		(z ffi:uint8)))
+	'((x uint8)
+	  (y uint8)
+		(z uint8)))
 
 (impl:struct 'mydll-tri
-	'((r ffi:uint8)
-	  (g ffi:uint8)
-		(b ffi:uint8)
-		(a ffi:uint8)))
+	'((r uint8)
+	  (g uint8)
+		(b uint8)
+		(a uint8)))
 
 (set 'mydll (impl:dynamic-library "experiments/mydll/mydll.dll"))
 
 (set-symbol-function 'print-rect2
 	(impl:foreign-function
   	mydll 'print_rect2
-  	'ffi:int (list mydll-rect mydll-rect)))
+  	'int '(mydll-rect mydll-rect)))
 
 (set-symbol-function 'print-me
 	(impl:foreign-function
   	mydll 'print_me
-  	'ffi:int nil))
+  	'int '()))
 
 (set-symbol-function 'multitest
 	(impl:foreign-function
   	mydll 'multitest
-  	'ffi:int (list mydll-rect 'ffi:* mydll-color)))
+  	'int '(mydll-rect pointer mydll-color)))
 
 (set-symbol-function 'print-rect
 	(impl:foreign-function
   	mydll 'print_rect
-  	'ffi:void (list mydll-rect)))
+  	'void '(mydll-rect)))
 
 (set-symbol-function 'print-4
 	(impl:foreign-function
   	mydll 'print_four
-  	'ffi:void (list mydll-4)))
+  	'void '(mydll-4)))
 
 (set-symbol-function 'print-3
 	(impl:foreign-function
   	mydll 'print_three
-  	'ffi:void (list mydll-3)))
+  	'void '(mydll-3)))
 
 (set-symbol-function 'print-color
 	(impl:foreign-function
   	mydll 'print_color
-  	'ffi:void (list mydll-color)))
+  	'void '(mydll-color)))
 
 (set-symbol-function 'print-ivec2
 	(impl:foreign-function
   	mydll 'print_ivec2
-  	'ffi:void (list mydll-ivec2)))
+  	'void '(mydll-ivec2)))
 
 "========================================================"
 
 "================= sdl2 library ====================="
 (impl:struct 'sdl-rect
-	'((x ffi:int)
-		(y ffi:int)
-		(w ffi:int)
-		(h ffi:int)))
+	'((x int)
+		(y int)
+		(w int)
+		(h int)))
 
 (impl:struct 'sdl-keysym
-	'((scancode ffi:uint8)
-		(sym ffi:int)
-		(mod ffi:int)
-		(unicode ffi:uint16)))
+	'((scancode uint8)
+		(sym int)
+		(mod int)
+		(unicode uint16)))
 
 (impl:struct 'sdl-keyboard-event
-	'((type ffi:uint8)
-		(state ffi:uint8)
+	'((type uint8)
+		(state uint8)
 		(keysym sdl-keysym)))
 
 (set 'sdl2 (impl:dynamic-library "experiments/sdl/SDL2.dll"))
@@ -232,80 +232,82 @@
 (set-symbol-function 'init
   (impl:foreign-function
   	sdl2 'SDL_Init
-  	'ffi:int '(ffi:int)))
+  	'int '(int)))
 
 (set-symbol-function 'create-window
   (impl:foreign-function
   	sdl2 'SDL_CreateWindow
-    'ffi:* '((ffi:* ffi:char) ffi:int ffi:int ffi:int ffi:int ffi:int)))
+    'pointer '(string int int int int int)))
 
 (set-symbol-function 'create-renderer
   (impl:foreign-function
   	sdl2 'SDL_CreateRenderer
-    'ffi:* '(ffi:* ffi:int ffi:int)))
+    'pointer '(pointer int int)))
 
 (set-symbol-function 'get-error
   (impl:foreign-function
   	sdl2 'SDL_GetError
-    '(ffi:* ffi:char) '()))
+    'string '()))
 
 (set-symbol-function 'rw-from-file
   (impl:foreign-function
   	sdl2 'SDL_RWFromFile
-    'ffi:* '((ffi:* ffi:char) (ffi:* ffi:char))))
+    'pointer '(string string)))
 
 (set-symbol-function 'load-bmp-rw
   (impl:foreign-function
   	sdl2 'SDL_LoadBMP_RW
-    'ffi:* '(ffi:* ffi:int)))
+    'pointer '(pointer int)))
 
 (set-symbol-function 'create-texture-from-surface
   (impl:foreign-function
   	sdl2 'SDL_CreateTextureFromSurface
-    'ffi:* '(ffi:* ffi:*)))
+    'pointer '(pointer pointer)))
 
 (set-symbol-function 'render-clear
   (impl:foreign-function
   	sdl2 'SDL_RenderClear
-    'ffi:* '(ffi:*)))
+    'pointer '(pointer)))
 
 (set-symbol-function 'render-copy
   (impl:foreign-function
   	sdl2 'SDL_RenderCopy
-    'ffi:* (list 'ffi:* 'ffi:* 'sdl-rect 'sdl-rect)))
+    'pointer '(pointer pointer sdl-rect sdl-rect)))
 
 (set-symbol-function 'render-present
   (impl:foreign-function
   	sdl2 'SDL_RenderPresent
-    'ffi:* '(ffi:*)))
+    'pointer '(pointer)))
 
 (set-symbol-function 'delay
   (impl:foreign-function
   	sdl2 'SDL_Delay
-    'ffi:int '(ffi:int)))
+    'int '(int)))
 "========================================================"
 
 "================= sdl2-tff library ====================="
 (impl:struct 'sdl-color
-	'((r ffi:uint8)
-		(g ffi:uint8)
-		(b ffi:uint8)
-		(a ffi:uint8)))
+	'((r uint8)
+		(g uint8)
+		(b uint8)
+		(a uint8)))
 
 (set 'sdl2-ttf (impl:dynamic-library "SDL2_ttf.dll"))
 
 (set-symbol-function 'ttf-init
   (impl:foreign-function
   	sdl2-ttf 'TTF_Init
-    'ffi:int '()))
+    'int '()))
+
 (set-symbol-function 'open-font
   (impl:foreign-function
   	sdl2-ttf 'TTF_OpenFont
-    'ffi:* '(ffi:* ffi:int)))
+    'pointer '(pointer int)))
+
 (set-symbol-function 'render-text-solid
   (impl:foreign-function
   	sdl2-ttf 'TTF_RenderText_Solid
-    'ffi:* (list 'ffi:* 'ffi:* 'sdl-color)))
+    'pointer '(pointer pointer sdl-color)))
 
 "helper functions"
 
@@ -385,3 +387,12 @@
 	(print (impl:struct-field rect 'y))
 	(print (impl:struct-field rect 'w))
 	(print (impl:struct-field rect 'h)))
+
+(impl:struct 'sdl-rect
+	((x int)
+   (y int)
+   (w int)
+   (h int)
+   (d int)))
+
+"If a symbol is passed, look up the symbol type value."

@@ -18,3 +18,4 @@
 - add way of indexing struct fields (to save time instead of using field name)
   - e.g.:
       (impl:struct-field-at-index rect 0) gets the "x" component of a rectangle
+- add used package symbols into symbols list instead of having used package field

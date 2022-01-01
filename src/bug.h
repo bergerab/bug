@@ -23,7 +23,9 @@
 
 #ifdef RUN_TIME_CHECKS
 #define TC(name, argument, o, type) type_check(name, argument, o, type)
+#define OT(name, argument, o, type) object_type_check(name, argument, o, type)
 #define TC2(name, argument, o, type0, type1) type_check_or2(name, argument, o, type0, type1)
+#define OT2(name, argument, o, type0, type1) object_type_check_or2(name, argument, o, type0, type1)
 #define SC(name, n) stack_check(name, n, UFIXNUM_VALUE(i))
 #else
 #define TC(name, argument, o, type) \
@@ -31,6 +33,10 @@
 #define TC2(name, argument, o, type0, type1) \
   {}
 #define SC(name, n) \
+  {}
+#define OT(name, n) \
+  {}
+#define OT2(name, n) \
   {}
 #endif
 
@@ -73,9 +79,11 @@ typedef double flonum_t;
 #define SYMBOL_VALUE_IS_SET(o) o->w1.value.symbol->value_is_set
 #define SYMBOL_FUNCTION_IS_SET(o) o->w1.value.symbol->function_is_set
 #define SYMBOL_STRUCTURE_IS_SET(o) o->w1.value.symbol->structure_is_set
+#define SYMBOL_TYPE_IS_SET(o) o->w1.value.symbol->type_is_set
 #define SYMBOL_VALUE(o) o->w1.value.symbol->value
 #define SYMBOL_FUNCTION(o) o->w1.value.symbol->function
 #define SYMBOL_STRUCTURE(o) o->w1.value.symbol->structure
+#define SYMBOL_TYPE(o) o->w1.value.symbol->type
 
 #define ARRAY_LENGTH(o) o->w1.value.array->length
 #define ARRAY_VALUES(o) o->w1.value.array->values
@@ -276,11 +284,13 @@ struct symbol {
   struct object *value; /** the value slot */
   struct object *function; /** the function value slot */
   struct object *structure; /** the struct value slot */
+  struct object *type; /** the type value slot */
   struct object *plist; /** a plist that maps from namespace name to value */
   char is_external;
   char value_is_set;
   char function_is_set;
   char structure_is_set;
+  char type_is_set;
 };
 
 struct package {
@@ -316,7 +326,7 @@ struct ffun {
 
 struct type {
   struct object *name;
-  ufixnum_t id; /** the id in gis->types of this type */
+  fixnum_t id; /** the id in gis->types of this type */
   struct object *structure; /** if this type was created from a struct, this is a link to the struct */
 };
 
@@ -385,39 +395,101 @@ struct gis {
      could replace it with a compile time constant). This would benefit all calls to "type-of" too. The same
      object would be returned, and they would be immutable. Maybe some Common Lisp impls already makes the lists that can
      be returned from type-of immutable? */
-  struct object *type_type; struct object *type_string; /* string for "type" */
+
+  struct object *type_type; /* string for "type" */
+  struct object *type_string;
+  struct object *type_symbol;
+
   struct object *cons_type;
   struct object *fixnum_type;
   struct object *ufixnum_type;
   struct object *flonum_type;
   struct object *symbol_type;
-  struct object *dynamic_array_type; struct object *dynamic_array_string; /* string for "dynamic-array" */
-  struct object *string_type;
-  struct object *package_type;
-  struct object *dynamic_byte_array_type; struct object *dynamic_byte_array_string; /* string for "dynamic-byte-array" */
-  struct object *function_type;
-  struct object *file_type; struct object *file_string;
-  struct object *enumerator_type; struct object *enumerator_string;
-  struct object *nil_type;
-  struct object *record_type; struct object *record_string;
-  struct object *vec2_type; struct object *vec2_string;
-  struct object *dlib_type;
-  struct object *ffun_type;
-  struct object *struct_type;
-  struct object *ptr_type; struct object *pointer_string;
 
+  struct object *dynamic_array_type; 
+  struct object *dynamic_array_string; /* string for "dynamic-array" */
+  struct object *dynamic_array_symbol;
+
+  struct object *package_type;
+
+  struct object *dynamic_byte_array_symbol;
+  struct object *dynamic_byte_array_type; 
+  struct object *dynamic_byte_array_string; /* string for "dynamic-byte-array" */
+
+  struct object *function_type;
+
+  struct object *file_symbol;
+  struct object *file_type; 
+  struct object *file_string;
+
+  struct object *enumerator_symbol; 
+  struct object *enumerator_type; 
+  struct object *enumerator_string;
+
+  struct object *nil_type;
+
+  struct object *record_type; 
+  struct object *record_string;
+  struct object *record_symbol;
+
+  struct object *vec2_symbol; 
+  struct object *vec2_type; 
+  struct object *vec2_string;
+
+  struct object *dlib_type;
+
+  struct object *ffun_type;
+
+  struct object *struct_type;
+  struct object *struct_string;
+  struct object *struct_symbol;
+  struct object *struct_builtin;
+
+  struct object *pointer_type; 
+  struct object *pointer_string;
+  struct object *pointer_symbol;
+
+  /* Uninstantiable types */
+  struct object *void_symbol;
+  struct object *void_string;
+  struct object *void_type;
+
+  struct object *char_symbol;
+  struct object *char_string;
+  struct object *char_type;
+
+  struct object *int_symbol;
+  struct object *int_string;
+  struct object *int_type;
+
+  /* string_string is already defined elsewhere */
+  struct object *string_type;
+
+  struct object *uint_symbol;
+  struct object *uint_string;
+  struct object *uint_type;
+
+  struct object *uint8_symbol;
+  struct object *uint8_string;
+  struct object *uint8_type;
+
+  struct object *uint16_symbol;
+  struct object *uint16_string;
+  struct object *uint16_type;
+
+  /* packages */
   struct object *keyword_package;
   struct object *lisp_package;
   struct object *user_package;
   struct object *impl_package;
-  struct object *ffi_package;
+  struct object *type_package;
 
   /* keywords */
-  struct object *value_keyword;
-  struct object *function_keyword;
-  struct object *internal_keyword;
-  struct object *external_keyword;
-  struct object *inherited_keyword;
+  struct object *value_keyword_symbol;
+  struct object *function_keyword_symbol;
+  struct object *internal_keyword_symbol;
+  struct object *external_keyword_symbol;
+  struct object *inherited_keyword_symbol;
 
   /* symbols from lisp package */
   struct object *car_symbol;
@@ -489,42 +561,16 @@ struct gis {
   struct object *dynamic_library_symbol;
   struct object *dynamic_library_string;
   struct object *dynamic_library_builtin;
+  struct object *dynamic_library_type;
 
   struct object *foreign_function_symbol;
   struct object *foreign_function_string;
   struct object *foreign_function_builtin;
+  struct object *foreign_function_type;
 
   struct object *type_of_symbol;
   struct object *type_of_string;
   struct object *type_of_builtin;
-
-  /* FFI */
-  struct object *ffi_string;
-
-  struct object *ffi_void_symbol;
-  struct object *ffi_void_string;
-
-  struct object *ffi_ptr_symbol;
-  struct object *ffi_ptr_string;
-
-  struct object *ffi_char_symbol;
-  struct object *ffi_char_string;
-
-  struct object *ffi_int_symbol;
-  struct object *ffi_int_string;
-
-  struct object *ffi_struct_symbol;
-  struct object *ffi_struct_string;
-
-  struct object *ffi_uint_symbol;
-  struct object *ffi_uint_string;
-
-  struct object *ffi_uint8_symbol;
-  struct object *ffi_uint8_string;
-
-  struct object *struct_symbol;
-  struct object *struct_string;
-  struct object *struct_builtin;
 
   struct object *symbol_struct_symbol;
   struct object *symbol_struct_string;
