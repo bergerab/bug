@@ -88,6 +88,7 @@ enum object_type object_type_of(struct object *o) {
 char *bstring_to_cstring(struct object *str) {
   fixnum_t length;
   char *buf;
+  OT2("bstring_to_cstring", 0, str, type_dynamic_byte_array, type_string);
   length = STRING_LENGTH(str);
   buf = malloc(sizeof(char) * (length + 1));
   memcpy(buf, STRING_CONTENTS(str), length);
@@ -217,7 +218,8 @@ struct object *flonum(flonum_t flo) {
 }
 
 struct object *vec2(flonum_t x, flonum_t y) {
-  struct object *o = object(type_vec2);
+  struct object *o;
+  o = object(type_vec2);
   NC(o, "Failed to allocate 2d-vector object.");
   o->w1.value.vec2 = malloc(sizeof(struct vec2));
   NC(o->w1.value.vec2, "Failed to allocate 2d-vector.");
@@ -228,6 +230,7 @@ struct object *vec2(flonum_t x, flonum_t y) {
 
 struct object *dlib(struct object *path) {
   struct object *o;
+  OT2("dlib", 0, path, type_dynamic_byte_array, type_string);
   o = object(type_dlib);
   NC(o, "Failed to allocate dlib object.");
   o->w1.value.dlib = malloc(sizeof(struct dlib));
@@ -247,6 +250,7 @@ struct object *dlib(struct object *path) {
    uint8 is not supported. Same with something like "void". Those values are just used for FFI. */
 struct object *type(struct object *name, char can_instantiate) {
   struct object *o;
+  OT2("type", 0, name, type_dynamic_byte_array, type_string);
   o = object(type_type);
   NC(o, "Failed to allocate type object.");
   o->w1.value.type = malloc(sizeof(struct type));
@@ -282,6 +286,8 @@ ffi_type *struct_ffi_type_designator_to_ffi_type(struct object *o) {
   unsigned int i;
   struct object *cursor;
 
+  OT2("struct_ffi_type_designator_to_ffi_type", 0, o, type_cons, type_nil);
+
   /* make a new ffi_type object */
   ft = malloc(sizeof(ffi_type)); /* TODO GC clean this up */
   ft->size = ft->alignment = 0;
@@ -302,6 +308,8 @@ ffi_type *struct_ffi_type_designator_to_ffi_type(struct object *o) {
 
 ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
   struct object *lhs, *t; /* , *rhs; */
+
+  OT2("ffi_type_designator_to_ffi_type", 0, o, type_cons, type_nil);
 
   t = type_of(o);
   if (t == gis->cons_type) { /* must be of form (* <any>) */
@@ -379,8 +387,14 @@ struct object *dynamic_byte_array(ufixnum_t initial_capacity) {
 
 struct object *ffun(struct object *dlib, struct object *ffname, struct object* ret_type, struct object *params) {
   ffi_status status;
-  struct object *o = object(type_ffun);
+  struct object *o;
 
+  OT("ffun", 0, dlib, type_dlib);
+  OT2("ffun", 1, ffname, type_dynamic_byte_array, type_string);
+  OT2("ffun", 2, ret_type, type_dynamic_byte_array, type_string);
+  OT2("ffun", 3, params, type_cons, type_nil);
+
+  o = object(type_ffun);
   NC(o, "Failed to allocate ffun object.");
   o->w1.value.ffun = malloc(sizeof(struct ffun));
   FFUN_FFNAME(o) = get_string_designator(ffname);
@@ -419,6 +433,9 @@ struct object *structure(struct object *name, struct object *fields) {
   unsigned int i;
   struct object *cursor, *t;
   struct object *o = object(type_struct);
+
+  OT2("structure", 0, name, type_dynamic_byte_array, type_string);
+  OT2("structure", 1, name, type_nil, type_cons);
 
   NC(o, "Failed to allocate struct object.");
   o->w1.value.structure = malloc(sizeof(struct structure));
@@ -523,6 +540,8 @@ struct object *get_struct(struct object *instance, struct object *sdes) {
   ufixnum_t ufix;
   flonum_t flo;
 
+  OT2("get_struct", 1, sdes, type_dynamic_byte_array, type_string);
+
   structure = TYPE_STRUCT(type_of(instance));
 
   if (structure == NIL) {
@@ -567,6 +586,7 @@ struct object *get_struct(struct object *instance, struct object *sdes) {
 
 /* set a field's value from a structure instance */
 void set_struct(struct object *instance, struct object *sdes, struct object *value) {
+  OT2("set_struct", 1, sdes, type_dynamic_byte_array, type_string);
   struct object *cursor, *field, *field_name, *structure;
   ufixnum_t i;
   fixnum_t fix;
@@ -647,7 +667,10 @@ struct object *enumerator(struct object *source) {
 }
 
 struct object *package(struct object *name, struct object *packages) {
-  struct object *o = object(type_package);
+  struct object *o;
+  OT("package", 0, name, type_string);
+  OT2("package", 1, packages, type_nil, type_cons);
+  o = object(type_package);
   NC(o, "Failed to allocate package object.");
   o->w1.value.package = malloc(sizeof(struct package));
   NC(o->w1.value.package, "Failed to allocate package object.");
@@ -668,7 +691,9 @@ struct object *cons(struct object *car, struct object *cdr) {
 
 /* Creates a new symbol. Does NOT intern or add to the current package. */
 struct object *symbol(struct object *name) {
-  struct object *o = object(type_symbol);
+  struct object *o;
+  OT("symbol", 0, name, type_string);
+  o = object(type_symbol);
   NC(o, "Failed to allocate symbol object.");
   o->w1.value.symbol = malloc(sizeof(struct symbol));
   NC(o->w1.value.symbol, "Failed to allocate symbol.");
@@ -716,6 +741,9 @@ struct object *file_stdout() {
 struct object *open_file(struct object *path, struct object *mode) {
   FILE *fp;
   struct object *o;
+
+  OT2("open_file", 0, path, type_dynamic_byte_array, type_string);
+  OT2("open_file", 1, mode, type_dynamic_byte_array, type_string);
 
   dynamic_byte_array_force_cstr(path);
   dynamic_byte_array_force_cstr(mode);
@@ -888,11 +916,13 @@ struct object *dynamic_byte_array_push(struct object *dba, struct object *value)
 }
 /** pushes a single byte (to avoid wrapping in a fixnum object) */
 void dynamic_byte_array_push_char(struct object *dba, char x) {
+  OT2("dynamic_byte_array_push_char", 0, dba, type_dynamic_byte_array, type_string);
   dynamic_byte_array_ensure_capacity(dba);
   DYNAMIC_BYTE_ARRAY_BYTES(dba)[DYNAMIC_BYTE_ARRAY_LENGTH(dba)++] = x;
 }
 /* It is required that there is no validation done on the dba that is passed here, otherwise it will cause an infinite loop with type_of */
 void dynamic_byte_array_force_cstr(struct object *dba) { /* uses the data outside of the dynamic array to work as a null terminated string */
+  OT2("dynamic_byte_array_force_cstr", 0, dba, type_dynamic_byte_array, type_string);
   dynamic_byte_array_push_char(dba, '\0'); /* TODO: could be improved to check if there is already a null byte at the end */
   DYNAMIC_BYTE_ARRAY_LENGTH(dba) -= 1;
 }
@@ -908,6 +938,8 @@ struct object *dynamic_byte_array_push_all(struct object *dba0, struct object *d
 
 void dynamic_byte_array_insert_char(struct object *dba, ufixnum_t i, char x) {
   ufixnum_t j;
+  
+  OT2("dynamic_byte_array_insert_char", 0, dba, type_dynamic_byte_array, type_string);
 
   dynamic_byte_array_ensure_capacity(dba);
   for (j = DYNAMIC_BYTE_ARRAY_LENGTH(dba); j > i; --j) {
@@ -966,6 +998,8 @@ struct object *do_to_string(struct object *o, char repr);
 void reverse_string(struct object *o) {
   ufixnum_t i;
   char temp;
+
+  OT("reverse_string", 0, o, type_string);
 
   for (i = 0; i < STRING_LENGTH(o)/2; ++i) {
     temp = STRING_CONTENTS(o)[i];
