@@ -1,3 +1,4 @@
+(print "bink")
 (impl:function find-package (sd)
 	"Sets the current package to be the package named by the given string designator."
   (let ((p (impl:find-package sd)))

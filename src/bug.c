@@ -26,9 +26,7 @@ char equals(struct object *o0, struct object *o1);
 
 void dynamic_byte_array_force_cstr(struct object *dba);
 void dynamic_array_push(struct object *da, struct object *value);
-void dynamic_array_push_no_val(struct object *da, struct object *value);
 struct object *dynamic_array_get_ufixnum_t(struct object *da, ufixnum_t index);
-struct object *dynamic_array_get_ufixnum_t_no_val(struct object *da, ufixnum_t index);
 
 void symbol_set_structure(struct object *sym, struct object *s);
 
@@ -53,12 +51,16 @@ char *type_name_cstr(struct object *o) {
   return STRING_CONTENTS(name);
 }
 
+#define HAS_OBJECT_TYPE(o) (OBJECT_TYPE(o) & 2)
+#define TYPE_INDEX(o) (OBJECT_TYPE(o) >> 2)
+#define IS_TYPE_USER_DEFINED(o) (HAS_OBJECT_TYPE(o) && OBJECT_TYPE(o) > HIGHEST_TYPE)
+
 /* returns object of type type. */
 struct object *type_of(struct object *o) {
   if (o == NIL) return gis->nil_type;
-  if (OBJECT_TYPE(o) & 2) {
+  if (HAS_OBJECT_TYPE(o)) {
     /* cannot use validation here, because validation calls type_of and infinitely recurses */
-    return dynamic_array_get_ufixnum_t_no_val(gis->types, OBJECT_TYPE(o) >> 2);
+    return dynamic_array_get_ufixnum_t(gis->types, TYPE_INDEX(o));
   }
   return gis->cons_type;
 }
@@ -73,7 +75,7 @@ char *type_name_of_cstr(struct object *o) {
 
 enum object_type object_type_of(struct object *o) {
   if (o == NIL) return type_nil;
-  if (OBJECT_TYPE(o) & 2) {
+  if (HAS_OBJECT_TYPE(o)) {
     /* cannot use validation here, because validation calls type_of and infinitely recurses */
     return OBJECT_TYPE(o);
   }
@@ -249,12 +251,11 @@ struct object *type(struct object *name, char can_instantiate) {
   NC(o, "Failed to allocate type object.");
   o->w1.value.type = malloc(sizeof(struct type));
   NC(o->w1.value.type, "Failed to allocate type.");
-  printf("WEF\n");
   TYPE_NAME(o) = name;
   TYPE_STRUCT(o) = NIL;
   if (can_instantiate) {
     TYPE_ID(o) = DYNAMIC_ARRAY_LENGTH(gis->types);
-    dynamic_array_push_no_val(gis->types, o);
+    dynamic_array_push(gis->types, o);
   } else {
     TYPE_ID(o) = -1;
   }
@@ -750,9 +751,6 @@ void close_file(struct object *file) {
 /*
  * Dynamic Array
  */
-struct object *dynamic_array_get_ufixnum_t_no_val(struct object *da, ufixnum_t index) {
-  return DYNAMIC_ARRAY_VALUES(da)[index];
-}
 struct object *dynamic_array_get_ufixnum_t(struct object *da, ufixnum_t index) {
   OT("dynamic_array_get", 0, da, type_dynamic_array);
   #ifdef RUN_TIME_CHECKS
@@ -815,11 +813,6 @@ void dynamic_array_ensure_capacity(struct object *da) {
       exit(1);
     }
   }
-}
-void dynamic_array_push_no_val(struct object *da, struct object *value) { /* skip validation (for use before gis->types is setup) */
-  dynamic_array_ensure_capacity(da);
-  DYNAMIC_ARRAY_VALUES(da)[DYNAMIC_ARRAY_LENGTH(da)] = value;
-  ++DYNAMIC_ARRAY_LENGTH(da);
 }
 void dynamic_array_push(struct object *da, struct object *value) {
   OT("dynamic_array_push", 0, da, type_dynamic_array);
@@ -1137,112 +1130,117 @@ struct object *to_string_dynamic_array(struct object *da) {
 }
 
 struct object *do_to_string(struct object *o, char repr) {
-  struct object *str, *t;
+  struct object *str;
   char buf[100];
+  enum object_type t;
 
-  t = type_of(o);
+  t = object_type_of(o);
 
-  if (t == gis->cons_type) {
-    str = string("(");
-    str = string_concat(str, do_to_string(CONS_CAR(o), 1));
-    while (type_of(CONS_CDR(o)) == gis->cons_type) {
-      o = CONS_CDR(o);
-      str = string_concat(str, string(" "));
+  switch (t) {
+    case type_cons:
+      str = string("(");
       str = string_concat(str, do_to_string(CONS_CAR(o), 1));
-    }
-    if (CONS_CDR(o) == NIL) {
-      dynamic_byte_array_push_char(str, ')');
-    } else {
-      str = string_concat(str, string(" "));
-      str = string_concat(str, do_to_string(CONS_CDR(o), 1));
-      dynamic_byte_array_push_char(str, ')');
-    }
-    return str;
-  } else if (t == gis->string_type) {
-    if (repr) {
-      o = string_concat(string("\""), o);
-      dynamic_byte_array_push_char(o, '\"');
-    }
-    return o;
-  } else if (t == gis->nil_type) {
-    return string("nil");
-  } else if (t == gis->flonum_type) {
-    return to_string_flonum_t(FLONUM_VALUE(o));
-  } else if (t == gis->ufixnum_type) {
-    return to_string_ufixnum_t(UFIXNUM_VALUE(o));
-  } else if (t == gis->fixnum_type) {
-    return to_string_fixnum_t(FIXNUM_VALUE(o));
-  } else if (t == gis->dynamic_byte_array_type) {
-    return to_string_dynamic_byte_array(o);
-  } else if (t == gis->vec2_type) {
-    return to_string_vec2(o);
-  } else if (t == gis->dynamic_array_type) {
-    return to_string_dynamic_array(o);
-  } else if (t ==
-             gis->function_type) { /* TODO how should functions be displayed? */
-    if (0 && FUNCTION_NAME(o) != NIL) {
-      str = string("<function ");
-      str = string_concat(str, SYMBOL_NAME(FUNCTION_NAME(o)));
-      dynamic_byte_array_push_char(str, '>');
+      while (type_of(CONS_CDR(o)) == gis->cons_type) {
+        o = CONS_CDR(o);
+        str = string_concat(str, string(" "));
+        str = string_concat(str, do_to_string(CONS_CAR(o), 1));
+      }
+      if (CONS_CDR(o) == NIL) {
+        dynamic_byte_array_push_char(str, ')');
+      } else {
+        str = string_concat(str, string(" "));
+        str = string_concat(str, do_to_string(CONS_CDR(o), 1));
+        dynamic_byte_array_push_char(str, ')');
+      }
       return str;
-    } else {
+    case type_string:
+      if (repr) {
+        o = string_concat(string("\""), o);
+        dynamic_byte_array_push_char(o, '\"');
+      }
+      return o;
+    case type_nil:
+      return string("nil");
+    case type_flonum:
+      return to_string_flonum_t(FLONUM_VALUE(o));
+    case type_ufixnum:
+      return to_string_ufixnum_t(UFIXNUM_VALUE(o));
+    case type_fixnum:
+      return to_string_fixnum_t(FIXNUM_VALUE(o));
+    case type_dynamic_byte_array:
+      return to_string_dynamic_byte_array(o);
+    case type_vec2:
+      return to_string_vec2(o);
+    case type_dynamic_array:
+      return to_string_dynamic_array(o);
+    case type_function:
+      if (0 && FUNCTION_NAME(o) != NIL) {
+        str = string("<function ");
+        str = string_concat(str, SYMBOL_NAME(FUNCTION_NAME(o)));
+        dynamic_byte_array_push_char(str, '>');
+        return str;
+      }
       str = string("<function ");
       str = string_concat(str, do_to_string(FUNCTION_CONSTANTS(o), 1));
       dynamic_byte_array_push_char(str, ' ');
       str = string_concat(str, do_to_string(FUNCTION_CODE(o), 1));
       dynamic_byte_array_push_char(str, '>');
       return str;
-    }
-  } else if (t == gis->record_type) {
-    return string("<record>");
-  } else if (t == gis->package_type) {
-    str = string("<package ");
-    str = string_concat(str, do_to_string(PACKAGE_NAME(o), 1));
-    dynamic_byte_array_push_char(str, '>');
-    return str;
-  } else if (t == gis->symbol_type) {
-    return SYMBOL_NAME(o);
-  } else if (t == gis->dlib_type) {
-    str = string("<dynamic-library \"");
-    str = string_concat(str, DLIB_PATH(o));
-    dynamic_byte_array_push_char(str, '"');
-    dynamic_byte_array_push_char(str, '>');
-    return str;
-  } else if (t == gis->ffun_type) {
-    str = string("<foreign-function \"");
-    str = string_concat(str, FFUN_FFNAME(o));
-    dynamic_byte_array_push_char(str, '"');
-    dynamic_byte_array_push_char(str, ' ');
-    str = string_concat(str, do_to_string(FFUN_DLIB(o), 1));
-    dynamic_byte_array_push_char(str, '>');
-    return str;
-  } else if (t == gis->pointer_type) {
-    str = string("<pointer ");
-    sprintf(buf, "%p", OBJECT_POINTER(o));
-    dynamic_byte_array_push_char(str, '0');
-    dynamic_byte_array_push_char(str, 'x');
-    str = string_concat(str, string(buf));
-    dynamic_byte_array_push_char(str, '>');
-    return str;
-  } else if (t == gis->struct_type) {
-    str = string("<struct ");
-    str = string_concat(str, STRUCTURE_NAME(o));
-    dynamic_byte_array_push_char(str, '>');
-    return str;
-  } else if (t == gis->type_type) {
-    str = string("<type ");
-    str = string_concat(str, TYPE_NAME(o));
-    dynamic_byte_array_push_char(str, '>');
-    return str;
-  } else {
-    str = string("<");
-    str = string_concat(str, TYPE_NAME(type_of(o)));
-    dynamic_byte_array_push_char(str, ' ');
-    sprintf(buf, "%p", OBJECT_POINTER(o));
-    str = string_concat(str, string(buf));
-    dynamic_byte_array_push_char(str, '>');
-    return str;
+    case type_record:
+      return string("<record>");
+    case type_package:
+      str = string("<package ");
+      str = string_concat(str, do_to_string(PACKAGE_NAME(o), 1));
+      dynamic_byte_array_push_char(str, '>');
+      return str;
+    case type_symbol:
+      return SYMBOL_NAME(o);
+    case type_dlib:
+      str = string("<dynamic-library \"");
+      str = string_concat(str, DLIB_PATH(o));
+      dynamic_byte_array_push_char(str, '"');
+      dynamic_byte_array_push_char(str, '>');
+      return str;
+    case type_ffun:
+      str = string("<foreign-function \"");
+      str = string_concat(str, FFUN_FFNAME(o));
+      dynamic_byte_array_push_char(str, '"');
+      dynamic_byte_array_push_char(str, ' ');
+      str = string_concat(str, do_to_string(FFUN_DLIB(o), 1));
+      dynamic_byte_array_push_char(str, '>');
+      return str;
+    case type_ptr:
+      str = string("<pointer ");
+      sprintf(buf, "%p", OBJECT_POINTER(o));
+      dynamic_byte_array_push_char(str, '0');
+      dynamic_byte_array_push_char(str, 'x');
+      str = string_concat(str, string(buf));
+      dynamic_byte_array_push_char(str, '>');
+      return str;
+    case type_struct:
+      str = string("<struct ");
+      str = string_concat(str, STRUCTURE_NAME(o));
+      dynamic_byte_array_push_char(str, '>');
+      return str;
+    case type_type:
+      str = string("<type ");
+      str = string_concat(str, TYPE_NAME(o));
+      dynamic_byte_array_push_char(str, '>');
+      return str;
+    case type_enumerator:
+      return string("<enumerator>");
+    case type_file:
+      return string("<file>");
   }
+
+  /* handle user defined type */
+  str = string("<");
+  str = string_concat(str, TYPE_NAME(type_of(o)));
+  dynamic_byte_array_push_char(str, ' ');
+  sprintf(buf, "%p", OBJECT_POINTER(o));
+  str = string_concat(str, string(buf));
+  dynamic_byte_array_push_char(str, '>');
+  return str;
 }
 
 struct object *to_string(struct object *o) {
@@ -1282,64 +1280,71 @@ void print_no_newline(struct object *o) {
  *===============================*/
 char equals(struct object *o0, struct object *o1) {
   ufixnum_t i;
-  struct object *t;
+  enum object_type t0, t1;
 
-printf("EQQQQ\n");
-  if (type_of(o0) != type_of(o1)) return 0;
-  t = type_of(o0);
-  printf("GOT TYPE\n");
-  if (t == gis->cons_type) {
+  t0 = object_type_of(o0);
+  t1 = object_type_of(o1);
+
+  if (t0 != t1) return 0;
+  switch (t0) {
+    case type_cons:
       return equals(CONS_CAR(o0), CONS_CAR(o1)) && equals(CONS_CDR(o0), CONS_CDR(o1));
-  } else if (t == gis->cons_type || t == gis->string_type || t == gis->dynamic_byte_array_type) {
+    case type_string:
+    case type_dynamic_byte_array:
       if (DYNAMIC_BYTE_ARRAY_LENGTH(o0) != DYNAMIC_BYTE_ARRAY_LENGTH(o1))
         return 0;
       for (i = 0; i < DYNAMIC_BYTE_ARRAY_LENGTH(o0); ++i)
         if (DYNAMIC_BYTE_ARRAY_BYTES(o0)[i] != DYNAMIC_BYTE_ARRAY_BYTES(o1)[i])
           return 0;
       return 1;
-  } else if (t == gis->nil_type) {
+    case type_nil:
       return 1;
-  } else if (t == gis->flonum_type) {
+    case type_flonum:
       return FLONUM_VALUE(o0) == FLONUM_VALUE(o1);
-  } else if (t == gis->ufixnum_type) {
-      return UFIXNUM_VALUE(o0) == UFIXNUM_VALUE(o1);
-  } else if (t == gis->fixnum_type) {
+    case type_fixnum:
       return FIXNUM_VALUE(o0) == FIXNUM_VALUE(o1);
-  } else if (t == gis->vec2_type) {
+    case type_ufixnum:
+      return UFIXNUM_VALUE(o0) == UFIXNUM_VALUE(o1);
+    case type_vec2:
       return VEC2_X(o0) == VEC2_X(o1) && VEC2_Y(o0) == VEC2_Y(o1);
-  } else if (t == gis->dynamic_array_type) {
+    case type_dynamic_array:
       if (DYNAMIC_ARRAY_LENGTH(o0) != DYNAMIC_ARRAY_LENGTH(o1))
         return 0;
       for (i = 0; i < DYNAMIC_ARRAY_LENGTH(o0); ++i)
         if (!equals(DYNAMIC_ARRAY_VALUES(o0)[i], DYNAMIC_ARRAY_VALUES(o1)[i]))
           return 0;
       return 1;
-  } else if (t == gis->file_type) {
+    case type_file:
       return o0 == o1;
-  } else if (t == gis->enumerator_type) {
+    case type_enumerator:
       return equals(ENUMERATOR_SOURCE(o0), ENUMERATOR_SOURCE(o1)) &&
              ENUMERATOR_INDEX(o0) == ENUMERATOR_INDEX(o1);
-  } else if (t == gis->package_type) {
+    case type_package:
       return o0 == o1;
-  } else if (t == gis->dynamic_library_type) {
+    case type_dlib:
       return DLIB_PTR(o0) == DLIB_PTR(o1);
-  } else if (t == gis->struct_type) {
+    case type_struct:
       return STRUCTURE_NAME(o0) == STRUCTURE_NAME(o1) && STRUCTURE_FFI_TYPE(o0) == STRUCTURE_FFI_TYPE(o1);
-  } else if (t == gis->foreign_function_type) {
+    case type_ffun:
       return FFUN_PTR(o0) == FFUN_PTR(o1);
-  } else if (t == gis->pointer_type) {
+    case type_ptr:
       return OBJECT_POINTER(o0) == OBJECT_POINTER(o1);
-  } else if (t == gis->symbol_type) {
+    case type_symbol:
       return o0 == o1;
-  } else if (t == gis->function_type) {
+    case type_function:
       return equals(FUNCTION_CONSTANTS(o0), FUNCTION_CONSTANTS(o1)) &&
              equals(FUNCTION_CODE(o0), FUNCTION_CODE(o1)) &&
              FUNCTION_STACK_SIZE(o0) == FUNCTION_STACK_SIZE(o1) &&
              FUNCTION_NARGS(o0) == FUNCTION_NARGS(o1);
-  } else {
-    printf("Equality is not supported for the given type.");
-    exit(1);
+    case type_record: /* TODO */
+    case type_type:
+      return o0 == o1;
   }
+
+  /* TODO: handle user defined types */
+
+  printf("Equality is not supported for the given type.");
+  exit(1);
 }
 
 /*===============================*
@@ -1458,11 +1463,8 @@ struct object *symbol_get_value(struct object *sym) {
 }
 
 void symbol_set_type(struct object *sym, struct object *t) {
-  printf("SSETT1\n");
   SYMBOL_TYPE(sym) = t;
-  printf("bingis\n");
   SYMBOL_TYPE_IS_SET(sym) = 1;
-  printf("SSETT2\n");
 }
 
 void symbol_set_function(struct object *sym, struct object *f) {
@@ -1500,10 +1502,8 @@ struct object *get_string_designator(struct object *sd) {
 struct object *do_find_symbol(struct object *string, struct object *package, char include_internal) {
   struct object *cursor, *package_cursor, *pack, *sym;
 
-/*
-  TC("find_symbol", 0, string, gis->string_type);
-  TC("find_symbol", 1, package, gis->package_type);
-  */
+  OT("find_symbol", 0, string, type_string);
+  OT("find_symbol", 1, package, type_package);
 
   /* look in current package for the symbol
      if we are only looking for inherited symbols with this name, don't look in
@@ -1702,7 +1702,8 @@ void gis_init(char load_core) {
 /* TODO: Why intern? Just make the symbol..? */
 #define GIS_SYM_STR(id_name, str_id_name, str_name, pack)          \
   GIS_STR(str_id_name, str_name)                \
-  gis->id_name ## _symbol = intern(gis->str_id_name ## _string, gis->pack ## _package); \
+  gis->id_name ## _symbol = symbol(gis->str_id_name ## _string); \
+  SYMBOL_PACKAGE(gis->id_name ## _symbol) = gis->pack ## _package; \
   symbol_export(gis->id_name ## _symbol);
 
   /* nil must be boostrapped because other functions relies on it */
@@ -1739,20 +1740,18 @@ void gis_init(char load_core) {
   /* type_of cannot be called before this is setup */
   gis->types = dynamic_array(64);
 
-#define GIS_TYPE(id_name, str_name, can_instantiate)                     \
-  gis->id_name##_string = string(str_name);             \
+#define GIS_TYPE(id_name, str_name, can_instantiate)                  \
+  GIS_SYM(id_name, str_name, type)                                    \
   gis->id_name##_type = type(gis->id_name##_string, can_instantiate); \
   symbol_set_type(gis->id_name##_symbol, gis->id_name##_type);
 
-#define GIS_UNINSTANTIATABLE_TYPE(id_name, str_name)                     \
+#define GIS_UNINSTANTIATABLE_TYPE(id_name, str_name) \
   GIS_TYPE(id_name, str_name, 0)
 
-#define GIS_INSTANTIATABLE_TYPE(id_name, str_name)                     \
+#define GIS_INSTANTIATABLE_TYPE(id_name, str_name) \
   GIS_TYPE(id_name, str_name, 1)
 
-  printf("BBB\n");
   GIS_UNINSTANTIATABLE_TYPE(fixnum, "fixnum")
-  printf("VVV\n");
   GIS_UNINSTANTIATABLE_TYPE(ufixnum, "ufixnum")
   GIS_UNINSTANTIATABLE_TYPE(flonum, "flonum")
   GIS_UNINSTANTIATABLE_TYPE(flonum, "flonum")
@@ -1785,13 +1784,9 @@ void gis_init(char load_core) {
   GIS_INSTANTIATABLE_TYPE(uint16, "uint16")
   GIS_INSTANTIATABLE_TYPE(uint, "uint")
 
-  printf("WEF");
-
   /* initialize keywords that are used internally */
   GIS_SYM_STR(value_keyword, value, "value", keyword)
-  printf("FFFF\n");
   GIS_SYM_STR(function_keyword, function, "function", keyword)
-  printf("WWWW\n");
   GIS_SYM_STR(internal_keyword, internal, "internal", keyword)
   GIS_SYM_STR(external_keyword, external, "external", keyword)
   GIS_SYM_STR(inherited_keyword, inherited, "inherited", keyword)
