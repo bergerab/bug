@@ -26,6 +26,7 @@
 #define OT(name, argument, o, type) object_type_check(name, argument, o, type)
 #define TC2(name, argument, o, type0, type1) type_check_or2(name, argument, o, type0, type1)
 #define OT2(name, argument, o, type0, type1) object_type_check_or2(name, argument, o, type0, type1)
+#define OT_LIST(name, argument, o) object_type_check_list(name, argument, o)
 #define SC(name, n) stack_check(name, n, UFIXNUM_VALUE(i))
 #else
 #define TC(name, argument, o, type) \
@@ -39,6 +40,10 @@
 #define OT2(name, n) \
   {}
 #endif
+
+#define PRINT_STACK_TRACE_AND_QUIT() \
+  print_stack();                     \
+  exit(1);
 
 #define NIL gis->nil_symbol
 #define T gis->t_symbol
@@ -218,15 +223,14 @@ enum object_type {
   type_function = 34,
   type_file = 38,
   type_enumerator = 42,
-  type_nil = 46, /* type_nil won't appear on an object, only from calls to
+  type_record = 46, /* type_nil won't appear on an object, only from calls to
                    get_object_type(...) */
-  type_record = 50,
-  type_vec2 = 54,
-  type_dlib = 58, /** dynamic library */
-  type_ffun = 62, /** foreign function (function from a dynamic library) */
-  type_struct = 66, /** used in FFI */
-  type_ptr = 70,
-  type_type = 74
+  type_vec2 = 50,
+  type_dlib = 54,
+  type_ffun = 58, /** dynamic library */
+  type_struct = 62, /** foreign function (function from a dynamic library) */
+  type_ptr = 66, /** used in FFI */
+  type_type = 70
 };
 /* ATTENTION! when adding a new type, make sure to update this define below!
    this defines the border between types defined as builtins and the user. */
@@ -516,6 +520,8 @@ struct gis {
   struct object *and_symbol;
   struct object *or_symbol;
   struct object *equals_symbol;
+  struct object *impl_function_symbol; /* impl package has a function symbol that shadows t:function */
+  struct object *impl_struct_symbol; /* impl package has a struct symbol that shadows t:struct */
   struct object *function_symbol;
   struct object *let_symbol;
   struct object *nil_symbol;

@@ -30,8 +30,18 @@ struct object *dynamic_array_get_ufixnum_t(struct object *da, ufixnum_t index);
 
 void symbol_set_structure(struct object *sym, struct object *s);
 
+enum object_type object_type_of(struct object *o);
+struct object *type_name_of(struct object *o);
+char *type_name_of_cstr(struct object *o);
+char *type_name_cstr(struct object *o);
+struct object *type_of(struct object *o);
+
+struct object *symbol_get_value(struct object *sym);
+
 struct object *get_string_designator(struct object *sd);
 void print(struct object *o);
+
+void print_stack();
 
 /*===============================*
  *===============================*
@@ -39,6 +49,87 @@ void print(struct object *o);
  *===============================*
  *===============================*/
 double log2(double n) { return log(n) / log(2); }
+
+/*===============================*
+ *===============================*
+ * Types                         *
+ *===============================*
+ *===============================*/
+#ifdef RUN_TIME_CHECKS
+void type_check(char *name, unsigned int argument, struct object *o,
+                struct object *t) {
+  struct object *t1;
+  t1 = type_of(o);
+  if (t1 != t) {
+    printf(
+        "BC: Function \"%s\" was called with an invalid argument "
+        "at index %d. Expected type %s, but was %s.\n",
+        name, argument, type_name_cstr(t), type_name_cstr(t1));
+    PRINT_STACK_TRACE_AND_QUIT();
+  }
+}
+
+void type_check_or2(char *name, unsigned int argument, struct object *o,
+                struct object *t0, struct object *t1) {
+  if (type_of(o) != t0 && type_of(o) != t1) {
+    printf(
+        "BC: Function \"%s\" was called with an invalid argument "
+        "at index %d. Expected either %s or %s, but was %s.\n",
+        name, argument, type_name_cstr(t0), type_name_cstr(t1), type_name_of_cstr(o));
+    PRINT_STACK_TRACE_AND_QUIT();
+  }
+}
+
+/**
+ * Checks the number of items on the stack (for bytecode interpreter)
+ */
+void stack_check(char *name, int n, unsigned long i) {
+  unsigned int stack_count = DYNAMIC_ARRAY_LENGTH(gis->data_stack);
+  if (stack_count < n) {
+    printf(
+        "BC: Operation \"%s\" was called when the stack had too "
+        "few items. Expected %d items on the stack, but were %d (at instruction %lu).\n",
+        name, n, stack_count, i);
+    PRINT_STACK_TRACE_AND_QUIT();
+  }
+}
+
+void object_type_check_list(char *name, unsigned int argument, struct object *o) {
+  enum object_type t1;
+  t1 = object_type_of(o);
+  if (t1 != type_cons && o != NIL) {
+    printf(
+        "BC: Function \"%s\" was called with an invalid argument "
+        "at index %d. Expected a list, but was %d.\n",
+        name, argument, (int)t1);
+    PRINT_STACK_TRACE_AND_QUIT();
+  }
+}
+
+void object_type_check(char *name, unsigned int argument, struct object *o,
+                enum object_type t) {
+  enum object_type t1;
+  t1 = object_type_of(o);
+  if (t1 != t) {
+    printf(
+        "BC: Function \"%s\" was called with an invalid argument "
+        "at index %d. Expected type %d, but was %d.\n",
+        name, argument, (int)t, (int)t1);
+    PRINT_STACK_TRACE_AND_QUIT();
+  }
+}
+
+void object_type_check_or2(char *name, unsigned int argument, struct object *o,
+                enum object_type t0, enum object_type t1) {
+  if (object_type_of(o) != t0 && object_type_of(o) != t1) {
+    printf(
+        "BC: Function \"%s\" was called with an invalid argument "
+        "at index %d. Expected either %d or %d, but was %d.\n",
+        name, argument, (int)t0, (int)t1, (int)object_type_of(o));
+    PRINT_STACK_TRACE_AND_QUIT();
+  }
+}
+#endif
 
 struct object *type_name(struct object *o) {
   return TYPE_NAME(o);
@@ -74,7 +165,6 @@ char *type_name_of_cstr(struct object *o) {
 }
 
 enum object_type object_type_of(struct object *o) {
-  if (o == NIL) return type_nil;
   if (HAS_OBJECT_TYPE(o)) {
     /* cannot use validation here, because validation calls type_of and infinitely recurses */
     return OBJECT_TYPE(o);
@@ -100,7 +190,9 @@ char *bstring_to_cstring(struct object *str) {
  * Counts the number of items in a cons list
  */
 fixnum_t count(struct object *list) {
-  fixnum_t count = 0;
+  fixnum_t count;
+  OT_LIST("count", 0, list);
+  count = 0;
   while (list != NIL) {
     ++count;
     list = list->w1.cdr;
@@ -120,71 +212,6 @@ size_t count_nta(void **arr) {
   }
   return size;
 }
-
-#ifdef RUN_TIME_CHECKS
-void type_check(char *name, unsigned int argument, struct object *o,
-                struct object *t) {
-  struct object *t1;
-  t1 = type_of(o);
-  if (t1 != t) {
-    printf(
-        "BC: Function \"%s\" was called with an invalid argument "
-        "at index %d. Expected type %s, but was %s.\n",
-        name, argument, type_name_cstr(t), type_name_cstr(t1));
-    exit(1);
-  }
-}
-
-void type_check_or2(char *name, unsigned int argument, struct object *o,
-                struct object *t0, struct object *t1) {
-  if (type_of(o) != t0 && type_of(o) != t1) {
-    printf(
-        "BC: Function \"%s\" was called with an invalid argument "
-        "at index %d. Expected either %s or %s, but was %s.\n",
-        name, argument, type_name_cstr(t0), type_name_cstr(t1), type_name_of_cstr(o));
-    exit(1);
-  }
-}
-
-/**
- * Checks the number of items on the stack (for bytecode interpreter)
- */
-void stack_check(char *name, int n, unsigned long i) {
-  unsigned int stack_count = DYNAMIC_ARRAY_LENGTH(gis->data_stack);
-  if (stack_count < n) {
-    printf(
-        "BC: Operation \"%s\" was called when the stack had too "
-        "few items. Expected %d items on the stack, but were %d (at instruction %lu).\n",
-        name, n, stack_count, i);
-    exit(1);
-  }
-}
-
-void object_type_check(char *name, unsigned int argument, struct object *o,
-                enum object_type t) {
-  enum object_type t1;
-  t1 = object_type_of(o);
-  if (t1 != t) {
-    printf(
-        "BC: Function \"%s\" was called with an invalid argument "
-        "at index %d. Expected type %d, but was %d.\n",
-        name, argument, (int)t, (int)t1);
-    exit(1);
-  }
-}
-
-void object_type_check_or2(char *name, unsigned int argument, struct object *o,
-                enum object_type t0, enum object_type t1) {
-  if (object_type_of(o) != t0 && object_type_of(o) != t1) {
-    printf(
-        "BC: Function \"%s\" was called with an invalid argument "
-        "at index %d. Expected either %d or %d, but was %d.\n",
-        name, argument, (int)t0, (int)t1, (int)object_type_of(o));
-    exit(1);
-  }
-}
-
-#endif
 
 /*
  * Value constructors
@@ -240,7 +267,7 @@ struct object *dlib(struct object *path) {
   DLIB_PTR(o) = LoadLibrary(STRING_CONTENTS(path));
   if (DLIB_PTR(o) == NULL) {
     printf("Failed to load dynamic library %s.", STRING_CONTENTS(o));
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
   return o;
 }
@@ -286,8 +313,6 @@ ffi_type *struct_ffi_type_designator_to_ffi_type(struct object *o) {
   unsigned int i;
   struct object *cursor;
 
-  OT2("struct_ffi_type_designator_to_ffi_type", 0, o, type_cons, type_nil);
-
   /* make a new ffi_type object */
   ft = malloc(sizeof(ffi_type)); /* TODO GC clean this up */
   ft->size = ft->alignment = 0;
@@ -309,18 +334,16 @@ ffi_type *struct_ffi_type_designator_to_ffi_type(struct object *o) {
 ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
   struct object *lhs, *t; /* , *rhs; */
 
-  OT2("ffi_type_designator_to_ffi_type", 0, o, type_cons, type_nil);
-
   t = type_of(o);
   if (t == gis->cons_type) { /* must be of form (* <any>) */
     lhs = CONS_CAR(o);
     if (lhs != gis->pointer_type && lhs != gis->struct_type) {
       printf("First item in FFI designator cons list must be ffi:* or ffi:struct.");
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
     if (CONS_CDR(o) == NIL) {
       printf("Takes at least argument.");
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
     if (ffi_type_designator_is_string(o)) {
       return &ffi_type_pointer;
@@ -329,7 +352,7 @@ ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
       return struct_ffi_type_designator_to_ffi_type(o);
     }
     printf("not impl\n");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   } else if (t == gis->symbol_type) { /* must be a ffi symbol */
     if (o == gis->char_type) return &ffi_type_schar;
     else if (o == gis->int_type) {
@@ -345,18 +368,18 @@ ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
     } else if (o == gis->struct_type) {
       printf("Passing struct directly is not supported");
       print(o);
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     } else if (SYMBOL_STRUCTURE_IS_SET(o)) {
       return STRUCTURE_FFI_TYPE(SYMBOL_STRUCTURE(o));
     } else {
       printf("Invalid FFI type designator symbol: \n");
       print(o);
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
   } else {
     printf("Invalid FFI type designator: \n");
     print(o);
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 }
 
@@ -392,7 +415,7 @@ struct object *ffun(struct object *dlib, struct object *ffname, struct object* r
   OT("ffun", 0, dlib, type_dlib);
   OT2("ffun", 1, ffname, type_dynamic_byte_array, type_string);
   OT2("ffun", 2, ret_type, type_dynamic_byte_array, type_string);
-  OT2("ffun", 3, params, type_cons, type_nil);
+  OT_LIST("ffun", 3, params);
 
   o = object(type_ffun);
   NC(o, "Failed to allocate ffun object.");
@@ -403,7 +426,7 @@ struct object *ffun(struct object *dlib, struct object *ffname, struct object* r
   FFUN_PTR(o) = GetProcAddress(DLIB_PTR(dlib), STRING_CONTENTS(FFUN_FFNAME(o)));
   if (FFUN_PTR(o) == NULL) {
     printf("Failed to load foreign function %s.", STRING_CONTENTS(FFUN_FFNAME(o)));
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
   FFUN_PARAMS(o) = params;
   FFUN_RET(o) = ret_type;
@@ -415,15 +438,15 @@ struct object *ffun(struct object *dlib, struct object *ffname, struct object* r
 
     if (FFUN_NARGS(o) > MAX_FFI_NARGS) {
       printf("Too many arguments for foreign function.");
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
     params = CONS_CDR(params);
   }
 
   FFUN_CIF(o) = malloc(sizeof(ffi_cif));
   if ((status = ffi_prep_cif(FFUN_CIF(o), FFI_DEFAULT_ABI, FFUN_NARGS(o), ffi_type_designator_to_ffi_type(FFUN_RET(o)), FFUN_ARGTYPES(o))) != FFI_OK) {
-      printf("ERROR preparing CIF.\n");
-      exit(1);
+      printf("PRINT_STACK_TRACE_AND_QUIT preparing CIF.\n");
+      PRINT_STACK_TRACE_AND_QUIT();
   }
 
   return o;
@@ -434,14 +457,14 @@ struct object *structure(struct object *name, struct object *fields) {
   struct object *cursor, *t;
   struct object *o = object(type_struct);
 
-  OT2("structure", 0, name, type_dynamic_byte_array, type_string);
-  OT2("structure", 1, name, type_nil, type_cons);
+  OT2("structure", 0, name, type_symbol, type_string);
+  OT_LIST("structure", 1, fields);
 
   NC(o, "Failed to allocate struct object.");
   o->w1.value.structure = malloc(sizeof(struct structure));
   if (o->w1.value.structure == NULL) {
     printf("Failed to allocate struct.");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
   STRUCTURE_NAME(o) = get_string_designator(name);
   STRUCTURE_FIELDS(o) = fields;
@@ -497,7 +520,7 @@ struct object *alloc_struct(struct object *structure, char init_defaults) {
   instance = malloc(t->size); /* TODO: GC clean this up */
   if (instance == NULL) {
     printf("failed to malloc struct for ffi.");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 
   o = pointer(instance);
@@ -521,7 +544,7 @@ struct object *alloc_struct(struct object *structure, char init_defaults) {
         /* why didn't this work?  */
       } else {
         printf("Unknown value when populating struct");
-        exit(1);
+        PRINT_STACK_TRACE_AND_QUIT();
       }
     }
   }
@@ -546,7 +569,7 @@ struct object *get_struct(struct object *instance, struct object *sdes) {
 
   if (structure == NIL) {
     printf("Type is not a structure.\n");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 
   fix = ufix = flo = 0;
@@ -566,7 +589,7 @@ struct object *get_struct(struct object *instance, struct object *sdes) {
 
   if (field == NULL) {
     printf("Field does not exist on structure.\n");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 
   ptr = &((char *)OBJECT_POINTER(instance))[STRUCTURE_OFFSETS(structure)[i]];
@@ -580,24 +603,25 @@ struct object *get_struct(struct object *instance, struct object *sdes) {
     return pointer((void*)ptr);
   } else {
     printf("Unsupported field type.");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 }
 
 /* set a field's value from a structure instance */
 void set_struct(struct object *instance, struct object *sdes, struct object *value) {
-  OT2("set_struct", 1, sdes, type_dynamic_byte_array, type_string);
   struct object *cursor, *field, *field_name, *structure;
   ufixnum_t i;
   fixnum_t fix;
   ufixnum_t ufix;
   flonum_t flo;
 
+  OT2("set_struct", 1, sdes, type_dynamic_byte_array, type_string);
+
   structure = TYPE_STRUCT(type_of(instance));
 
   if (structure == NIL) {
     printf("Type is not a structure.\n");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 
   fix = ufix = flo = 0;
@@ -617,7 +641,7 @@ void set_struct(struct object *instance, struct object *sdes, struct object *val
 
   if (field == NULL) {
     printf("Field does not exist on structure.\n");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 
   memcpy(&((char *)OBJECT_POINTER(instance))[STRUCTURE_OFFSETS(structure)[i]], &FIXNUM_VALUE(value), sizeof(int));
@@ -625,8 +649,6 @@ void set_struct(struct object *instance, struct object *sdes, struct object *val
 
 struct object *function(struct object *constants, struct object *code, ufixnum_t stack_size) {
   struct object *o;
-  OT2("function", 0, constants, type_dynamic_array, type_nil);
-  OT2("function", 1, code, type_dynamic_byte_array, type_nil);
   o = object(type_function);
   NC(o, "Failed to allocate function object.");
   o->w1.value.function = malloc(sizeof(struct function));
@@ -669,7 +691,7 @@ struct object *enumerator(struct object *source) {
 struct object *package(struct object *name, struct object *packages) {
   struct object *o;
   OT("package", 0, name, type_string);
-  OT2("package", 1, packages, type_nil, type_cons);
+  OT_LIST("package", 1, packages);
   o = object(type_package);
   NC(o, "Failed to allocate package object.");
   o->w1.value.package = malloc(sizeof(struct package));
@@ -753,7 +775,7 @@ struct object *open_file(struct object *path, struct object *mode) {
   if (fp == NULL) {
     printf("BC: Failed to open file at path %s with mode %s.\n", STRING_CONTENTS(path),
            STRING_CONTENTS(path));
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 
   o = object(type_file);
@@ -772,7 +794,7 @@ void close_file(struct object *file) {
   OT("close_file", 0, file, type_file);
   if (!fclose(FILE_FP(file))) {
     printf("failed to close file\n");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 }
 
@@ -784,7 +806,7 @@ struct object *dynamic_array_get_ufixnum_t(struct object *da, ufixnum_t index) {
   #ifdef RUN_TIME_CHECKS
     if (index >= DYNAMIC_ARRAY_LENGTH(da)) {
       printf("Index out of bounds.\n");
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
   #endif
   return DYNAMIC_ARRAY_VALUES(da)[index];
@@ -795,7 +817,7 @@ struct object *dynamic_array_get(struct object *da, struct object *index) {
   #ifdef RUN_TIME_CHECKS
     if (FIXNUM_VALUE(index) >= DYNAMIC_ARRAY_LENGTH(da)) {
       printf("Index out of bounds.\n");
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
   #endif
   return DYNAMIC_ARRAY_VALUES(da)[FIXNUM_VALUE(index)];
@@ -805,7 +827,7 @@ struct object *dynamic_array_set_ufixnum_t(struct object *da, ufixnum_t index, s
   #ifdef RUN_TIME_CHECKS
     if (index >= DYNAMIC_ARRAY_LENGTH(da)) {
       printf("Index out of bounds.\n");
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
   #endif
   DYNAMIC_ARRAY_VALUES(da)[index] = value;
@@ -818,7 +840,7 @@ void dynamic_array_set(struct object *da, struct object *index, struct object *v
   #ifdef RUN_TIME_CHECKS
     if (FIXNUM_VALUE(index) >= DYNAMIC_ARRAY_LENGTH(da)) {
       printf("Index out of bounds.\n");
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
   #endif
   DYNAMIC_ARRAY_VALUES(da)[FIXNUM_VALUE(index)] = value;
@@ -838,7 +860,7 @@ void dynamic_array_ensure_capacity(struct object *da) {
     DYNAMIC_ARRAY_VALUES(da) = nv;
     if (DYNAMIC_ARRAY_VALUES(da) == NULL) {
       printf("BC: Failed to realloc dynamic-array.");
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
   }
 }
@@ -853,7 +875,7 @@ struct object *dynamic_array_pop(struct object *da) {
 #ifdef RUN_TIME_CHECKS
   if (DYNAMIC_ARRAY_LENGTH(da) < 1) {
     printf("BC: Attempted to pop an empty dynamic-array");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 #endif
   return DYNAMIC_ARRAY_VALUES(da)[--DYNAMIC_ARRAY_LENGTH(da)];
@@ -878,7 +900,7 @@ char dynamic_byte_array_get(struct object *dba, fixnum_t index) {
   #ifdef RUN_TIME_CHECKS
     if (index >= DYNAMIC_BYTE_ARRAY_LENGTH(dba)) {
       printf("Index out of bounds.\n");
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
   #endif
   return DYNAMIC_BYTE_ARRAY_BYTES(dba)[index];
@@ -888,7 +910,7 @@ void dynamic_byte_array_set(struct object *dba, ufixnum_t index, char value) {
   #ifdef RUN_TIME_CHECKS
     if (index >= DYNAMIC_BYTE_ARRAY_LENGTH(dba)) {
       printf("Index out of bounds.\n");
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
   #endif
   DYNAMIC_BYTE_ARRAY_BYTES(dba)[index] = value;
@@ -903,7 +925,7 @@ void dynamic_byte_array_ensure_capacity(struct object *dba) {
     DYNAMIC_BYTE_ARRAY_BYTES(dba) = realloc(DYNAMIC_BYTE_ARRAY_BYTES(dba), DYNAMIC_BYTE_ARRAY_CAPACITY(dba) * sizeof(char));
     if (DYNAMIC_BYTE_ARRAY_BYTES(dba) == NULL) {
       printf("BC: Failed to realloc dynamic-byte-array.");
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
   }
 }
@@ -953,7 +975,7 @@ struct object *dynamic_byte_array_pop(struct object *dba) {
   OT2("dynamic_byte_array_pop", 0, dba, type_dynamic_byte_array, type_string);
   if (DYNAMIC_BYTE_ARRAY_LENGTH(dba) < 1) {
     printf("BC: Attempted to pop an empty dynamic-byte-array");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
   DYNAMIC_BYTE_ARRAY_LENGTH(dba)--;
   return NIL;
@@ -988,6 +1010,37 @@ struct object *string_concat(struct object *s0, struct object *s1) {
   return s2;
 }
 
+/*===============================*
+ *===============================*
+ * error handling                *
+ *===============================*
+ *===============================*/
+void print_stack() {
+  ufixnum_t i, j, len;
+  struct object *f;
+  len = DYNAMIC_ARRAY_LENGTH(gis->call_stack);
+  i = 0;
+  while (i < len) {
+    f = dynamic_array_get_ufixnum_t(gis->call_stack, i);
+    if (f == NIL) { /* top level */
+      printf("Top level\n");
+      i += 2;
+      continue;
+    }
+    dynamic_byte_array_force_cstr(FUNCTION_NAME(f));
+    printf("(%s ", STRING_CONTENTS(FUNCTION_NAME(f)));
+    i += 1; /* got to instruction index */
+    i += 1; /* skip instruction index for now -- should translate this to line number later */
+    for (j = 0; j < FUNCTION_NARGS(f); ++j) {
+      print(dynamic_array_get_ufixnum_t(gis->call_stack, i));
+      i += 1;
+    }
+    printf(")\n");
+  }
+  printf("instruction-index = ");
+  print(symbol_get_value(gis->i_symbol));
+  printf("\n");
+}
 /*===============================*
  *===============================*
  * to-string                     *
@@ -1193,8 +1246,6 @@ struct object *do_to_string(struct object *o, char repr) {
         dynamic_byte_array_push_char(o, '\"');
       }
       return o;
-    case type_nil:
-      return string("nil");
     case type_flonum:
       return to_string_flonum_t(FLONUM_VALUE(o));
     case type_ufixnum:
@@ -1331,8 +1382,6 @@ char equals(struct object *o0, struct object *o1) {
         if (DYNAMIC_BYTE_ARRAY_BYTES(o0)[i] != DYNAMIC_BYTE_ARRAY_BYTES(o1)[i])
           return 0;
       return 1;
-    case type_nil:
-      return 1;
     case type_flonum:
       return FLONUM_VALUE(o0) == FLONUM_VALUE(o1);
     case type_fixnum:
@@ -1378,7 +1427,7 @@ char equals(struct object *o0, struct object *o1) {
   /* TODO: handle user defined types */
 
   printf("Equality is not supported for the given type.");
-  exit(1);
+  PRINT_STACK_TRACE_AND_QUIT();
 }
 
 /*===============================*
@@ -1397,7 +1446,7 @@ struct object *cons_reverse(struct object *cursor) {
 }
 
 struct object *alist_get_slot(struct object *alist, struct object *key) {
-  OT2("alist_get", 0, alist, type_cons, type_nil);
+  OT_LIST("alist_get", 0, alist);
   while (alist != NIL) {
     if (equals(CONS_CAR(CONS_CAR(alist)), key))
       return CONS_CAR(alist);
@@ -1414,7 +1463,7 @@ struct object *alist_get_value(struct object *alist, struct object *key) {
 }
 
 struct object *alist_extend(struct object *alist, struct object *key, struct object *value) {
-  OT2("alist_extend", 0, alist, type_cons, type_nil);
+  OT_LIST("alist_extend", 0, alist);
   return cons(cons(key, value), alist);
 }
 
@@ -1438,7 +1487,7 @@ struct object *symbol_get_function(struct object *sym) {
     }
     print_no_newline(SYMBOL_NAME(sym));
     printf(" has no function.");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 }
 
@@ -1456,7 +1505,7 @@ struct object *symbol_get_type(struct object *sym) {
     }
     print_no_newline(SYMBOL_NAME(sym));
     printf(" has no type.");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 }
 
@@ -1474,7 +1523,7 @@ struct object *symbol_get_struct(struct object *sym) {
     }
     print_no_newline(SYMBOL_NAME(sym));
     printf(" has no struct.");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 }
 
@@ -1492,7 +1541,7 @@ struct object *symbol_get_value(struct object *sym) {
     }
     print_no_newline(SYMBOL_NAME(sym));
     printf(" has no value.");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 }
 
@@ -1528,7 +1577,7 @@ struct object *get_string_designator(struct object *sd) {
     return SYMBOL_NAME(sd);
   else {
     printf("Invalid string designator %s.\n", type_name_cstr(t));
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 }
 
@@ -1544,13 +1593,9 @@ struct object *do_find_symbol(struct object *string, struct object *package, cha
      the actual package */
   if (include_internal) {
     cursor = PACKAGE_SYMBOLS(package);
-    printf("cursor\n");
     while (cursor != NIL) {
-      printf("bink\n");
       sym = CONS_CAR(cursor);
-      printf("binky\n");
       if (equals(SYMBOL_NAME(sym), string)) {
-        printf("EQ\n");
         return sym;
       }
       cursor = CONS_CDR(cursor);
@@ -1588,9 +1633,7 @@ struct object *find_symbol(struct object *string, struct object *package, char i
 struct object *intern(struct object *string, struct object *package) {
   struct object *sym;
 
-printf("S\n");
   sym = do_find_symbol(string, package, 1);
-printf("FIND\n");
   if (sym != NULL)
     return sym;
 
@@ -1604,7 +1647,6 @@ printf("FIND\n");
     symbol_export(sym); /* all symbols in the keyword package are exported */
   }
 
-printf("X\n");
   return sym;
 }
 
@@ -1627,7 +1669,7 @@ struct object *byte_stream_lift(struct object *e) {
   } else {
     printf("BC: attempted to lift unsupported type %s into a byte-stream",
            type_name_of_cstr(e));
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 }
 
@@ -1653,7 +1695,7 @@ struct object *byte_stream_do_read(struct object *e, fixnum_t n, char peek) {
     } else {
         printf("BC: byte stream get is not implemented for type %s.",
                type_name_of_cstr(e));
-        exit(1);
+        PRINT_STACK_TRACE_AND_QUIT();
     }
   }
   return ret;
@@ -1672,9 +1714,10 @@ char byte_stream_has(struct object *e) {
     if (t == gis->dynamic_byte_array_type || t == gis->string_type) {
         return ENUMERATOR_INDEX(e) < DYNAMIC_BYTE_ARRAY_LENGTH(ENUMERATOR_SOURCE(e));
     } else {
-        printf("BC: byte stream has is not implemented for type %s.",
+      print(ENUMERATOR_SOURCE(e));
+        printf("BC: byte_stream_has is not implemented for type %s.\n",
                type_name_of_cstr(ENUMERATOR_SOURCE(e)));
-        exit(1);
+        PRINT_STACK_TRACE_AND_QUIT();
     }
   }
   return c;
@@ -1695,7 +1738,7 @@ char byte_stream_do_read_byte(struct object *e, char peek) {
     } else {
         printf("BC: byte stream get char is not implemented for type %s.",
                type_name_of_cstr(ENUMERATOR_SOURCE(e)));
-        exit(1);
+        PRINT_STACK_TRACE_AND_QUIT();
     }
   }
   return c;
@@ -1734,17 +1777,28 @@ void gis_init(char load_core) {
   GIS_SYM_STR(id_name, id_name, str_name, pack)
 
 /* TODO: Why intern? Just make the symbol..? */
-#define GIS_SYM_STR(id_name, str_id_name, str_name, pack)          \
-  GIS_STR(str_id_name, str_name)                \
-  gis->id_name ## _symbol = symbol(gis->str_id_name ## _string); \
-  SYMBOL_PACKAGE(gis->id_name ## _symbol) = gis->pack ## _package; \
-  symbol_export(gis->id_name ## _symbol);
+#define GIS_SYM_STR(id_name, str_id_name, str_name, pack)      \
+  GIS_STR(str_id_name, str_name)                               \
+  GIS_SYM_STR_NO_INIT(id_name, str_id_name, pack)
+
+#define GIS_SYM_STR_NO_INIT(id_name, str_id_name, pack) \
+  gis->id_name##_symbol = symbol(gis->str_id_name##_string);      \
+  SYMBOL_PACKAGE(gis->id_name##_symbol) = gis->pack##_package;    \
+  PACKAGE_SYMBOLS(gis->pack##_package) = cons(gis->id_name##_symbol, PACKAGE_SYMBOLS(gis->pack##_package)); \
+  symbol_export(gis->id_name##_symbol);
 
   /* nil must be boostrapped because other functions relies on it */
   GIS_STR(nil, "nil");
   NIL = symbol(gis->nil_string);
+  /* All fields that are initialied to NIL must be re-initialized to NIL here because we just defined what NIL is */
   SYMBOL_PLIST(NIL) = NIL;
   SYMBOL_FUNCTION(NIL) = NIL;
+  SYMBOL_PACKAGE(NIL) = NIL;
+  SYMBOL_STRUCTURE(NIL) = NIL;
+  SYMBOL_TYPE(NIL) = NIL;
+
+  /* nil evaluates to itself */
+  SYMBOL_VALUE_IS_SET(NIL) = 1;
   SYMBOL_VALUE(NIL) = NIL;
 
   GIS_STR(type, "type");
@@ -1752,12 +1806,12 @@ void gis_init(char load_core) {
 
   /* add nil to the lisp package */
   SYMBOL_PACKAGE(NIL) = gis->type_package;
-  PACKAGE_SYMBOLS(gis->type_package) = cons(NIL, PACKAGE_SYMBOLS(gis->type_package)); /* add to the type package */
+  PACKAGE_SYMBOLS(gis->type_package) = cons(NIL, NIL); /* add to the type package */
   symbol_export(NIL); /* export nil */
 
   /* initialize packages (note: lisp package is above for nil bootstrap) */
   GIS_STR(lisp, "lisp");
-  gis->lisp_package = package(gis->lisp_string, NIL);
+  gis->lisp_package = package(gis->lisp_string, cons(gis->type_package, NIL));
   GIS_STR(keyword, "keyword")
   gis->keyword_package = package(gis->keyword_string, NIL);
   GIS_STR(user, "user");
@@ -1774,9 +1828,12 @@ void gis_init(char load_core) {
   /* type_of cannot be called before this is setup */
   gis->types = dynamic_array(64);
 
-#define GIS_TYPE(id_name, str_name, can_instantiate)                  \
-  GIS_SYM(id_name, str_name, type)                                    \
-  gis->id_name##_type = type(gis->id_name##_string, can_instantiate); \
+#define GIS_TYPE(id_name, str_name, can_instantiate) \
+  GIS_SYM(id_name, str_name, type)                                      \
+  GIS_TYPE_NO_INIT(id_name, str_name, can_instantiate)
+
+#define GIS_TYPE_NO_INIT(id_name, str_name, can_instantiate) \
+  gis->id_name##_type = type(gis->id_name##_string, can_instantiate);   \
   symbol_set_type(gis->id_name##_symbol, gis->id_name##_type);
 
 #define GIS_UNINSTANTIATABLE_TYPE(id_name, str_name) \
@@ -1785,38 +1842,39 @@ void gis_init(char load_core) {
 #define GIS_INSTANTIATABLE_TYPE(id_name, str_name) \
   GIS_TYPE(id_name, str_name, 1)
 
-  GIS_UNINSTANTIATABLE_TYPE(fixnum, "fixnum")
-  GIS_UNINSTANTIATABLE_TYPE(ufixnum, "ufixnum")
-  GIS_UNINSTANTIATABLE_TYPE(flonum, "flonum")
-  GIS_UNINSTANTIATABLE_TYPE(flonum, "flonum")
-  GIS_UNINSTANTIATABLE_TYPE(symbol, "symbol")
-  GIS_UNINSTANTIATABLE_TYPE(dynamic_array, "dynamic-array")
-  GIS_UNINSTANTIATABLE_TYPE(string, "string")
-  GIS_UNINSTANTIATABLE_TYPE(package, "package")
-  GIS_UNINSTANTIATABLE_TYPE(dynamic_byte_array, "dynamic-byte-array")
-  GIS_UNINSTANTIATABLE_TYPE(function, "function")
-  GIS_UNINSTANTIATABLE_TYPE(file, "file")
-  GIS_UNINSTANTIATABLE_TYPE(enumerator, "enumerator")
+  GIS_INSTANTIATABLE_TYPE(fixnum, "fixnum")
+  GIS_INSTANTIATABLE_TYPE(ufixnum, "ufixnum")
+  GIS_INSTANTIATABLE_TYPE(flonum, "flonum")
+  GIS_INSTANTIATABLE_TYPE(symbol, "symbol")
+  GIS_INSTANTIATABLE_TYPE(dynamic_array, "dynamic-array")
+  GIS_INSTANTIATABLE_TYPE(string, "string")
+  GIS_INSTANTIATABLE_TYPE(package, "package")
+  GIS_INSTANTIATABLE_TYPE(dynamic_byte_array, "dynamic-byte-array")
+  GIS_INSTANTIATABLE_TYPE(function, "function")
+  GIS_INSTANTIATABLE_TYPE(file, "file")
+  GIS_INSTANTIATABLE_TYPE(enumerator, "enumerator")
   /* nil_type won't appear on an object, only from calls to get_object_type(...) */
-  GIS_UNINSTANTIATABLE_TYPE(nil, "nil")
-  GIS_UNINSTANTIATABLE_TYPE(record, "record")
-  GIS_UNINSTANTIATABLE_TYPE(vec2, "vec2")
-  GIS_UNINSTANTIATABLE_TYPE(dynamic_library, "dynamic-library")
-  GIS_UNINSTANTIATABLE_TYPE(foreign_function, "foreign-function")
-  GIS_UNINSTANTIATABLE_TYPE(struct, "struct")
-  GIS_UNINSTANTIATABLE_TYPE(pointer, "pointer")
-  GIS_UNINSTANTIATABLE_TYPE(type, "type")
+  /* Don't initialize nil's symbol -- that would be very bad because it was already bootstrapped */
+  GIS_TYPE_NO_INIT(nil, "nil", 0) /* no object_type will have the type of nil -- this should be carefully remove*/
+  GIS_INSTANTIATABLE_TYPE(record, "record")
+  GIS_INSTANTIATABLE_TYPE(vec2, "vec2")
+  GIS_INSTANTIATABLE_TYPE(dynamic_library, "dynamic-library")
+  GIS_INSTANTIATABLE_TYPE(foreign_function, "foreign-function")
+  GIS_INSTANTIATABLE_TYPE(struct, "struct")
+  GIS_INSTANTIATABLE_TYPE(pointer, "pointer")
+  GIS_INSTANTIATABLE_TYPE(type, "type")
 
   /* cons must be defined last -- it has a special form for the w0 part of an object */
+  /* cons is uninstantiatable because there is no type id that maps to it */
   GIS_UNINSTANTIATABLE_TYPE(cons, "cons")
 
   /* uninstantiable types */
-  GIS_INSTANTIATABLE_TYPE(void, "void")
-  GIS_INSTANTIATABLE_TYPE(char, "char")
-  GIS_INSTANTIATABLE_TYPE(int, "int")
-  GIS_INSTANTIATABLE_TYPE(uint8, "uint8")
-  GIS_INSTANTIATABLE_TYPE(uint16, "uint16")
-  GIS_INSTANTIATABLE_TYPE(uint, "uint")
+  GIS_UNINSTANTIATABLE_TYPE(void, "void")
+  GIS_UNINSTANTIATABLE_TYPE(char, "char")
+  GIS_UNINSTANTIATABLE_TYPE(int, "int")
+  GIS_UNINSTANTIATABLE_TYPE(uint8, "uint8")
+  GIS_UNINSTANTIATABLE_TYPE(uint16, "uint16")
+  GIS_UNINSTANTIATABLE_TYPE(uint, "uint")
 
   /* initialize keywords that are used internally */
   GIS_SYM_STR(value_keyword, value, "value", keyword)
@@ -1856,7 +1914,7 @@ void gis_init(char load_core) {
   GIS_SYM(if, "if", lisp)
 
   GIS_SYM(list, "list", lisp)
-  GIS_SYM(function, "function", impl)
+  GIS_SYM_STR_NO_INIT(impl_function, function, impl)
 
   GIS_SYM(package, "package", impl)
   GIS_SYM(packages, "packages", impl)
@@ -1893,6 +1951,13 @@ void gis_init(char load_core) {
   FUNCTION_NARGS(gis->id_name ## _builtin) = nargs;    \
   symbol_set_function(gis->id_name ## _symbol, gis->id_name ## _builtin);
 
+#define GIS_BUILTIN_NO_INIT(id_name, builtin_id_name, str_id_name, nargs)        \
+  GIS_SYM_STR_NO_INIT(id_name, str_id_name, impl)                   \
+  gis->builtin_id_name ## _builtin = function(NIL, NIL, nargs); \
+  FUNCTION_IS_BUILTIN(gis->builtin_id_name ## _builtin) = 1;   \
+  FUNCTION_NARGS(gis->builtin_id_name ## _builtin) = nargs;    \
+  symbol_set_function(gis->id_name ## _symbol, gis->builtin_id_name ## _builtin);
+
   /* all builtin functions go here */
   GIS_BUILTIN(use_package, "use-package", 1) /* takes name of package */
   GIS_BUILTIN(find_package, "find-package", 1) /* takes name of package */
@@ -1906,11 +1971,11 @@ void gis_init(char load_core) {
 
   GIS_BUILTIN(compile, "compile", 4) /* (compile <expr> <?bytecode> <?symbol-value-table> <?function-value-table>) */
 
-  GIS_BUILTIN(struct, "struct", 2)
-  GIS_BUILTIN(struct, "alloc-struct", 1)
-  GIS_BUILTIN(struct, "symbol-struct", 1)
-  GIS_BUILTIN(struct, "struct-field", 2)
-  GIS_BUILTIN(struct, "set-struct-field", 3)
+  GIS_BUILTIN_NO_INIT(impl_struct, struct, struct, 2)
+  GIS_BUILTIN(alloc_struct, "alloc-struct", 1)
+  GIS_BUILTIN(symbol_struct, "symbol-struct", 1)
+  GIS_BUILTIN(get_struct, "struct-field", 2)
+  GIS_BUILTIN(set_struct, "set-struct-field", 3)
 
   /* TODO */
   GIS_BUILTIN(eval, "eval", 2) /* (eval <fun> <?i>) */
@@ -1979,7 +2044,7 @@ flonum_t flonum_t_value(struct object *o) {
   if (t == gis->ufixnum_type)
     return UFIXNUM_VALUE(o);
   printf("Cannot get flonum_t value of given type.");
-  exit(1);
+  PRINT_STACK_TRACE_AND_QUIT();
 }
 
 void flonum_convert(struct object *o) {
@@ -1997,7 +2062,7 @@ void flonum_convert(struct object *o) {
     return;
   }
   printf("Cannot get flonum_t value of given type.");
-  exit(1);
+  PRINT_STACK_TRACE_AND_QUIT();
 }
 
 void add_package(struct object *package) {
@@ -2326,7 +2391,7 @@ struct object *marshal(struct object *o, struct object *ba, struct object *cache
       return marshal_function(o, ba, 1, cache);
   } else {
       printf("BC: cannot marshal type %s.\n", type_name_of_cstr(o));
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
   }
 }
 
@@ -2387,7 +2452,7 @@ struct object *unmarshal_integer(struct object *s) {
         "marsahled_negative_interger type, but "
         "was %d.",
         t);
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 
   sign = t == marshaled_type_negative_integer;
@@ -2459,7 +2524,7 @@ flonum_t unmarshal_float_t(struct object *s) {
   t = byte_stream_read_byte(s);
   if (t != marshaled_type_float && t != marshaled_type_negative_float) {
     printf("BC: unmarshal expected float type, but was %d.", t);
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
   mantissa_fix = unmarshal_ufixnum_t(s);
   mantissa = (flonum_t)mantissa_fix / pow(2, DBL_MANT_DIG);
@@ -2490,7 +2555,7 @@ struct object *unmarshal_string(struct object *s, char includes_header, struct o
     t = byte_stream_read_byte(s);
     if (t != marshaled_type_string) {
       printf("BC: unmarshal expected string type, but was %d.", t);
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
   }
   if (cache == NULL) {
@@ -2512,7 +2577,7 @@ struct object *unmarshal_symbol(struct object *s, struct object *cache) {
   t = byte_stream_read_byte(s);
   if (t != marshaled_type_symbol && t != marshaled_type_uninterned_symbol) {
     printf("BC: unmarshal expected symbol or uninterned symbol type, but was %d.", t);
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
   if (t == marshaled_type_symbol) {
     package_name = unmarshal_string(s, 0, cache, 0); /* clone_from_cache is 0 because modifying symbol names is not allowed */
@@ -2532,7 +2597,7 @@ struct object *unmarshal_cons(struct object *s, char includes_header, struct obj
     t = byte_stream_read_byte(s);
     if (t != marshaled_type_cons) {
       printf("BC: unmarshaling cons expected cons type, but was %d.", t);
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
   }
   car = unmarshal(s, cache);
@@ -2552,7 +2617,7 @@ struct object *unmarshal_dynamic_byte_array(struct object *s, char includes_head
           "type, "
           "but was %d.",
           t);
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
   }
   length = unmarshal_ufixnum_t(s);
@@ -2571,7 +2636,7 @@ struct object *unmarshal_dynamic_array(struct object *s, char includes_header, s
           "BC: unmarshal expected dynamic-array type, but was "
           "%d.",
           t);
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
   }
   length = unmarshal_ufixnum_t(s);
@@ -2593,7 +2658,7 @@ struct object *unmarshal_dynamic_string_array(struct object *s, char includes_he
           "BC: unmarshal expected dynamic-string-array type, but was "
           "%d.",
           t);
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
   }
   length = unmarshal_ufixnum_t(s);
@@ -2612,7 +2677,7 @@ struct object *unmarshal_vec2(struct object *s, char includes_header) {
     if (t != marshaled_type_vec2) {
       printf("BC: unmarshal expected vec2 type, but was %d.",
              t);
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
   }
   x = unmarshal_float_t(s);
@@ -2630,7 +2695,7 @@ struct object *unmarshal_function(struct object *s, char includes_header, struct
     if (t != marshaled_type_function) {
       printf("BC: unmarshaling function expected function type, but was %d.",
              t);
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
   }
   constants = unmarshal_dynamic_array(s, 0, cache);
@@ -2650,7 +2715,7 @@ struct object *unmarshal_nil(struct object *s) {
   t = byte_stream_read_byte(s);
   if (t != marshaled_type_nil) {
     printf("BC: unmarshaling nil expected nil type, but was %d.", t);
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
   return NIL;
 }
@@ -2714,12 +2779,12 @@ struct object *write_file(struct object *file, struct object *o) {
                       DYNAMIC_BYTE_ARRAY_LENGTH(o), FILE_FP(file));
     if (nmembers != DYNAMIC_BYTE_ARRAY_LENGTH(o)) {
       printf("BC: failed to write dynamic-byte-array to file.");
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
   } else {
     printf("BC: can not write object of type %s to a file.",
            type_name_of_cstr(o));
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
   return NIL;
 }
@@ -2767,7 +2832,7 @@ struct object *read_bytecode_file(struct object *s) {
   if (byte_stream_read_byte(s) != 'b' || byte_stream_read_byte(s) != 'u' ||
       byte_stream_read_byte(s) != 'g') {
     printf("BC: Invalid magic string\n");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 
   version = unmarshal_ufixnum_t(s);
@@ -2776,7 +2841,7 @@ struct object *read_bytecode_file(struct object *s) {
         "BC: Version mismatch (this interpreter has version %d, the file has "
         "version %u).\n",
         BC_VERSION, (unsigned int)version);
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 
   /* load cache with defaults, then fill with additional from file */
@@ -2790,7 +2855,7 @@ struct object *read_bytecode_file(struct object *s) {
         "BC: function file requires a marshalled function object immediately "
         "after the header, but found a %s.\n",
         type_name_of_cstr(bc));
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
   return bc;
 }
@@ -2852,13 +2917,13 @@ struct object *read(struct object *s, struct object *package) {
 
   if (!byte_stream_has(s)) {
     printf("Read was given empty input.");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 
   c = skip_whitespace(s);
   if (!byte_stream_has(s)) {
     printf("Read was given empty input (only contained whitespace).");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 
   if (c == '"') { /* beginning of string */
@@ -2867,7 +2932,7 @@ struct object *read(struct object *s, struct object *package) {
     while ((c = byte_stream_read_byte(s)) != '"' || escape_next) {
       if (!byte_stream_has(s)) {
         printf("Unexpected end of input during read of string.");
-        exit(1);
+        PRINT_STACK_TRACE_AND_QUIT();
       }
       if (escape_next) {
         if (c == '\\' || c == '"') {
@@ -2880,7 +2945,7 @@ struct object *read(struct object *s, struct object *package) {
           dynamic_byte_array_push_char(buf, '\t');
         } else {
           printf("Invalid escape sequence \"\\%c\".", c);
-          exit(1);
+          PRINT_STACK_TRACE_AND_QUIT();
         }
         escape_next = 0;
       } else if (c == '\\') {
@@ -2891,7 +2956,7 @@ struct object *read(struct object *s, struct object *package) {
     }
     if (escape_next) {
       printf("Expected escape sequence, but string ended.");
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
     OBJECT_TYPE(buf) = type_string;
     return buf;
@@ -2906,7 +2971,7 @@ struct object *read(struct object *s, struct object *package) {
     }
     if (!byte_stream_has(s)) {
       printf("Unexpected end of input during sexpr.");
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
     byte_stream_read_byte(s); /* throw away the closing paren */
     for (fix = DYNAMIC_ARRAY_LENGTH(buf) - 1; fix >= 0; --fix) sexpr = cons(DYNAMIC_ARRAY_VALUES(buf)[fix], sexpr);
@@ -2997,7 +3062,7 @@ struct object *read(struct object *s, struct object *package) {
           if (package_name !=
               NIL) { /* we have already read a colon, this is invalid! */
             printf("Too many colons in symbol\n");
-            exit(1);
+            PRINT_STACK_TRACE_AND_QUIT();
           }
           ++byte_count;
           byte_stream_read_byte(s); /* throw away the colon */
@@ -3047,22 +3112,22 @@ struct object *read(struct object *s, struct object *package) {
       package = find_package(package_name);
       if (package == NIL) {
         printf("There's no such package \"%s\".", bstring_to_cstring(package_name));
-        exit(1);
+        PRINT_STACK_TRACE_AND_QUIT();
       }
       if (is_internal && package != GIS_PACKAGE) { /* if this is an internal keyword (written as package::symbol-name, and "package" is not the current one) */
         /* if the "package" is the current package, the normal process will continue (it will be interned) */
         sexpr = find_symbol(buf, package, 1);
         if (sexpr == NIL) { /* using sexpr as a temp var  :| */
-          printf("Package \"%s\" has no symbol named \"%s\".", bstring_to_cstring(package_name), bstring_to_cstring(buf));
-          exit(1);
+          printf("Package \"%s\" has no symbol named \"%s\".\n", bstring_to_cstring(package_name), bstring_to_cstring(buf));
+          PRINT_STACK_TRACE_AND_QUIT();
         }
         return sexpr;
       } else if (!is_internal) {
         sexpr = find_symbol(buf, package, 1);
         if (sexpr == NIL) { /* using sexpr as a temp var  :| */
-          printf("Package \"%s\" has no external symbol named \"%s\".",
+          printf("Package \"%s\" has no external symbol named \"%s\".\n",
                  bstring_to_cstring(package_name), bstring_to_cstring(buf));
-          exit(1);
+          PRINT_STACK_TRACE_AND_QUIT();
         }
         return sexpr;
       }
@@ -3105,26 +3170,6 @@ void gen_load_constant(struct object *bc, struct object *value) {
   }
 }
 
-/*
-struct object *compile_function(struct object *ast, struct object *bc, struct object *st) {
-  struct object *cdr, *cddr, *a0, *a1, *t0, *t1;
-  cdr = CONS_CDR(ast);
-
-  a0 = CONS_CAR(cdr);
-  t0 = type_of(a0);
-
-  if (t0 == type_symbol) { a named function 
-    dynamic_byte_array_push_char(FUNCTION_CODE(bc), op_);
-  } else if (t0 == type_cons || t0 == type_nil) { anonymous function 
-    printf("anonymous functions not supported");
-    exit(1);
-  } else {
-    printf("Invalid function");
-    exit(1);
-  }
-}
-*/
-
 struct object *run(struct gis *gis);
 
 /* evaluates the given bytecode starting at the given instruction index */
@@ -3138,7 +3183,7 @@ struct object *eval_at_instruction(struct object *f, ufixnum_t i, struct object 
   while (j < FUNCTION_NARGS(f)) {
     if (cursor == NIL) {
       printf("Not enough arguments provided. Expected %lu but got %lu.\n", (unsigned long)FUNCTION_NARGS(f), (unsigned long)j); 
-      exit(1);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
     dynamic_array_push(gis->call_stack, CONS_CAR(cursor));
     cursor = CONS_CDR(cursor);
@@ -3158,8 +3203,9 @@ struct object *eval(struct object *bc, struct object* args) {
 struct object *compile_entire_file(struct object *input_file) {
   struct object *temp, *f;
   temp = NIL;
-  while (byte_stream_has(input_file))
+  while (byte_stream_has(input_file)) {
     temp = cons(read(input_file, GIS_PACKAGE), temp);
+  }
   temp = cons_reverse(temp);
   temp = cons(gis->progn_symbol, temp);
   f = compile(temp, NIL, NIL, NIL);
@@ -3302,10 +3348,10 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
     /* TODO: add dynamic scoping */
   } else if (t == gis->file_type) {
     printf("A object of type file cannot be compiled.");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   } else if (t == gis->function_type) {
     printf("A object of type function cannot be compiled.");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   } else if (t == gis->cons_type) {
     /* TODO: in SBCL you can say (symbol-function '+) and it gives you a
      * function. that would be cool to be able to do here. */
@@ -3357,7 +3403,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
             C_COMPILE(CONS_CAR(cursor));
             cursor = CONS_CDR(cursor);
           }
-        } else if (car == gis->function_symbol || car == gis->macro_symbol) {
+        } else if (car == gis->impl_function_symbol || car == gis->macro_symbol) {
           /* (function [name] [params] body) */
           name = C_ARG0();
 
@@ -3369,7 +3415,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
             name = NIL;
           } else if (type_of(name) != gis->symbol_type) {
             printf("functions must be given a symbol name.");
-            exit(1);
+            PRINT_STACK_TRACE_AND_QUIT();
           } else {
             /* the params list */
             params = C_ARG1();
@@ -3417,7 +3463,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
             FUNCTION_IS_MACRO(fun) = 1;
             if (name == NIL) {
               printf("Macros must have a name.");
-              exit(1);
+              PRINT_STACK_TRACE_AND_QUIT();
             }
             symbol_set_function(
                 name, fun); /* this is key -- we set the symbol function value
@@ -3471,7 +3517,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
           /* compile the "then" part of the if */
           if (CONS_CDR(CONS_CDR(value)) == NIL) {
             printf("\"if\" requires at least 3 arguments was given 1.");
-            exit(1);
+            PRINT_STACK_TRACE_AND_QUIT();
           }
           C_COMPILE_ARG1;
 
@@ -3489,7 +3535,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
             printf(
                 "\"then\" part of if special form exceeded maximum jump "
                 "range.");
-            exit(1);
+            PRINT_STACK_TRACE_AND_QUIT();
           }
           dynamic_byte_array_set(C_CODE, t0 - 1, jump_offset << 8);
           dynamic_byte_array_set(C_CODE, t0, jump_offset & 0xFF);
@@ -3508,7 +3554,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
             printf(
                 "\"else\" part of if special form exceeded maximum jump "
                 "range.");
-            exit(1);
+            PRINT_STACK_TRACE_AND_QUIT();
           }
           dynamic_byte_array_set(C_CODE, t1 - 1, jump_offset << 8);
           dynamic_byte_array_set(C_CODE, t1, jump_offset & 0xFF);
@@ -3716,11 +3762,12 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
     } else {
       printf("Invalid sexpr starts with a %s\n",
              type_name_of_cstr(car));
-      exit(1);
+      print(value);
+      PRINT_STACK_TRACE_AND_QUIT();
     }
   } else {
     printf("cannot compile type\n");
-    exit(1);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 
   return f;
@@ -3797,7 +3844,8 @@ void eval_builtin(struct object *f) {
     push(PACKAGE_SYMBOLS(GET_LOCAL(0)));
   } else {
     printf("Unknown builtin\n");
-    exit(1);
+    print(f);
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 }
 
@@ -3900,7 +3948,7 @@ eval_restart:
         SC("intern", 1);
         v0 = pop();
         printf("op_intern is not implemented.");
-        exit(1);
+        PRINT_STACK_TRACE_AND_QUIT();
         OT("intern", 0, v0, type_string);
         push(intern(pop(), NIL));
         break;
@@ -3914,7 +3962,7 @@ eval_restart:
         } else {
           printf("Can only car a list (was given a %s).",
                  type_name_of_cstr(v0));
-          exit(1);
+          PRINT_STACK_TRACE_AND_QUIT();
         }
         break;
       case op_cdr: /* cdr ( (cons car cdr) -- cdr ) */
@@ -3927,7 +3975,7 @@ eval_restart:
         } else {
           printf("Can only cdr a list (was given a %s).",
                  type_name_of_cstr(v0));
-          exit(1);
+          PRINT_STACK_TRACE_AND_QUIT();
         }
         break;
       case op_gt: /* gt ( x y -- x>y ) */
@@ -4051,7 +4099,7 @@ eval_restart:
 #ifdef RUN_TIME_CHECKS
         if (constants->length < 1) {
           printf("Out of bounds of constants vector.");
-          exit(1);
+          PRINT_STACK_TRACE_AND_QUIT();
         }
 #endif
         push(constants->values[0]);
@@ -4060,7 +4108,7 @@ eval_restart:
 #ifdef RUN_TIME_CHECKS
         if (constants->length < 2) {
           printf("Out of bounds of constants vector.");
-          exit(1);
+          PRINT_STACK_TRACE_AND_QUIT();
         }
 #endif
         push(constants->values[1]);
@@ -4069,7 +4117,7 @@ eval_restart:
 #ifdef RUN_TIME_CHECKS
         if (constants->length < 3) {
           printf("Out of bounds of constants vector.");
-          exit(1);
+          PRINT_STACK_TRACE_AND_QUIT();
         }
 #endif
         push(constants->values[2]);
@@ -4078,7 +4126,7 @@ eval_restart:
 #ifdef RUN_TIME_CHECKS
         if (constants->length < 4) {
           printf("Out of bounds of constants vector.");
-          exit(1);
+          PRINT_STACK_TRACE_AND_QUIT();
         }
 #endif
         push(constants->values[3]);
@@ -4145,7 +4193,7 @@ eval_restart:
           cursor = FFUN_PARAMS(f);
           if (a0 > FFUN_NARGS(f)) {
             printf("Insufficient arguments were passed to foreign function.");
-            exit(1);
+            PRINT_STACK_TRACE_AND_QUIT();
           }
 
           a1 = a0; /* for indexing arguments */
@@ -4189,7 +4237,7 @@ eval_restart:
           goto eval_restart;     /* restart the evaluation loop */
         } else if (type_of(f) != gis->function_type) {
           printf("Attempted to call a non-function object.");
-          exit(1);
+          PRINT_STACK_TRACE_AND_QUIT();
         }
 
         /* f_symbol */
@@ -4231,7 +4279,7 @@ eval_restart:
 #ifdef RUN_TIME_CHECKS
         if (DYNAMIC_ARRAY_LENGTH(gis->call_stack) == FUNCTION_STACK_SIZE(f)) {
           printf("Attempted to return from top-level.");
-          exit(1);
+          PRINT_STACK_TRACE_AND_QUIT();
         }
 #endif
         ufix0 = FUNCTION_STACK_SIZE(f) + 2; /* store the frame size */
@@ -4305,7 +4353,7 @@ eval_restart:
         break;
       default:
         printf("Invalid op.\n");
-        exit(1);
+        PRINT_STACK_TRACE_AND_QUIT();
         break;
     }
     ++UFIXNUM_VALUE(i);

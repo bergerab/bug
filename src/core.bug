@@ -1,8 +1,3 @@
-(print "bink")
-(impl:function find-package (sd)
-	"Sets the current package to be the package named by the given string designator."
-  (let ((p (impl:find-package sd)))
-    (if p p (print "error: package not found " sd))))
 
 "Cons helpers that should probably be builtins"
 (impl:function cadr (x)
@@ -139,10 +134,12 @@
 
 "================= mydll library ====================="
 "FFI testing"
+(print "bon")
 (impl:struct 'mydll-ivec2
 	'((x int)
 	  (y int)))
 
+(print "pon")
 (impl:struct 'mydll-rect
 	'((x int)
 	  (y int)
@@ -390,10 +387,10 @@
 	(print (impl:struct-field rect 'h)))
 
 (impl:struct 'sdl-rect
-	((x int)
-   (y int)
-   (w int)
-   (h int)
-   (d int)))
+	'((x int)
+    (y int)
+    (w int)
+    (h int)
+    (d int)))
 
 "If a symbol is passed, look up the symbol type value."
