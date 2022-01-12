@@ -532,7 +532,6 @@ struct gis {
   struct object *lisp_set_symbol_function_sym;
   struct object *lisp_symbol_function_sym;
   struct object *lisp_symbol_value_sym;
-  struct object *lisp_struct_sym; /* impl package has a struct sym that shadows t:struct */
   struct object *lisp_sub_sym;
   struct object *lisp_unquote_splicing_sym;
   struct object *lisp_unquote_sym;

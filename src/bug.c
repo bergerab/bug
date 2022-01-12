@@ -1862,6 +1862,8 @@ void gis_init(char load_core) {
   GIS_STR(gis->x_str, "x");
   GIS_STR(gis->y_str, "y");
 
+  IF_DEBUG() printf("Done initalizing strings...\n");
+
   /* Bootstrap NIL */
   NIL = symbol(gis->nil_str);
   /* All fields that are initialied to NIL must be re-initialized to NIL here because we just defined what NIL is */
@@ -1874,6 +1876,8 @@ void gis_init(char load_core) {
   /* NIL evaluates to itself */
   SYMBOL_VALUE_IS_SET(NIL) = 1;
   SYMBOL_VALUE(NIL) = NIL;
+
+  IF_DEBUG() printf("NIL has been bootstrapped...\n");
 
   /* Initialize packages */
   gis->type_package = package(gis->type_str, NIL);
@@ -1888,6 +1892,8 @@ void gis_init(char load_core) {
   gis->keyword_package = package(gis->keyword_str, NIL);
   gis->user_package = package(gis->user_str, cons(gis->lisp_package, NIL));
   gis->impl_package = package(gis->impl_str, NIL);
+
+  IF_DEBUG() printf("Packages have been initialized...\n");
 
   /* Initialize Symbols */
 #define GIS_SYM(sym, str, pack)                             \
@@ -1984,18 +1990,17 @@ void gis_init(char load_core) {
 
   symbol_set_value(gis->type_t_sym, gis->type_t_sym); /* t has itself as its value */
 
+  IF_DEBUG() printf("Symbols have been initialized...\n");
+
   /* Initialize types */
   /* IMPORTANT -- the ordering these types are added to the types array must match the order they are defined in bug.h for the type enum */
   /* type_of cannot be called before this is setup */
   gis->types = dynamic_array(64);
-
 #define GIS_TYPE(t, sym, can_instantiate)    \
   t = type(SYMBOL_NAME(sym), can_instantiate); \
   symbol_set_type(sym, t);
-
 #define GIS_UNINSTANTIATABLE_TYPE(type, sym) \
   GIS_TYPE(type, sym, 0)
-
 #define GIS_INSTANTIATABLE_TYPE(type, sym) \
   GIS_TYPE(type, sym, 1)
 
@@ -2030,6 +2035,8 @@ void gis_init(char load_core) {
   GIS_UNINSTANTIATABLE_TYPE(gis->uint16_type, gis->type_uint16_sym);
   GIS_UNINSTANTIATABLE_TYPE(gis->uint_type, gis->type_uint_sym);
 
+  IF_DEBUG() printf("Types have been initialized...\n");
+
 #define GIS_BUILTIN(builtin, sym, nargs)             \
   builtin = function(NIL, NIL, nargs); \
   FUNCTION_IS_BUILTIN(builtin) = 1;    \
@@ -2050,7 +2057,6 @@ void gis_init(char load_core) {
   GIS_BUILTIN(gis->compile_builtin, gis->impl_compile_sym, 4) /* (compile <expr> <?bytecode> <?symbol-value-table> <?function-value-table>) */
 
   GIS_BUILTIN(gis->struct_builtin, gis->type_struct_sym, 2);
-  GIS_BUILTIN(gis->struct_builtin, gis->lisp_struct_sym, 2);
   GIS_BUILTIN(gis->alloc_struct_builtin, gis->impl_alloc_struct_sym, 1);
   GIS_BUILTIN(gis->symbol_struct_builtin, gis->impl_symbol_struct_sym, 1);
   GIS_BUILTIN(gis->struct_field_builtin, gis->impl_struct_field_sym, 2);
@@ -2058,6 +2064,8 @@ void gis_init(char load_core) {
 
   /* TODO: implement eval..? no, just make the compiler in bug */
   GIS_BUILTIN(gis->eval_builtin, gis->impl_eval_sym, 2); /* (eval <fun> <?i>) */
+
+  IF_DEBUG() printf("Builtins have been initialized...\n");
 
   /* initialize set interpreter state */
   gis->data_stack = dynamic_array(10);
@@ -2085,20 +2093,6 @@ void gis_init(char load_core) {
     eval(compile_entire_file(open_file(string("./src/core.bug"), string("rb"))), NIL);
     IF_DEBUG() printf("============ Core loaded... ===============\n");
   }
-}
-
-/* 
-  TODO: this would be nice to have. it might have to take a bug string instead of cstring though.
-        all symbol-names can be in here. 
-
-  Only strings that are known to be immutable should be interned.
-
-  looks up the string in the gis's interned strings - if one already exists, return it
-  otherwise, create a new string and add it to the list.
-   
-  If is_builtin, the cstr must name a builtin. */
-struct object *string_intern(char *cstr, char is_builtin) {
-  return NULL;
 }
 
 struct object *string_clone(struct object *str0) {
