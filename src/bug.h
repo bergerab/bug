@@ -411,7 +411,7 @@ struct gis {
   struct object *flonum_str;
   struct object *foreign_function_str;
   struct object *function_str;
-  struct object *get_struct_str;
+  struct object *struct_field_str;
   struct object *gt_str;
   struct object *gte_str;
   struct object *i_str;
@@ -443,7 +443,7 @@ struct gis {
   struct object *record_str;
   struct object *set_str;
   struct object *set_symbol_function_str;
-  struct object *set_struct_str;
+  struct object *set_struct_field_str;
   struct object *stack_str;
   struct object *string_str;
   struct object *strings_str;
@@ -491,7 +491,7 @@ struct gis {
   struct object *impl_find_package_sym;
   struct object *impl_foreign_function_sym;
   struct object *impl_function_sym;
-  struct object *impl_get_struct_sym;
+  struct object *impl_struct_field_sym;
   struct object *impl_i_sym; /** the index of the next instruction in bc to execute */
   struct object *impl_list_sym;
   struct object *impl_macro_sym;
@@ -501,7 +501,7 @@ struct gis {
   struct object *impl_pop_sym;
   struct object *impl_push_sym;
   struct object *impl_strings_sym;
-  struct object *impl_set_struct_sym;
+  struct object *impl_set_struct_field_sym;
   struct object *impl_symbol_struct_sym;
   struct object *impl_type_of_sym;
   struct object *impl_use_package_sym;
@@ -617,10 +617,10 @@ struct gis {
   struct object *eval_builtin;
   struct object *find_package_builtin;
   struct object *foreign_function_builtin;
-  struct object *get_struct_builtin;
+  struct object *struct_field_builtin;
   struct object *macro_builtin;
   struct object *package_symbols_builtin;
-  struct object *set_struct_builtin;
+  struct object *set_struct_field_builtin;
   struct object *struct_builtin;
   struct object *symbol_struct_builtin;
   struct object *type_of_builtin;

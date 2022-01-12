@@ -553,7 +553,7 @@ struct object *alloc_struct(struct object *structure, char init_defaults) {
 }
 
 /* get a field's value from a structure instance */
-struct object *get_struct(struct object *instance, struct object *sdes) {
+struct object *struct_field(struct object *instance, struct object *sdes) {
   struct object *cursor, *field, *field_name, *structure;
   void *ptr;
   ufixnum_t i;
@@ -561,7 +561,7 @@ struct object *get_struct(struct object *instance, struct object *sdes) {
   ufixnum_t ufix;
   flonum_t flo;
 
-  OT2("get_struct", 1, sdes, type_dynamic_byte_array, type_string);
+  OT2("struct_field", 1, sdes, type_dynamic_byte_array, type_string);
 
   structure = TYPE_STRUCT(type_of(instance));
 
@@ -606,14 +606,14 @@ struct object *get_struct(struct object *instance, struct object *sdes) {
 }
 
 /* set a field's value from a structure instance */
-void set_struct(struct object *instance, struct object *sdes, struct object *value) {
+void set_struct_field(struct object *instance, struct object *sdes, struct object *value) {
   struct object *cursor, *field, *field_name, *structure;
   ufixnum_t i;
   fixnum_t fix;
   ufixnum_t ufix;
   flonum_t flo;
 
-  OT2("set_struct", 1, sdes, type_dynamic_byte_array, type_string);
+  OT2("set_struct_field", 1, sdes, type_dynamic_byte_array, type_string);
 
   structure = TYPE_STRUCT(type_of(instance));
 
@@ -1762,8 +1762,6 @@ char byte_stream_peek_byte(struct object *e) {
  *  which is set to the current package.
  */
 void gis_init(char load_core) {
-  struct object *sym, *str;
-
   gis = malloc(sizeof(struct gis));
   if (gis == NULL) {
     printf("Failed to allocate global interpreter state.");
@@ -1803,7 +1801,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->flonum_str, "flonum");
   GIS_STR(gis->foreign_function_str, "foreign_function");
   GIS_STR(gis->function_str, "function");
-  GIS_STR(gis->get_struct_str, "struct-field");
+  GIS_STR(gis->struct_field_str, "struct-field");
   GIS_STR(gis->gt_str, ">");
   GIS_STR(gis->gte_str, ">=");
   GIS_STR(gis->i_str, "i");
@@ -1835,7 +1833,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->record_str, "record");
   GIS_STR(gis->set_str, "set");
   GIS_STR(gis->set_symbol_function_str, "set-symbol-function");
-  GIS_STR(gis->set_struct_str, "set-struct-field");
+  GIS_STR(gis->set_struct_field_str, "set-struct-field");
   GIS_STR(gis->stack_str, "stack");
   GIS_STR(gis->string_str, "string");
   GIS_STR(gis->strings_str, "strings");
@@ -1912,7 +1910,7 @@ void gis_init(char load_core) {
   GIS_SYM(gis->impl_find_package_sym, gis->find_package_str, gis->impl_package);
   GIS_SYM(gis->impl_foreign_function_sym, gis->foreign_function_str, gis->impl_package);
   GIS_SYM(gis->impl_function_sym, gis->function_str, gis->impl_package);
-  GIS_SYM(gis->impl_get_struct_sym, gis->get_struct_str, gis->impl_package);
+  GIS_SYM(gis->impl_struct_field_sym, gis->struct_field_str, gis->impl_package);
   GIS_SYM(gis->impl_i_sym, gis->i_str, gis->impl_package); /** the index of the next instruction in bc to execute */
   GIS_SYM(gis->impl_list_sym, gis->list_str, gis->impl_package);
   GIS_SYM(gis->impl_macro_sym, gis->macro_str, gis->impl_package);
@@ -1922,7 +1920,7 @@ void gis_init(char load_core) {
   GIS_SYM(gis->impl_pop_sym, gis->pop_str, gis->impl_package);
   GIS_SYM(gis->impl_push_sym, gis->push_str, gis->impl_package);
   GIS_SYM(gis->impl_strings_sym, gis->strings_str, gis->impl_package);
-  GIS_SYM(gis->impl_set_struct_sym, gis->set_struct_str, gis->impl_package);
+  GIS_SYM(gis->impl_set_struct_field_sym, gis->set_struct_field_str, gis->impl_package);
   GIS_SYM(gis->impl_symbol_struct_sym, gis->symbol_struct_str, gis->impl_package);
   GIS_SYM(gis->impl_type_of_sym, gis->type_of_str, gis->impl_package);
   GIS_SYM(gis->impl_use_package_sym, gis->use_package_str, gis->impl_package);
@@ -1956,14 +1954,33 @@ void gis_init(char load_core) {
   GIS_SYM(gis->lisp_sub_sym, gis->sub_str, gis->lisp_package);
   GIS_SYM(gis->lisp_unquote_splicing_sym, gis->unquote_splicing_str, gis->lisp_package);
   GIS_SYM(gis->lisp_unquote_sym, gis->unquote_str, gis->lisp_package);
+  GIS_SYM(gis->type_char_sym, gis->char_str, gis->type_package);
   GIS_SYM(gis->type_dynamic_array_sym, gis->dynamic_array_str, gis->type_package);
+  GIS_SYM(gis->type_dynamic_byte_array_sym, gis->dynamic_byte_array_str, gis->type_package);
+  GIS_SYM(gis->type_dynamic_library_sym, gis->dynamic_library_str, gis->type_package);
+  GIS_SYM(gis->type_enumerator_sym, gis->enumerator_str, gis->type_package);
+  GIS_SYM(gis->type_file_sym, gis->file_str, gis->type_package);
   GIS_SYM(gis->type_fixnum_sym, gis->fixnum_str, gis->type_package);
   GIS_SYM(gis->type_flonum_sym, gis->flonum_str, gis->type_package);
+  GIS_SYM(gis->type_foreign_function_sym, gis->foreign_function_str, gis->type_package);
+  GIS_SYM(gis->type_function_sym, gis->function_str, gis->type_package);
+  GIS_SYM(gis->type_cons_sym, gis->cons_str, gis->type_package);
+  GIS_SYM(gis->type_int_sym, gis->int_str, gis->type_package);
   GIS_SYM(gis->type_nil_sym, gis->nil_str, gis->type_package);
+  GIS_SYM(gis->type_package_sym, gis->package_str, gis->type_package);
+  GIS_SYM(gis->type_pointer_sym, gis->pointer_str, gis->type_package);
+  GIS_SYM(gis->type_record_sym, gis->record_str, gis->type_package);
   GIS_SYM(gis->type_string_sym, gis->string_str, gis->type_package);
+  GIS_SYM(gis->type_struct_sym, gis->struct_str, gis->type_package);
   GIS_SYM(gis->type_symbol_sym, gis->symbol_str, gis->type_package);
   GIS_SYM(gis->type_t_sym, gis->t_str, gis->type_package);
+  GIS_SYM(gis->type_type_sym, gis->type_str, gis->type_package);
   GIS_SYM(gis->type_ufixnum_sym, gis->ufixnum_str, gis->type_package);
+  GIS_SYM(gis->type_uint_sym, gis->uint_str, gis->type_package);
+  GIS_SYM(gis->type_uint16_sym, gis->uint16_str, gis->type_package);
+  GIS_SYM(gis->type_uint8_sym, gis->uint8_str, gis->type_package);
+  GIS_SYM(gis->type_vec2_sym, gis->vec2_str, gis->type_package);
+  GIS_SYM(gis->type_void_sym, gis->void_str, gis->type_package);
 
   symbol_set_value(gis->type_t_sym, gis->type_t_sym); /* t has itself as its value */
 
@@ -2032,12 +2049,12 @@ void gis_init(char load_core) {
 
   GIS_BUILTIN(gis->compile_builtin, gis->impl_compile_sym, 4) /* (compile <expr> <?bytecode> <?symbol-value-table> <?function-value-table>) */
 
-  GIS_BUILTIN_NO_INIT(gis->struct_builtin, gis->type_struct_sym, 2);
+  GIS_BUILTIN(gis->struct_builtin, gis->type_struct_sym, 2);
   GIS_BUILTIN(gis->struct_builtin, gis->lisp_struct_sym, 2);
   GIS_BUILTIN(gis->alloc_struct_builtin, gis->impl_alloc_struct_sym, 1);
   GIS_BUILTIN(gis->symbol_struct_builtin, gis->impl_symbol_struct_sym, 1);
-  GIS_BUILTIN(gis->get_struct_builtin, gis->impl_get_struct_sym, 2);
-  GIS_BUILTIN(gis->set_struct_builtin, gis->impl_set_struct_sym, 3);
+  GIS_BUILTIN(gis->struct_field_builtin, gis->impl_struct_field_sym, 2);
+  GIS_BUILTIN(gis->set_struct_field_builtin, gis->impl_set_struct_field_sym, 3);
 
   /* TODO: implement eval..? no, just make the compiler in bug */
   GIS_BUILTIN(gis->eval_builtin, gis->impl_eval_sym, 2); /* (eval <fun> <?i>) */
@@ -3888,12 +3905,10 @@ void eval_builtin(struct object *f) {
     push(symbol_get_struct(GET_LOCAL(0)));
   } else if (f == gis->alloc_struct_builtin) {
     push(alloc_struct(GET_LOCAL(0), 1));
-  } else if (f == gis->get_struct_builtin) {
-    push(get_struct(GET_LOCAL(0), GET_LOCAL(1)));
-  } else if (f == gis->get_struct_builtin) {
-    push(get_struct(GET_LOCAL(0), GET_LOCAL(1)));
-  } else if (f == gis->set_struct_builtin) {
-    set_struct(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2));
+  } else if (f == gis->struct_field_builtin) {
+    push(struct_field(GET_LOCAL(0), GET_LOCAL(1)));
+  } else if (f == gis->set_struct_field_builtin) {
+    set_struct_field(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2));
     push(NIL);
   } else if (f == gis->dynamic_library_builtin) {
     push(dlib(GET_LOCAL(0)));
@@ -4866,7 +4881,7 @@ void run_tests() {
   /* string cache */
   o0 = string_marshal_cache_get_default();
   assert(string_marshal_cache_intern_cstr(o0, "lisp", &uf0) ==
-         gis->lisp_string);
+         gis->lisp_str);
   assert(string_marshal_cache_intern_cstr(o0, "lisp", &uf0) != string("lisp"));
   assert(string_marshal_cache_intern_cstr(o0, "mips", &uf0) ==
          string_marshal_cache_intern_cstr(o0, "mips", &uf0));
