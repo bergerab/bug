@@ -45,8 +45,8 @@
   print_stack();                     \
   exit(1);
 
-#define NIL gis->nil_symbol
-#define T gis->t_symbol
+#define NIL gis->type_nil_sym
+#define T gis->type_t_sym
 
 #define NC(x, message) \
   if (x == NULL) {     \
@@ -379,14 +379,9 @@ struct vec2 {
 struct gis {
   struct object *data_stack; /** same as the value in data_stack_symbol */
   struct object *call_stack; /** same as the value in call_stack_symbol */
-  struct object *interned_strings; /** maybe it shouldn't be in the global interpreter state (originally for marshaling/unmarshaling), 
-                                       but it was easier to put it here.
-                                       used for any internal strings that shouldn't be repeated in function
-                                       for example, frequent use of the same symbol name, or package name would
-                                       be put here. */
   struct object *types;
 
-  /* Strings (in alphabetical order*/
+  /* Strings (in alphabetical order) */
   struct object *a_str;
   struct object *and_str;
   struct object *add_str;
@@ -450,8 +445,8 @@ struct gis {
   struct object *set_symbol_function_str;
   struct object *set_struct_str;
   struct object *stack_str;
-  struct object *str_str;
-  struct object *strs_str;
+  struct object *string_str;
+  struct object *strings_str;
   struct object *struct_str;
   struct object *sub_str;
   struct object *symbol_function_str;
@@ -501,13 +496,13 @@ struct gis {
   struct object *impl_list_sym;
   struct object *impl_macro_sym;
   struct object *impl_package_sym; /** the current package being evaluated */
-  struct object *impl_package_syms_sym; 
+  struct object *impl_package_symbols_sym; 
   struct object *impl_packages_sym; /** all packages */
   struct object *impl_pop_sym;
   struct object *impl_push_sym;
   struct object *impl_strings_sym;
   struct object *impl_set_struct_sym;
-  struct object *impl_sym_struct_sym;
+  struct object *impl_symbol_struct_sym;
   struct object *impl_type_of_sym;
   struct object *impl_use_package_sym;
   struct object *keyword_external_sym;
@@ -528,26 +523,46 @@ struct gis {
   struct object *lisp_lt_sym;
   struct object *lisp_lte_sym;
   struct object *lisp_mul_sym;
-  struct object *lisp_nil_sym;
   struct object *lisp_or_sym;
   struct object *lisp_progn_sym;
   struct object *lisp_print_sym;
   struct object *lisp_quasiquote_sym;
   struct object *lisp_quote_sym;
   struct object *lisp_set_sym;
-  struct object *lisp_set_sym_function_sym;
-  struct object *lisp_sym_function_sym;
-  struct object *lisp_sym_value_sym;
+  struct object *lisp_set_symbol_function_sym;
+  struct object *lisp_symbol_function_sym;
+  struct object *lisp_symbol_value_sym;
   struct object *lisp_struct_sym; /* impl package has a struct sym that shadows t:struct */
   struct object *lisp_sub_sym;
-  struct object *lisp_t_sym;
   struct object *lisp_unquote_splicing_sym;
   struct object *lisp_unquote_sym;
+  struct object *type_char_sym;
+  struct object *type_dynamic_array_sym;
+  struct object *type_dynamic_byte_array_sym;
+  struct object *type_dynamic_library_sym;
+  struct object *type_enumerator_sym;
+  struct object *type_file_sym;
   struct object *type_fixnum_sym;
   struct object *type_flonum_sym;
+  struct object *type_foreign_function_sym;
+  struct object *type_function_sym;
+  struct object *type_cons_sym;
+  struct object *type_int_sym;
+  struct object *type_nil_sym;
+  struct object *type_package_sym;
+  struct object *type_pointer_sym;
+  struct object *type_record_sym;
   struct object *type_string_sym;
-  struct object *type_sym_sym;
+  struct object *type_struct_sym;
+  struct object *type_symbol_sym;
+  struct object *type_t_sym;
+  struct object *type_type_sym;
   struct object *type_ufixnum_sym;
+  struct object *type_uint_sym;
+  struct object *type_uint16_sym;
+  struct object *type_uint8_sym;
+  struct object *type_vec2_sym;
+  struct object *type_void_sym;
 
   /* Types */
   /* Common Lisp types are just symbols and lists.
@@ -574,6 +589,7 @@ struct gis {
   struct object *int_type;
   struct object *struct_type;
   struct object *symbol_type;
+  struct object *type_type;
   struct object *nil_type;
   struct object *package_type;
   struct object *pointer_type; 
@@ -611,7 +627,7 @@ struct gis {
   struct object *use_package_builtin;
 };
 
-#define GIS_PACKAGE symbol_get_value(gis->package_symbol)
+#define GIS_PACKAGE symbol_get_value(gis->impl_package_sym)
 
 enum marshaled_type {
   marshaled_type_integer,
