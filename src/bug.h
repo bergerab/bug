@@ -369,28 +369,187 @@ struct vec2 {
 
 /**
  * The global interpreter state.
+ * 
+ * Any symbols that the interpreter needs to reference should be added to the GIS.
+ *   If the compiler is written in C, this includes symbols that the compiler uses (e.g. needs to reference add_symbol to reference "+").
+ *   This also includes any values that the interpeter manages and exposes to the user such as the list of packages available.
+ * Not every symbol ever created needs to be in here. For example, it serves no purpose to add the FIND-PACKAGE symbol to the GIS because
+ * builtins are handled through builtin objects, not symbols.
  */
 struct gis {
   struct object *data_stack; /** same as the value in data_stack_symbol */
-  struct object *data_stack_symbol; /** the data stack (a cons list) */
-
   struct object *call_stack; /** same as the value in call_stack_symbol */
-  struct object *call_stack_symbol; /** stack for saving stack pointers and values for function calls (a cons list) */
-
-  struct object *i_symbol; /** the index of the next instruction in bc to execute */
-  struct object *f_symbol; /** the currently executing function */
-
-  struct object *package_symbol; /** the current package being evaluated */
-  struct object *packages_symbol; /** all packages */
-
   struct object *interned_strings; /** maybe it shouldn't be in the global interpreter state (originally for marshaling/unmarshaling), 
                                        but it was easier to put it here.
                                        used for any internal strings that shouldn't be repeated in function
                                        for example, frequent use of the same symbol name, or package name would
                                        be put here. */
-
   struct object *types;
 
+  /* Strings (in alphabetical order*/
+  struct object *a_str;
+  struct object *and_str;
+  struct object *add_str;
+  struct object *alloc_struct_str;
+  struct object *b_str;
+  struct object *call_stack_str;
+  struct object *call_str;
+  struct object *car_str;
+  struct object *cdr_str;
+  struct object *char_str;
+  struct object *compile_str;
+  struct object *cons_str;
+  struct object *data_stack_str;
+  struct object *div_str;
+  struct object *drop_str;
+  struct object *dynamic_array_str;
+  struct object *dynamic_byte_array_str;
+  struct object *dynamic_library_str;
+  struct object *enumerator_str;
+  struct object *equals_str;
+  struct object *eval_str;
+  struct object *external_str;
+  struct object *f_str;
+  struct object *file_str;
+  struct object *find_package_str; 
+  struct object *fixnum_str;
+  struct object *flonum_str;
+  struct object *foreign_function_str;
+  struct object *function_str;
+  struct object *get_struct_str;
+  struct object *gt_str;
+  struct object *gte_str;
+  struct object *i_str;
+  struct object *if_str;
+  struct object *impl_str;
+  struct object *inherited_str;
+  struct object *internal_str;
+  struct object *int_str;
+  struct object *keyword_str;
+  struct object *list_str;
+  struct object *let_str;
+  struct object *lisp_str;
+  struct object *lt_str;
+  struct object *lte_str;
+  struct object *macro_str;
+  struct object *mul_str;
+  struct object *nil_str;
+  struct object *or_str;
+  struct object *package_str; 
+  struct object *package_symbols_str; 
+  struct object *packages_str; 
+  struct object *pointer_str;
+  struct object *pop_str;
+  struct object *progn_str;
+  struct object *print_str;
+  struct object *push_str;
+  struct object *quasiquote_str;
+  struct object *quote_str;
+  struct object *record_str;
+  struct object *set_str;
+  struct object *set_symbol_function_str;
+  struct object *set_struct_str;
+  struct object *stack_str;
+  struct object *str_str;
+  struct object *strs_str;
+  struct object *struct_str;
+  struct object *sub_str;
+  struct object *symbol_function_str;
+  struct object *symbol_str;
+  struct object *symbol_struct_str;
+  struct object *symbol_value_str;
+  struct object *t_str;
+  struct object *temp_str;
+  struct object *type_of_str;
+  struct object *type_str;
+  struct object *use_package_str; 
+  struct object *user_str;
+  struct object *unquote_str;
+  struct object *unquote_splicing_str;
+  struct object *ufixnum_str;
+  struct object *uint_str;
+  struct object *uint8_str;
+  struct object *uint16_str;
+  struct object *value_str;
+  struct object *var_str;
+  struct object *void_str;
+  struct object *vec2_str;
+  struct object *x_str;
+  struct object *y_str;
+
+  /* Symbols */
+  /* Symbols should be placed in alphabetical order,
+     and be named like this:
+      <package>_<symbol-name>_sym
+     */
+  struct object *impl_add_sym;
+  struct object *impl_alloc_struct_sym;
+  struct object *impl_and_sym;
+  struct object *impl_call_sym;
+  struct object *impl_call_stack_sym; /** stack for saving stack pointers and values for function calls (a cons list) */
+  struct object *impl_compile_sym;
+  struct object *impl_data_stack_sym; /** the data stack (a cons list) */
+  struct object *impl_drop_sym;
+  struct object *impl_dynamic_library_sym;
+  struct object *impl_eval_sym;
+  struct object *impl_f_sym; /** the currently executing function */
+  struct object *impl_find_package_sym;
+  struct object *impl_foreign_function_sym;
+  struct object *impl_function_sym;
+  struct object *impl_get_struct_sym;
+  struct object *impl_i_sym; /** the index of the next instruction in bc to execute */
+  struct object *impl_list_sym;
+  struct object *impl_macro_sym;
+  struct object *impl_package_sym; /** the current package being evaluated */
+  struct object *impl_package_syms_sym; 
+  struct object *impl_packages_sym; /** all packages */
+  struct object *impl_pop_sym;
+  struct object *impl_push_sym;
+  struct object *impl_strings_sym;
+  struct object *impl_set_struct_sym;
+  struct object *impl_sym_struct_sym;
+  struct object *impl_type_of_sym;
+  struct object *impl_use_package_sym;
+  struct object *keyword_external_sym;
+  struct object *keyword_function_sym;
+  struct object *keyword_inherited_sym;
+  struct object *keyword_internal_sym;
+  struct object *keyword_value_sym;
+  struct object *lisp_car_sym;
+  struct object *lisp_cdr_sym;
+  struct object *lisp_cons_sym;
+  struct object *lisp_div_sym;
+  struct object *lisp_equals_sym;
+  struct object *lisp_function_sym;
+  struct object *lisp_gt_sym;
+  struct object *lisp_gte_sym;
+  struct object *lisp_if_sym;
+  struct object *lisp_let_sym;
+  struct object *lisp_lt_sym;
+  struct object *lisp_lte_sym;
+  struct object *lisp_mul_sym;
+  struct object *lisp_nil_sym;
+  struct object *lisp_or_sym;
+  struct object *lisp_progn_sym;
+  struct object *lisp_print_sym;
+  struct object *lisp_quasiquote_sym;
+  struct object *lisp_quote_sym;
+  struct object *lisp_set_sym;
+  struct object *lisp_set_sym_function_sym;
+  struct object *lisp_sym_function_sym;
+  struct object *lisp_sym_value_sym;
+  struct object *lisp_struct_sym; /* impl package has a struct sym that shadows t:struct */
+  struct object *lisp_sub_sym;
+  struct object *lisp_t_sym;
+  struct object *lisp_unquote_splicing_sym;
+  struct object *lisp_unquote_sym;
+  struct object *type_fixnum_sym;
+  struct object *type_flonum_sym;
+  struct object *type_string_sym;
+  struct object *type_sym_sym;
+  struct object *type_ufixnum_sym;
+
+  /* Types */
   /* Common Lisp types are just symbols and lists.
      Maybe having a separate type object will have some benefit?
      For example, if you know something is a type, you can cache (intern) them.
@@ -399,274 +558,57 @@ struct gis {
      could replace it with a compile time constant). This would benefit all calls to "type-of" too. The same
      object would be returned, and they would be immutable. Maybe some Common Lisp impls already makes the lists that can
      be returned from type-of immutable? */
-
-  struct object *type_type; /* string for "type" */
-  struct object *type_string;
-  struct object *type_symbol;
-
+  struct object *char_type;
   struct object *cons_type;
-  struct object *fixnum_type;
-  struct object *ufixnum_type;
-  struct object *flonum_type;
-  struct object *symbol_type;
-
-  struct object *dynamic_array_type; 
-  struct object *dynamic_array_string; /* string for "dynamic-array" */
-  struct object *dynamic_array_symbol;
-
-  struct object *package_type;
-
-  struct object *dynamic_byte_array_symbol;
-  struct object *dynamic_byte_array_type; 
-  struct object *dynamic_byte_array_string; /* string for "dynamic-byte-array" */
-
-  struct object *function_type;
-
-  struct object *file_symbol;
-  struct object *file_type; 
-  struct object *file_string;
-
-  struct object *enumerator_symbol; 
-  struct object *enumerator_type; 
-  struct object *enumerator_string;
-
-  struct object *nil_type;
-
-  struct object *record_type; 
-  struct object *record_string;
-  struct object *record_symbol;
-
-  struct object *vec2_symbol; 
-  struct object *vec2_type; 
-  struct object *vec2_string;
-
   struct object *dlib_type;
-
+  struct object *dynamic_array_type; 
+  struct object *dynamic_byte_array_type; 
+  struct object *dynamic_library_type;
+  struct object *enumerator_type; 
   struct object *ffun_type;
-
+  struct object *file_type; 
+  struct object *fixnum_type;
+  struct object *flonum_type;
+  struct object *foreign_function_type;
+  struct object *function_type;
+  struct object *int_type;
   struct object *struct_type;
-  struct object *struct_string;
-  struct object *struct_symbol;
-  struct object *struct_builtin;
-
+  struct object *symbol_type;
+  struct object *nil_type;
+  struct object *package_type;
   struct object *pointer_type; 
-  struct object *pointer_string;
-  struct object *pointer_symbol;
-
-  /* Uninstantiable types */
-  struct object *void_symbol;
-  struct object *void_string;
+  struct object *record_type; 
+  struct object *string_type;
+  struct object *ufixnum_type;
+  struct object *uint_type;
+  struct object *uint8_type;
+  struct object *uint16_type;
+  struct object *vec2_type; 
   struct object *void_type;
 
-  struct object *char_symbol;
-  struct object *char_string;
-  struct object *char_type;
-
-  struct object *int_symbol;
-  struct object *int_string;
-  struct object *int_type;
-
-  /* string_string is already defined elsewhere */
-  struct object *string_type;
-
-  struct object *uint_symbol;
-  struct object *uint_string;
-  struct object *uint_type;
-
-  struct object *uint8_symbol;
-  struct object *uint8_string;
-  struct object *uint8_type;
-
-  struct object *uint16_symbol;
-  struct object *uint16_string;
-  struct object *uint16_type;
-
-  /* packages */
+  /* Packages */
+  struct object *impl_package;
   struct object *keyword_package;
   struct object *lisp_package;
-  struct object *user_package;
-  struct object *impl_package;
   struct object *type_package;
+  struct object *user_package;
 
-  /* keywords */
-  struct object *value_keyword_symbol;
-  struct object *function_keyword_symbol;
-  struct object *internal_keyword_symbol;
-  struct object *external_keyword_symbol;
-  struct object *inherited_keyword_symbol;
-
-  /* symbols from lisp package */
-  struct object *car_symbol;
-  struct object *cdr_symbol;
-  struct object *symbol_value_symbol;
-  struct object *symbol_function_symbol;
-  struct object *set_symbol;
-  struct object *set_symbol_function_symbol;
-  struct object *quote_symbol;
-  struct object *unquote_symbol;
-  struct object *unquote_splicing_symbol;
-  struct object *quasiquote_symbol;
-  struct object *cons_symbol;
-  struct object *progn_symbol;
-  struct object *add_symbol;
-  struct object *sub_symbol;
-  struct object *mul_symbol;
-  struct object *div_symbol;
-  struct object *gt_symbol;
-  struct object *lt_symbol;
-  struct object *gte_symbol;
-  struct object *lte_symbol;
-  struct object *print_symbol;
-  struct object *and_symbol;
-  struct object *or_symbol;
-  struct object *equals_symbol;
-  struct object *impl_function_symbol; /* impl package has a function symbol that shadows t:function */
-  struct object *impl_struct_symbol; /* impl package has a struct symbol that shadows t:struct */
-  struct object *function_symbol;
-  struct object *let_symbol;
-  struct object *nil_symbol;
-  struct object *t_symbol;
-  struct object *if_symbol;
-
-  struct object *fixnum_symbol;
-  struct object *ufixnum_symbol;
-  struct object *flonum_symbol;
-  struct object *string_symbol;
-  struct object *symbol_symbol;
-
-  struct object *fixnum_string;
-  struct object *ufixnum_string;
-  struct object *flonum_string;
-  struct object *string_string;
-  struct object *symbol_string;
-
-  struct object *strings_symbol;
-  struct object *find_package_symbol;
-  struct object *use_package_symbol;
-  struct object *package_symbols_symbol; 
-
-  struct object *compile_symbol;
-  struct object *compile_string;
-  struct object *compile_builtin;
-
-  struct object *eval_symbol;
-  struct object *eval_string;
-  struct object *eval_builtin;
-
-  struct object *macro_symbol;
-  struct object *macro_string;
-  struct object *macro_builtin;
-
-  struct object *list_symbol;
-  struct object *list_string;
-
-  struct object *call_symbol;
-  struct object *call_string;
-  struct object *call_builtin;
-
-  struct object *dynamic_library_symbol;
-  struct object *dynamic_library_string;
-  struct object *dynamic_library_builtin;
-  struct object *dynamic_library_type;
-
-  struct object *foreign_function_symbol;
-  struct object *foreign_function_string;
-  struct object *foreign_function_builtin;
-  struct object *foreign_function_type;
-
-  struct object *type_of_symbol;
-  struct object *type_of_string;
-  struct object *type_of_builtin;
-
-  struct object *symbol_struct_symbol;
-  struct object *symbol_struct_string;
-  struct object *symbol_struct_builtin;
-
-  struct object *alloc_struct_symbol;
-  struct object *alloc_struct_string;
+  /* Builtins */
   struct object *alloc_struct_builtin;
-
-  struct object *get_struct_symbol;
-  struct object *get_struct_string;
-  struct object *get_struct_builtin;
-
-  struct object *set_struct_symbol;
-  struct object *set_struct_string;
-  struct object *set_struct_builtin;
-
-  /* cached strings that should be used internally */
-  struct object *value_string;
-  struct object *internal_string;
-  struct object *external_string;
-  struct object *inherited_string;
-
-  struct object *user_string;
-  struct object *lisp_string;
-  struct object *keyword_string;
-  struct object *impl_string;
-
-  struct object *car_string;
-  struct object *cdr_string;
-  struct object *symbol_value_string;
-  struct object *symbol_function_string;
-  struct object *set_string;
-  struct object *set_symbol_function_string;
-  struct object *quote_string;
-  struct object *unquote_string;
-  struct object *unquote_splicing_string;
-  struct object *quasiquote_string;
-  struct object *cons_string;
-  struct object *progn_string;
-  struct object *add_string;
-  struct object *sub_string;
-  struct object *mul_string;
-  struct object *div_string;
-  struct object *gt_string;
-  struct object *lt_string;
-  struct object *gte_string;
-  struct object *lte_string;
-  struct object *print_string;
-  struct object *and_string;
-  struct object *or_string;
-  struct object *equals_string;
-  struct object *function_string;
-  struct object *let_string;
-  struct object *nil_string;
-  struct object *t_string;
-  struct object *if_string;
-
-  struct object *f_string;
-  struct object *i_string;
-  struct object *stack_string;
-  struct object *call_stack_string;
-  struct object *data_stack_string;
-
-  struct object *package_string; 
-  struct object *packages_string; 
-  struct object *strings_string;
-  struct object *find_package_string; 
-  struct object *use_package_string; 
-  struct object *package_symbols_string; 
-
-  struct object *var_string;
-  struct object *x_string;
-  struct object *y_string;
-  struct object *a_string;
-  struct object *b_string;
-  struct object *temp_string;
-
-  /* symbols from impl package */
-  struct object *push_symbol;
-  struct object *drop_symbol;
-  struct object *pop_symbol;
-
-  struct object *push_string;
-  struct object *drop_string;
-  struct object *pop_string;
-
-  struct object *use_package_builtin;
+  struct object *call_builtin;
+  struct object *compile_builtin;
+  struct object *dynamic_library_builtin;
+  struct object *eval_builtin;
   struct object *find_package_builtin;
+  struct object *foreign_function_builtin;
+  struct object *get_struct_builtin;
+  struct object *macro_builtin;
   struct object *package_symbols_builtin;
+  struct object *set_struct_builtin;
+  struct object *struct_builtin;
+  struct object *symbol_struct_builtin;
+  struct object *type_of_builtin;
+  struct object *use_package_builtin;
 };
 
 #define GIS_PACKAGE symbol_get_value(gis->package_symbol)

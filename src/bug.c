@@ -1764,31 +1764,47 @@ char byte_stream_peek_byte(struct object *e) {
  *  which is set to the current package.
  */
 void gis_init(char load_core) {
+  struct object *sym, *str;
+
   gis = malloc(sizeof(struct gis));
   if (gis == NULL) {
     printf("Failed to allocate global interpreter state.");
     exit(1);
   }
 
-#define GIS_STR(id_name, str_name)      \
-  gis->id_name ## _string = string(str_name);
+/* Creates a string on the GIS. */
+#define GIS_STR(cstr) \
+  str = string(cstr);
 
-#define GIS_SYM(id_name, str_name, pack)          \
-  GIS_SYM_STR(id_name, id_name, str_name, pack)
+#define GIS_STR_W_REF(str_id_name, cstr) \
+  GIS_STR(cstr);                         \
+  gis->str_id_name##_string = str;
 
-/* TODO: Why intern? Just make the symbol..? */
-#define GIS_SYM_STR(id_name, str_id_name, str_name, pack)      \
-  GIS_STR(str_id_name, str_name)                               \
-  GIS_SYM_STR_NO_INIT(id_name, str_id_name, pack)
+/* Should be two versions 
+   One that uses temps and doesn't store str or sym.
+   One that uses str and sym from gis. */
 
-#define GIS_SYM_STR_NO_INIT(id_name, str_id_name, pack) \
-  gis->id_name##_symbol = symbol(gis->str_id_name##_string);      \
-  SYMBOL_PACKAGE(gis->id_name##_symbol) = gis->pack##_package;    \
-  PACKAGE_SYMBOLS(gis->pack##_package) = cons(gis->id_name##_symbol, PACKAGE_SYMBOLS(gis->pack##_package)); \
-  symbol_export(gis->id_name##_symbol);
+/* Creates a new string and new symbol, and adds it to the package
+   does not keep a global reference to it on the GIS. str and sym
+   will have the newly made string and symbol. */
+#define GIS_SYM(cstr, pack)                            \
+  str = string(cstr);                                  \
+  sym = symbol(str);                                   \
+  SYMBOL_PACKAGE(sym) = gis->pack##_package;           \
+  PACKAGE_SYMBOLS(gis->pack##_package) =               \
+      cons(sym, PACKAGE_SYMBOLS(gis->pack##_package)); \
+  symbol_export(sym);
+
+/* Creates a new string and new symbol, and adds it to the package
+   and keeps a global reference to it on the GIS (string referenced
+   with str_id_name and symbol with sym_id_name). */
+#define GIS_SYM_W_REF(sym_id_name, str_id_name, cstr, pack) \
+  GIS_SYM_NO_REF(cstr, pack);                               \
+  gis->sym_id_name##_symbol = sym;                          \
+  gis->str_id_name##_string = str;
 
   /* nil must be boostrapped because other functions relies on it */
-  GIS_STR(nil, "nil");
+  GIS_STR_W_REF(nil, "nil");
   NIL = symbol(gis->nil_string);
   /* All fields that are initialied to NIL must be re-initialized to NIL here because we just defined what NIL is */
   SYMBOL_PLIST(NIL) = NIL;
@@ -1801,7 +1817,7 @@ void gis_init(char load_core) {
   SYMBOL_VALUE_IS_SET(NIL) = 1;
   SYMBOL_VALUE(NIL) = NIL;
 
-  GIS_STR(type, "type");
+  GIS_STR_W_REF(type, "type");
   gis->type_package = package(gis->type_string, NIL);
 
   /* add nil to the lisp package */
@@ -1810,13 +1826,13 @@ void gis_init(char load_core) {
   symbol_export(NIL); /* export nil */
 
   /* initialize packages (note: lisp package is above for nil bootstrap) */
-  GIS_STR(lisp, "lisp");
+  GIS_STR_W_REF(lisp, "lisp");
   gis->lisp_package = package(gis->lisp_string, cons(gis->type_package, NIL));
-  GIS_STR(keyword, "keyword")
+  GIS_STR_W_REF(keyword, "keyword")
   gis->keyword_package = package(gis->keyword_string, NIL);
-  GIS_STR(user, "user");
+  GIS_STR_W_REF(user, "user");
   gis->user_package = package(gis->user_string, cons(gis->lisp_package, NIL));
-  GIS_STR(impl, "impl");
+  GIS_STR_W_REF(impl, "impl");
   gis->impl_package = package(gis->impl_string, NIL);
 
   /* strings that will be re-used. the strings should NEVER be modified */
@@ -1828,19 +1844,17 @@ void gis_init(char load_core) {
   /* type_of cannot be called before this is setup */
   gis->types = dynamic_array(64);
 
-#define GIS_TYPE(id_name, str_name, can_instantiate) \
-  GIS_SYM(id_name, str_name, type)                                      \
-  GIS_TYPE_NO_INIT(id_name, str_name, can_instantiate)
+#define GIS_TYPE(sym, id_name, cstr, can_instantiate)    \
+  gis->id_name##_type = type(str, can_instantiate); \
+  symbol_set_type(sym, gis->id_name##_type);
 
-#define GIS_TYPE_NO_INIT(id_name, str_name, can_instantiate) \
-  gis->id_name##_type = type(gis->id_name##_string, can_instantiate);   \
-  symbol_set_type(gis->id_name##_symbol, gis->id_name##_type);
+#define GIS_UNINSTANTIATABLE_TYPE(sym, id_name, str_name) \
+  GIS_TYPE(sym, id_name, str_name, 0)
 
-#define GIS_UNINSTANTIATABLE_TYPE(id_name, str_name) \
-  GIS_TYPE(id_name, str_name, 0)
+#define GIS_INSTANTIATABLE_TYPE(sym, id_name, cstr) \
+  GIS_TYPE(sym, id_name, cstr, 1)
 
-#define GIS_INSTANTIATABLE_TYPE(id_name, str_name) \
-  GIS_TYPE(id_name, str_name, 1)
+  /* First initialize all symbols */
 
   GIS_INSTANTIATABLE_TYPE(fixnum, "fixnum")
   GIS_INSTANTIATABLE_TYPE(ufixnum, "ufixnum")
@@ -1929,27 +1943,12 @@ void gis_init(char load_core) {
   GIS_SYM(push, "push", impl)
   GIS_SYM(drop, "drop", impl)
 
-  GIS_SYM(ufixnum, "ufixnum", impl)
-  GIS_SYM(fixnum, "fixnum", impl)
-  GIS_SYM(flonum, "flonum", impl)
-  GIS_SYM(string, "string", impl)
-  GIS_SYM(symbol, "symbol", impl)
-
-  /* initialize misc strings */
-  GIS_STR(x, "x")
-  GIS_STR(y, "y")
-  GIS_STR(a, "a")
-  GIS_STR(b, "b")
-  GIS_STR(temp, "temp")
-  GIS_STR(var, "var")
-  GIS_STR(list, "list")
-
-#define GIS_BUILTIN(id_name, str_name, nargs)        \
-  GIS_SYM(id_name, str_name, impl)                   \
+#define GIS_BUILTIN(id_name, cstr, nargs)        \
+  GIS_SYM(cstr, impl)                   \
   gis->id_name ## _builtin = function(NIL, NIL, nargs); \
   FUNCTION_IS_BUILTIN(gis->id_name ## _builtin) = 1;   \
   FUNCTION_NARGS(gis->id_name ## _builtin) = nargs;    \
-  symbol_set_function(gis->id_name ## _symbol, gis->id_name ## _builtin);
+  symbol_set_function(sym, gis->id_name ## _builtin);
 
 #define GIS_BUILTIN_NO_INIT(id_name, builtin_id_name, str_id_name, nargs)        \
   GIS_SYM_STR_NO_INIT(id_name, str_id_name, impl)                   \
@@ -2087,7 +2086,7 @@ struct object *find_package(struct object *name) {
  *===============================*/
 struct object *string_marshal_cache_get_default() {
   struct object *cache;
-  cache = dynamic_array(10);
+  cache = dynamic_array(20);
   /* call out a bunch of names that could be frequently used in the bytecode.
      if a symbol (used as a value or looked up directly) uses one of the names below
      for its symbol-name or the home package's name. */
