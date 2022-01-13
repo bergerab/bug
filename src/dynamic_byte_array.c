@@ -112,24 +112,3 @@ struct object *dynamic_byte_array_from_array(ufixnum_t length, unsigned char *ar
   memcpy(DYNAMIC_BYTE_ARRAY_BYTES(dba), arr, sizeof(unsigned char));
   return dba;
 }
-
-struct object *string_concat(struct object *s0, struct object *s1) {
-  struct object *s2; 
-
-  OT2("string_concat", 0, s0, type_string, type_dynamic_byte_array);
-  OT2("string_concat", 1, s1, type_string, type_dynamic_byte_array);
-
-  s2 = dynamic_byte_array_concat(s0, s1);
-  OBJECT_TYPE(s2) = type_string;
-  return s2;
-}
-
-struct object *string_clone(struct object *str0) {
-  struct object *str1;
-  OT("string_clone", 0, str0, type_string);
-  str1 = dynamic_byte_array(STRING_LENGTH(str0));
-  memcpy(DYNAMIC_BYTE_ARRAY_BYTES(str1), DYNAMIC_BYTE_ARRAY_BYTES(str0), STRING_LENGTH(str0));
-  OBJECT_TYPE(str1) = type_string;
-  STRING_LENGTH(str1) = STRING_LENGTH(str0);
-  return str1;
-}

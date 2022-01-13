@@ -8,5 +8,8 @@ add_executable(bug
   src/marshal.c 
   src/dynamic_byte_array.c 
   src/dynamic_array.c
-  src/debug.c)
+  src/debug.c
+  src/ffi.c
+  src/string.c
+  src/util.c)
 target_link_libraries(bug ffi m)

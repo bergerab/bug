@@ -7,13 +7,6 @@
 
 /*===============================*
  *===============================*
- * Utility Procedures            *
- *===============================*
- *===============================*/
-double log2(double n) { return log(n) / log(2); }
-
-/*===============================*
- *===============================*
  * Types                         *
  *===============================*
  *===============================*/
@@ -180,96 +173,6 @@ struct object *type(struct object *name, char can_instantiate) {
   return o;
 }
 
-char ffi_type_designator_is_string(struct object *o) {
-  return type_of(o) == gis->cons_type &&
-         CONS_CAR(o) == gis->pointer_type &&
-         CONS_CDR(o) != NIL &&
-         CONS_CAR(CONS_CDR(o)) == gis->char_type;
-}
-
-char ffi_type_designator_is_struct(struct object *o) {
-  return type_of(o) == gis->cons_type &&
-         CONS_CAR(o) == gis->struct_type;
-}
-
-ffi_type *ffi_type_designator_to_ffi_type(struct object *o);
-
-/* TODO: require structs to be separated into definitions/not inlined */
-ffi_type *struct_ffi_type_designator_to_ffi_type(struct object *o) {
-  ffi_type *ft;
-  unsigned int i;
-  struct object *cursor;
-
-  /* make a new ffi_type object */
-  ft = malloc(sizeof(ffi_type)); /* TODO GC clean this up */
-  ft->size = ft->alignment = 0;
-  ft->type = FFI_TYPE_STRUCT;
-  ft->elements = malloc(sizeof(ffi_type *) * (count(CONS_CDR(o)) + 1));
-      /* TODO: GC */ /* plus one for null termination */
-
-  i = 0;
-  cursor = CONS_CDR(o);
-  while (cursor != NIL) {
-    ft->elements[i] = ffi_type_designator_to_ffi_type(CONS_CAR(cursor));
-    ++i;
-    cursor = CONS_CDR(cursor);
-  }
-  ft->elements[i] = NULL; /* must be null terminated */
-  return ft;
-}
-
-ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
-  struct object *lhs, *t; /* , *rhs; */
-
-  t = type_of(o);
-  if (t == gis->cons_type) { /* must be of form (* <any>) */
-    lhs = CONS_CAR(o);
-    if (lhs != gis->pointer_type && lhs != gis->struct_type) {
-      printf("First item in FFI designator cons list must be ffi:* or ffi:struct.");
-      PRINT_STACK_TRACE_AND_QUIT();
-    }
-    if (CONS_CDR(o) == NIL) {
-      printf("Takes at least argument.");
-      PRINT_STACK_TRACE_AND_QUIT();
-    }
-    if (ffi_type_designator_is_string(o)) {
-      return &ffi_type_pointer;
-    }
-    if (ffi_type_designator_is_struct(o)) {
-      return struct_ffi_type_designator_to_ffi_type(o);
-    }
-    printf("not impl\n");
-    PRINT_STACK_TRACE_AND_QUIT();
-  } else if (t == gis->symbol_type) { /* must be a ffi symbol */
-    if (o == gis->char_type) return &ffi_type_schar;
-    else if (o == gis->int_type) {
-      return &ffi_type_sint;
-    }
-    else if (o == gis->uint_type) return &ffi_type_uint;
-    else if (o == gis->uint8_type) {
-      return &ffi_type_uint8;
-    }
-    else if (o == gis->void_type) return &ffi_type_void;
-    else if (o == gis->pointer_type) {
-      return &ffi_type_pointer;
-    } else if (o == gis->struct_type) {
-      printf("Passing struct directly is not supported");
-      print(o);
-      PRINT_STACK_TRACE_AND_QUIT();
-    } else if (SYMBOL_STRUCTURE_IS_SET(o)) {
-      return STRUCTURE_FFI_TYPE(SYMBOL_STRUCTURE(o));
-    } else {
-      printf("Invalid FFI type designator symbol: \n");
-      print(o);
-      PRINT_STACK_TRACE_AND_QUIT();
-    }
-  } else {
-    printf("Invalid FFI type designator: \n");
-    print(o);
-    PRINT_STACK_TRACE_AND_QUIT();
-  }
-}
-
 struct object *dynamic_array(fixnum_t initial_capacity) {
   struct object *o = object(type_dynamic_array);
   NC(o, "Failed to allocate dynamic-array object.");
@@ -307,7 +210,7 @@ struct object *ffun(struct object *dlib, struct object *ffname, struct object* r
   o = object(type_ffun);
   NC(o, "Failed to allocate ffun object.");
   o->w1.value.ffun = malloc(sizeof(struct ffun));
-  FFUN_FFNAME(o) = get_string_designator(ffname);
+  FFUN_FFNAME(o) = string_designator(ffname);
   FFUN_DLIB(o) = dlib;
   dynamic_byte_array_force_cstr(FFUN_FFNAME(o));
   FFUN_PTR(o) = GetProcAddress(DLIB_PTR(dlib), STRING_CONTENTS(FFUN_FFNAME(o)));
@@ -353,7 +256,7 @@ struct object *structure(struct object *name, struct object *fields) {
     printf("Failed to allocate struct.");
     PRINT_STACK_TRACE_AND_QUIT();
   }
-  STRUCTURE_NAME(o) = get_string_designator(name);
+  STRUCTURE_NAME(o) = string_designator(name);
   STRUCTURE_FIELDS(o) = fields;
 
   STRUCTURE_FFI_TYPE(o) = malloc(sizeof(ffi_type));
@@ -379,7 +282,7 @@ struct object *structure(struct object *name, struct object *fields) {
   ffi_get_struct_offsets(FFI_DEFAULT_ABI, STRUCTURE_FFI_TYPE(o), STRUCTURE_OFFSETS(o));
 
   /* make new type for this struct */
-  STRUCTURE_TYPE(o) = type(get_string_designator(name), 1);
+  STRUCTURE_TYPE(o) = type(string_designator(name), 1);
   TYPE_STRUCT(STRUCTURE_TYPE(o)) = o; /* add a reference back to this struct from the type */
 
   symbol_set_structure(name, o);
@@ -463,10 +366,10 @@ struct object *struct_field(struct object *instance, struct object *sdes) {
 
   i = 0;
   field = NULL;
-  field_name = get_string_designator(sdes);
+  field_name = string_designator(sdes);
   cursor = STRUCTURE_FIELDS(structure);
   while (cursor != NIL) {
-    if (equals(field_name, get_string_designator(CONS_CAR(CONS_CAR(cursor))))) {
+    if (equals(field_name, string_designator(CONS_CAR(CONS_CAR(cursor))))) {
       field = CONS_CAR(CONS_CDR(CONS_CAR(cursor)));
       break;
     }
@@ -515,10 +418,10 @@ void set_struct_field(struct object *instance, struct object *sdes, struct objec
 
   i = 0;
   field = NULL;
-  field_name = get_string_designator(sdes);
+  field_name = string_designator(sdes);
   cursor = STRUCTURE_FIELDS(structure);
   while (cursor != NIL) {
-    if (equals(field_name, get_string_designator(CONS_CAR(CONS_CAR(cursor))))) {
+    if (equals(field_name, string_designator(CONS_CAR(CONS_CAR(cursor))))) {
       field = CONS_CAR(CONS_CDR(CONS_CAR(cursor)));
       break;
     }
@@ -715,300 +618,6 @@ void print_stack() {
   printf("instruction-index = ");
   print(symbol_get_value(gis->impl_i_sym));
   printf("\n");
-}
-/*===============================*
- *===============================*
- * to-string                     *
- *===============================*
- *===============================*/
-struct object *do_to_string(struct object *o, char repr);
-
-void reverse_string(struct object *o) {
-  ufixnum_t i;
-  char temp;
-
-  OT("reverse_string", 0, o, type_string);
-
-  for (i = 0; i < STRING_LENGTH(o)/2; ++i) {
-    temp = STRING_CONTENTS(o)[i];
-    STRING_CONTENTS(o)[i] = STRING_CONTENTS(o)[STRING_LENGTH(o)-1-i];
-    STRING_CONTENTS(o)[STRING_LENGTH(o)-1-i] = temp;
-  }
-}
-
-struct object *to_string_ufixnum_t(ufixnum_t n) {
-  struct object *str;
-  ufixnum_t cursor;
-
-  if (n == 0) return string("0");
-  str = string("");
-  cursor = n;
-  while (cursor != 0) {
-    dynamic_byte_array_push_char(str, '0' + cursor % 10);
-    cursor /= 10;
-  }
-  reverse_string(str);
-  return str;
-}
-
-struct object *to_string_fixnum_t(fixnum_t n) {
-  if (n < 0)
-    return dynamic_byte_array_concat(string("-"), to_string_ufixnum_t(-n));
-  return to_string_ufixnum_t(n);
-}
-
-/* a buggy float to string implementation 
-   shows a maximum of 9 decimal digits even if the double contains more */
-struct object *to_string_flonum_t(flonum_t n) {
-  ufixnum_t integral_part, decimal_part;
-  ufixnum_t ndecimal, nintegral; /* how many digits in the decimal and integral part to keep */
-  flonum_t nexp, nexp2;
-  fixnum_t i, leading_zero_threshold;
-  struct object *str;
-
-  if (n == 0) return string("0.0");
-  if (n != n) return string("NaN");
-  if (n > DBL_MAX) return string("Infinity"); /* TODO: update to be FLONUM_MAX/FLONUM_MIN*/
-  if (n < DBL_MIN) return string("-Infinity");
-
-  ndecimal = 9;
-  nintegral = 16; /* the threshold where scientific notation is used */
-  leading_zero_threshold = 7; /* the threshold when scientific notation is used */
-
-  nexp = n == 0 ? 0 : log10(n);
-
-  integral_part = n; /* casting to a ufixnum extracts the integral part */
-  decimal_part = (n - integral_part) * pow(10, ndecimal);
-
-  while (decimal_part > 0 && decimal_part % 10 == 0) decimal_part /= 10;
-
-  if (nexp > nintegral) {
-    /* trim all right most 0s (those will be the decimal part of the normalized output) */
-    while (integral_part > 0 && integral_part % 10 == 0) integral_part /= 10;
-
-    nexp2 = log10(integral_part);
-    if (nexp2 > ndecimal + 1) {
-      for (i = nexp2 - ndecimal; i > 0;
-           --i) { /* keep ndecimal + 1 digits (plus one is to keep the first
-                     part of the scientific notation 9.2342341e+4) */
-        if (i == 1 && integral_part % 10 > 4) {
-          integral_part += 10; /* round if this is the last digit and 5 or more */
-        }
-        integral_part /= 10;
-      }
-    }
-    str = to_string_ufixnum_t(integral_part);
-    if (integral_part >= 10)
-      dynamic_byte_array_insert_char(str, 1, '.');
-    dynamic_byte_array_push_char(str, 'e');
-    dynamic_byte_array_push_char(str, '+');
-    str = dynamic_byte_array_concat(str, to_string_fixnum_t(nexp));
-    return str;
-  }
-
-  if (nexp <= -leading_zero_threshold) { /* check if this could be a 0.{...0...}n
-                                           number */
-    /* first is to normalize 0.00000000nnnn to 0.nnnn, second is to convert to unsigned fixnum (plus one because one extra digit will be in the integral part another plus one so we can have one digit for rounding) */
-    decimal_part = n * pow(10, (fixnum_t)-nexp) * pow(10, ndecimal + 1 + 1);
-    if (decimal_part % 10 > 4) {
-      decimal_part += 10; /* round if this is the last digit and 5 or more */
-    }
-    decimal_part /= 10; /* drop the extra digit we grabbed for rounding */
-    while (decimal_part > 0 && decimal_part % 10 == 0) decimal_part /= 10; /* trim all rhs zeros */
-    str = to_string_ufixnum_t(decimal_part);
-    if (decimal_part >= 10) dynamic_byte_array_insert_char(str, 1, '.');
-    dynamic_byte_array_push_char(str, 'e');
-    str = dynamic_byte_array_concat(str, to_string_fixnum_t(floor(nexp)));
-    return str;
-  }
-
-  str = to_string_ufixnum_t(integral_part);
-  dynamic_byte_array_push_char(str, '.');
-  while (nexp < -1) {
-    dynamic_byte_array_push_char(str, '0');
-    ++nexp;
-  }
-  str = dynamic_byte_array_concat(str, to_string_fixnum_t(decimal_part));
-  return str;
-}
-
-struct object *to_string_dynamic_byte_array(struct object *dba) {
-  struct object *str;
-  ufixnum_t i;
-  unsigned char byte, nib0, nib1;
-
-  OT("to_string_dynamic_byte_array", 0, dba, type_dynamic_byte_array);
-
-  str = string("[");
-  for (i = 0; i < DYNAMIC_BYTE_ARRAY_LENGTH(dba); ++i) {
-    byte = DYNAMIC_BYTE_ARRAY_BYTES(dba)[i];
-    nib0 = byte & 0x0F;
-    nib1 = byte >> 4;
-
-    dynamic_byte_array_push_char(str, '0');
-    dynamic_byte_array_push_char(str, 'x');
-    if (nib1 > 9) dynamic_byte_array_push_char(str, 'A' + (nib1 - 10));
-    else dynamic_byte_array_push_char(str, '0' + nib1);
-    if (nib0 > 9) dynamic_byte_array_push_char(str, 'A' + (nib0 - 10));
-    else dynamic_byte_array_push_char(str, '0' + nib0);
-
-    dynamic_byte_array_push_char(str, ' ');
-  }
-  if (DYNAMIC_BYTE_ARRAY_LENGTH(dba) > 0)
-    dynamic_byte_array_pop(str); /* remove the extra space */
-  dynamic_byte_array_push_char(str, ']');
-  return str;
-}
-
-struct object *to_string_vec2(struct object *vec2) {
-  struct object *str;
-
-  OT("to_string_vec2", 0, vec2, type_vec2);
-
-  str = string("<");
-  str = dynamic_byte_array_concat(str, to_string_flonum_t(VEC2_X(vec2)));
-  dynamic_byte_array_push_char(str, ' ');
-  str = dynamic_byte_array_concat(str, to_string_flonum_t(VEC2_Y(vec2)));
-  dynamic_byte_array_push_char(str, '>');
-  OBJECT_TYPE(str) = type_string;
-  return str;
-}
-
-struct object *to_string_dynamic_array(struct object *da) {
-  struct object *str;
-  ufixnum_t i;
-
-  OT("to_string_dynamic_array", 0, da, type_dynamic_array);
-
-  str = string("[");
-  for (i = 0; i < DYNAMIC_ARRAY_LENGTH(da); ++i) {
-    str = string_concat(str, do_to_string(dynamic_array_get_ufixnum_t(da, i), 1));
-    dynamic_byte_array_push_char(str, ' ');
-  }
-  if (DYNAMIC_ARRAY_LENGTH(da) > 0)
-    dynamic_byte_array_pop(str); /* remove the extra space */
-  dynamic_byte_array_push_char(str, ']');
-  return str;
-}
-
-struct object *do_to_string(struct object *o, char repr) {
-  struct object *str;
-  char buf[100];
-  enum object_type t;
-
-  t = object_type_of(o);
-
-  switch (t) {
-    case type_cons:
-      str = string("(");
-      str = string_concat(str, do_to_string(CONS_CAR(o), 1));
-      while (type_of(CONS_CDR(o)) == gis->cons_type) {
-        o = CONS_CDR(o);
-        str = string_concat(str, string(" "));
-        str = string_concat(str, do_to_string(CONS_CAR(o), 1));
-      }
-      if (CONS_CDR(o) == NIL) {
-        dynamic_byte_array_push_char(str, ')');
-      } else {
-        str = string_concat(str, string(" "));
-        str = string_concat(str, do_to_string(CONS_CDR(o), 1));
-        dynamic_byte_array_push_char(str, ')');
-      }
-      return str;
-    case type_string:
-      if (repr) {
-        o = string_concat(string("\""), o);
-        dynamic_byte_array_push_char(o, '\"');
-      }
-      return o;
-    case type_flonum:
-      return to_string_flonum_t(FLONUM_VALUE(o));
-    case type_ufixnum:
-      return to_string_ufixnum_t(UFIXNUM_VALUE(o));
-    case type_fixnum:
-      return to_string_fixnum_t(FIXNUM_VALUE(o));
-    case type_dynamic_byte_array:
-      return to_string_dynamic_byte_array(o);
-    case type_vec2:
-      return to_string_vec2(o);
-    case type_dynamic_array:
-      return to_string_dynamic_array(o);
-    case type_function:
-      if (0 && FUNCTION_NAME(o) != NIL) {
-        str = string("<function ");
-        str = string_concat(str, SYMBOL_NAME(FUNCTION_NAME(o)));
-        dynamic_byte_array_push_char(str, '>');
-        return str;
-      }
-      str = string("<function ");
-      str = string_concat(str, do_to_string(FUNCTION_CONSTANTS(o), 1));
-      dynamic_byte_array_push_char(str, ' ');
-      str = string_concat(str, do_to_string(FUNCTION_CODE(o), 1));
-      dynamic_byte_array_push_char(str, '>');
-      return str;
-    case type_record:
-      return string("<record>");
-    case type_package:
-      str = string("<package ");
-      str = string_concat(str, do_to_string(PACKAGE_NAME(o), 1));
-      dynamic_byte_array_push_char(str, '>');
-      return str;
-    case type_symbol:
-      return SYMBOL_NAME(o);
-    case type_dlib:
-      str = string("<dynamic-library \"");
-      str = string_concat(str, DLIB_PATH(o));
-      dynamic_byte_array_push_char(str, '"');
-      dynamic_byte_array_push_char(str, '>');
-      return str;
-    case type_ffun:
-      str = string("<foreign-function \"");
-      str = string_concat(str, FFUN_FFNAME(o));
-      dynamic_byte_array_push_char(str, '"');
-      dynamic_byte_array_push_char(str, ' ');
-      str = string_concat(str, do_to_string(FFUN_DLIB(o), 1));
-      dynamic_byte_array_push_char(str, '>');
-      return str;
-    case type_ptr:
-      str = string("<pointer ");
-      sprintf(buf, "%p", OBJECT_POINTER(o));
-      dynamic_byte_array_push_char(str, '0');
-      dynamic_byte_array_push_char(str, 'x');
-      str = string_concat(str, string(buf));
-      dynamic_byte_array_push_char(str, '>');
-      return str;
-    case type_struct:
-      str = string("<struct ");
-      str = string_concat(str, STRUCTURE_NAME(o));
-      dynamic_byte_array_push_char(str, '>');
-      return str;
-    case type_type:
-      str = string("<type ");
-      str = string_concat(str, TYPE_NAME(o));
-      dynamic_byte_array_push_char(str, '>');
-      return str;
-    case type_enumerator:
-      return string("<enumerator>");
-    case type_file:
-      return string("<file>");
-  }
-
-  /* handle user defined type */
-  str = string("<");
-  str = string_concat(str, TYPE_NAME(type_of(o)));
-  dynamic_byte_array_push_char(str, ' ');
-  sprintf(buf, "%p", OBJECT_POINTER(o));
-  str = string_concat(str, string(buf));
-  dynamic_byte_array_push_char(str, '>');
-  return str;
-}
-
-struct object *to_string(struct object *o) {
-  return do_to_string(o, 0);
-}
-
-struct object *to_repr(struct object *o) {
-  return do_to_string(o, 1);
 }
 
 /*===============================*
@@ -1242,18 +851,6 @@ void symbol_set_value(struct object *sym, struct object *value) {
 
 void symbol_export(struct object *sym) {
   SYMBOL_IS_EXTERNAL(sym) = 1;
-}
-
-struct object *get_string_designator(struct object *sd) {
-  struct object *t = type_of(sd);
-  if (t == gis->string_type)
-    return sd;
-  else if (t == gis->symbol_type)
-    return SYMBOL_NAME(sd);
-  else {
-    printf("Invalid string designator %s.\n", type_name_cstr(t));
-    PRINT_STACK_TRACE_AND_QUIT();
-  }
 }
 
 /* uses NULL as a sentinel value for "did not find" */
@@ -1661,6 +1258,7 @@ void gis_init(char load_core) {
   }
 }
 
+/* For handling flonums/fixnums/ufixnums */
 flonum_t flonum_t_value(struct object *o) {
   struct object *t;
   t = type_of(o);
@@ -2053,8 +1651,6 @@ void gen_load_constant(struct object *bc, struct object *value) {
                         FUNCTION_CODE(bc), 0);
   }
 }
-
-struct object *run(struct gis *gis);
 
 /* evaluates the given bytecode starting at the given instruction index */
 struct object *eval_at_instruction(struct object *f, ufixnum_t i, struct object *args) {
@@ -2703,7 +2299,7 @@ void eval_builtin(struct object *f) {
   if (f == gis->use_package_builtin) {
     /* TODO */
   } else if (f == gis->find_package_builtin) {
-    push(find_package(get_string_designator(GET_LOCAL(0))));
+    push(find_package(string_designator(GET_LOCAL(0))));
   } else if (f == gis->compile_builtin) {
     push(compile(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2), GET_LOCAL(3)));
   } else if (f == gis->eval_builtin) {

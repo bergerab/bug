@@ -16,7 +16,4 @@ struct object *dynamic_byte_array_pop(struct object *dba);
 struct object *dynamic_byte_array_concat(struct object *dba0, struct object *dba1);
 struct object *dynamic_byte_array_from_array(ufixnum_t length, unsigned char *arr);
 
-struct object *string_concat(struct object *s0, struct object *s1);
-struct object *string_clone(struct object *str0);
-
 #endif

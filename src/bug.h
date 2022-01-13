@@ -555,10 +555,12 @@ struct gis {
   struct object *use_package_builtin;
 };
 
+#include "string.h"
 #include "debug.h"
 #include "marshal.h"
 #include "dynamic_byte_array.h"
 #include "dynamic_array.h"
+#include "ffi.h"
 
 /**
  * The global interpreter state
@@ -567,6 +569,8 @@ struct gis {
  */
 struct gis *gis;
 
+struct object *run(struct gis *gis);
+
 struct object *compile(struct object *ast, struct object *bc, struct object *st, struct object *fst);
 struct object *compile_entire_file(struct object *input_file);
 struct object *eval(struct object *bc, struct object* args);
@@ -574,10 +578,6 @@ struct object *read(struct object *s, struct object *package);
 struct object *type(struct object *name, char can_instantiate);
 
 char equals(struct object *o0, struct object *o1);
-
-void dynamic_byte_array_force_cstr(struct object *dba);
-void dynamic_array_push(struct object *da, struct object *value);
-struct object *dynamic_array_get_ufixnum_t(struct object *da, ufixnum_t index);
 
 void symbol_set_structure(struct object *sym, struct object *s);
 
@@ -591,10 +591,7 @@ fixnum_t count(struct object *list);
 
 struct object *symbol_get_value(struct object *sym);
 
-struct object *get_string_designator(struct object *sd);
 void print(struct object *o);
-
-void print_stack();
 
 struct object *object(enum object_type t);
 struct object *fixnum(fixnum_t fixnum);
@@ -618,8 +615,6 @@ struct object *file_stdin();
 struct object *file_stdout();
 struct object *open_file(struct object *path, struct object *mode);
 void close_file(struct object *file);
-
-struct object *string_concat(struct object *s0, struct object *s1);
 
 void print_stack();
 
