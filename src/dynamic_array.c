@@ -10,6 +10,7 @@ struct object *dynamic_array_get_ufixnum_t(struct object *da, ufixnum_t index) {
   #endif
   return DYNAMIC_ARRAY_VALUES(da)[index];
 }
+
 struct object *dynamic_array_get(struct object *da, struct object *index) {
   OT("dynamic_array_get", 0, da, type_dynamic_array);
   OT("dynamic_array_get", 1, index, type_fixnum);
@@ -21,6 +22,7 @@ struct object *dynamic_array_get(struct object *da, struct object *index) {
   #endif
   return DYNAMIC_ARRAY_VALUES(da)[FIXNUM_VALUE(index)];
 }
+
 struct object *dynamic_array_set_ufixnum_t(struct object *da, ufixnum_t index, struct object *value) {
   OT("dynamic_array_set", 0, da, type_dynamic_array);
   #ifdef RUN_TIME_CHECKS
@@ -32,6 +34,7 @@ struct object *dynamic_array_set_ufixnum_t(struct object *da, ufixnum_t index, s
   DYNAMIC_ARRAY_VALUES(da)[index] = value;
   return NIL;
 }
+
 void dynamic_array_set(struct object *da, struct object *index, struct object *value) {
   OT("dynamic_array_set", 0, da, type_dynamic_array);
   OT("dynamic_array_set", 1, index, type_fixnum);
@@ -44,10 +47,12 @@ void dynamic_array_set(struct object *da, struct object *index, struct object *v
   #endif
   DYNAMIC_ARRAY_VALUES(da)[FIXNUM_VALUE(index)] = value;
 }
+
 struct object *dynamic_array_length(struct object *da) {
   OT("dynamic_array_length", 0, da, type_dynamic_array);
   return fixnum(DYNAMIC_ARRAY_LENGTH(da));
 }
+
 void dynamic_array_ensure_capacity(struct object *da) {
   struct object **values, **nv;
   size_t size; 
@@ -63,12 +68,14 @@ void dynamic_array_ensure_capacity(struct object *da) {
     }
   }
 }
+
 void dynamic_array_push(struct object *da, struct object *value) {
   OT("dynamic_array_push", 0, da, type_dynamic_array);
   dynamic_array_ensure_capacity(da);
   DYNAMIC_ARRAY_VALUES(da)[DYNAMIC_ARRAY_LENGTH(da)] = value;
   ++DYNAMIC_ARRAY_LENGTH(da);
 }
+
 struct object *dynamic_array_pop(struct object *da) {
   OT("dynamic_array_pop", 0, da, type_dynamic_array);
 #ifdef RUN_TIME_CHECKS
@@ -79,6 +86,7 @@ struct object *dynamic_array_pop(struct object *da) {
 #endif
   return DYNAMIC_ARRAY_VALUES(da)[--DYNAMIC_ARRAY_LENGTH(da)];
 }
+
 struct object *dynamic_array_concat(struct object *da0, struct object *da1) {
   struct object *da2; 
 
