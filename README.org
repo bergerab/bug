@@ -1,3 +1,21 @@
 * Bug
 
 A byte-compiled lisp implementation that is similar to Common Lisp, but with less features.
+
+* Building 
+** Windows
+To build on Windows with MinGW run:
+
+#+BEGIN_SRC cmd
+mkdir build
+cd build
+cmake -G "MinGW Makefiles" ..
+#+END_SRC
+
+If there is an error saying CMAKE_C_COMPILER is not set, make sure
+to add an environment variable called "CC" with a path to your c compiler (probably C:\MinGW\bin\gcc.exe).
+This requires that you have "make" installed with MinGW and "gcc".
+
+You also need to have libffi installed somewhere in your path.
+
+I already had Strawberry Perl installed, so I just took the libffi.a, ffi.h, and ffitarget.h, and put them in the appropriate MinGW directories (/include and /lib) and it worked.

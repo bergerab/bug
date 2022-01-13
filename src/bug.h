@@ -1,3 +1,6 @@
+#ifndef _BUG_H
+#define _BUG_H
+
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -13,33 +16,7 @@
 
 #include <ffi.h>
 
-#define DEBUG 1
-
-#define IF_DEBUG() if (DEBUG)
-
-#define RUN_TIME_CHECKS
-
 #define DEFAULT_INITIAL_CAPACITY 100
-
-#ifdef RUN_TIME_CHECKS
-#define TC(name, argument, o, type) type_check(name, argument, o, type)
-#define OT(name, argument, o, type) object_type_check(name, argument, o, type)
-#define TC2(name, argument, o, type0, type1) type_check_or2(name, argument, o, type0, type1)
-#define OT2(name, argument, o, type0, type1) object_type_check_or2(name, argument, o, type0, type1)
-#define OT_LIST(name, argument, o) object_type_check_list(name, argument, o)
-#define SC(name, n) stack_check(name, n, UFIXNUM_VALUE(i))
-#else
-#define TC(name, argument, o, type) \
-  {}
-#define TC2(name, argument, o, type0, type1) \
-  {}
-#define SC(name, n) \
-  {}
-#define OT(name, n) \
-  {}
-#define OT2(name, n) \
-  {}
-#endif
 
 #define PRINT_STACK_TRACE_AND_QUIT() \
   print_stack();                     \
@@ -155,57 +132,9 @@ typedef double flonum_t;
 /* don't allow more than 255 arguments (an arbitrary number). This is to avoid having to malloc when making the arg_types/arg_values arrays -- they can be made on the stack. */
 #define MAX_FFI_NARGS 255
 
-#define BC_VERSION 1
+#define GIS_PACKAGE symbol_get_value(gis->impl_package_sym)
 
-enum ops {
-  op_drop,
-  op_dup,
-  op_intern,
-  op_cons,
-  op_car,
-  op_cdr,
-  op_add,
-  op_addi,
-  op_sub,
-  op_subi,
-  op_mul,
-  op_div,
-  op_list,
-  op_load_nil,
-  op_const,
-  op_const_0,
-  op_const_1,
-  op_const_2,
-  op_const_3,
-  op_push_arg,
-  op_push_args,
-  op_print,
-  op_print_nl,
-  op_eq,
-  op_and,
-  op_or,
-  op_not,
-  op_gt,
-  op_gte,
-  op_lt,
-  op_lti,
-  op_lte,
-  op_set_symbol_value,
-  op_set_symbol_function,
-  op_symbol_value,
-  op_symbol_function,
-  op_jump,
-  op_jump_when_nil,
-  op_load_from_stack,
-  op_load_from_stack_0,
-  op_load_from_stack_1,
-  op_store_to_stack,
-  op_store_to_stack_0,
-  op_store_to_stack_1,
-  op_call_function,
-  op_call_symbol_function,
-  op_return_function
-};
+#include "ops.h"
 
 /* The types defined below are not the same as the types that will
    be defined within the language. */
@@ -626,21 +555,78 @@ struct gis {
   struct object *use_package_builtin;
 };
 
-#define GIS_PACKAGE symbol_get_value(gis->impl_package_sym)
+#include "debug.h"
+#include "marshal.h"
+#include "dynamic_byte_array.h"
+#include "dynamic_array.h"
 
-enum marshaled_type {
-  marshaled_type_integer,
-  marshaled_type_negative_integer,
-  marshaled_type_float,
-  marshaled_type_negative_float,
-  marshaled_type_symbol,
-  marshaled_type_uninterned_symbol, /** a symbol with no home package */
-  marshaled_type_string,
-  marshaled_type_nil,
-  marshaled_type_cons,
-  marshaled_type_dynamic_array,
-  marshaled_type_dynamic_string_array,
-  marshaled_type_dynamic_byte_array,
-  marshaled_type_function,
-  marshaled_type_vec2
-};
+/**
+ * The global interpreter state
+ * 
+ * Initialized using init()
+ */
+struct gis *gis;
+
+struct object *compile(struct object *ast, struct object *bc, struct object *st, struct object *fst);
+struct object *compile_entire_file(struct object *input_file);
+struct object *eval(struct object *bc, struct object* args);
+struct object *read(struct object *s, struct object *package);
+struct object *type(struct object *name, char can_instantiate);
+
+char equals(struct object *o0, struct object *o1);
+
+void dynamic_byte_array_force_cstr(struct object *dba);
+void dynamic_array_push(struct object *da, struct object *value);
+struct object *dynamic_array_get_ufixnum_t(struct object *da, ufixnum_t index);
+
+void symbol_set_structure(struct object *sym, struct object *s);
+
+enum object_type object_type_of(struct object *o);
+struct object *type_name_of(struct object *o);
+char *type_name_of_cstr(struct object *o);
+char *type_name_cstr(struct object *o);
+struct object *type_of(struct object *o);
+char *bstring_to_cstring(struct object *str);
+fixnum_t count(struct object *list);
+
+struct object *symbol_get_value(struct object *sym);
+
+struct object *get_string_designator(struct object *sd);
+void print(struct object *o);
+
+void print_stack();
+
+struct object *object(enum object_type t);
+struct object *fixnum(fixnum_t fixnum);
+struct object *ufixnum(ufixnum_t ufixnum);
+struct object *flonum(flonum_t flo);
+struct object *vec2(flonum_t x, flonum_t y);
+struct object *dlib(struct object *path);
+struct object *type(struct object *name, char can_instantiate);
+struct object *dynamic_array(fixnum_t initial_capacity);
+struct object *dynamic_byte_array(ufixnum_t initial_capacity);
+struct object *ffun(struct object *dlib, struct object *ffname, struct object* ret_type, struct object *params);
+struct object *structure(struct object *name, struct object *fields);
+struct object *pointer(void *ptr);
+struct object *function(struct object *constants, struct object *code, ufixnum_t stack_size);
+struct object *string(char *contents);
+struct object *enumerator(struct object *source);
+struct object *package(struct object *name, struct object *packages);
+struct object *cons(struct object *car, struct object *cdr);
+struct object *symbol(struct object *name);
+struct object *file_stdin();
+struct object *file_stdout();
+struct object *open_file(struct object *path, struct object *mode);
+void close_file(struct object *file);
+
+struct object *string_concat(struct object *s0, struct object *s1);
+
+void print_stack();
+
+struct object *intern(struct object *string, struct object *package);
+struct object *find_package(struct object *name);
+
+struct object *write_file(struct object *file, struct object *o);
+struct object *read_file(struct object *file);
+
+#endif

@@ -4,6 +4,8 @@
     "cmath": "c",
     "limits": "c",
     "*.tcc": "c",
-    "typeinfo": "cpp"
+    "typeinfo": "cpp",
+    "*.rh": "c",
+    "ffi.h": "c"
   }
 }

@@ -1,1 +1,1 @@
-gcc src\bug.c -pedantic -std=c89 -Wall -lm -lffi -o bug && bug --run-tests
+gcc -c src\marshal.c -pedantic -std=c89 -Wall -lm -lffi && gcc src\bug.c -pedantic -std=c89 -Wall -lm -lffi -g -o bug && bug --run-tests

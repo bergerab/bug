@@ -1,3 +1,4 @@
+(print "wefwef")
 
 "Cons helpers that should probably be builtins"
 (impl:function cadr (x)
