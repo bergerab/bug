@@ -104,7 +104,6 @@ typedef double flonum_t;
 
 #define PACKAGE_NAME(o) o->w1.value.package->name
 #define PACKAGE_SYMBOLS(o) o->w1.value.package->symbols
-#define PACKAGE_PACKAGES(o) o->w1.value.package->packages
 
 #define DLIB_PATH(o) o->w1.value.dlib->path
 #define DLIB_PTR(o) o->w1.value.dlib->ptr
@@ -228,8 +227,7 @@ struct symbol {
 
 struct package {
   struct object *name; /** the name of the package (a string) */
-  struct object *symbols; /** all top-level symbols the package has created (a cons list) */
-  struct object *packages; /** packages this package uses -- all external symbols of these packages become internal symbols (can be exported) */
+  struct object *symbols; /** all the symbols in this package */
 };
 
 struct structure {
@@ -608,7 +606,7 @@ struct object *pointer(void *ptr);
 struct object *function(struct object *constants, struct object *code, ufixnum_t stack_size);
 struct object *string(char *contents);
 struct object *enumerator(struct object *source);
-struct object *package(struct object *name, struct object *packages);
+struct object *package(struct object *name);
 struct object *cons(struct object *car, struct object *cdr);
 struct object *symbol(struct object *name);
 struct object *file_stdin();
@@ -620,6 +618,7 @@ void print_stack();
 
 struct object *intern(struct object *string, struct object *package);
 struct object *find_package(struct object *name);
+void use_package(struct object *p0, struct object *p1);
 
 struct object *write_file(struct object *file, struct object *o);
 struct object *read_file(struct object *file);

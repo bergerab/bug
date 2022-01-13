@@ -478,17 +478,15 @@ struct object *enumerator(struct object *source) {
   return o;
 }
 
-struct object *package(struct object *name, struct object *packages) {
+struct object *package(struct object *name) {
   struct object *o;
   OT("package", 0, name, type_string);
-  OT_LIST("package", 1, packages);
   o = object(type_package);
   NC(o, "Failed to allocate package object.");
   o->w1.value.package = malloc(sizeof(struct package));
   NC(o->w1.value.package, "Failed to allocate package object.");
   PACKAGE_NAME(o) = name;
   PACKAGE_SYMBOLS(o) = NIL;
-  PACKAGE_PACKAGES(o) = packages;
   return o;
 }
 
@@ -853,17 +851,22 @@ void symbol_export(struct object *sym) {
   SYMBOL_IS_EXTERNAL(sym) = 1;
 }
 
-/* uses NULL as a sentinel value for "did not find" */
+/* uses NULL as a sentinel value for "did not find" 
+  include_internal means the reader was given something like "my-package::my-symbol"
+  otherwise it is as if the reader were given "my-package:my-symbol" */
 struct object *do_find_symbol(struct object *string, struct object *package, char include_internal) {
-  struct object *cursor, *package_cursor, *pack, *sym;
+  struct object *cursor, *sym;
 
   OT("find_symbol", 0, string, type_string);
   OT("find_symbol", 1, package, type_package);
 
   /* look in current package for the symbol
      if we are only looking for inherited symbols with this name, don't look in
-     the actual package */
-  if (include_internal) {
+     the actual package.
+     */
+  if (include_internal) { 
+    /* "my-package::my-symbol" 
+      Look in all symbols in "my-package" */
     cursor = PACKAGE_SYMBOLS(package);
     while (cursor != NIL) {
       sym = CONS_CAR(cursor);
@@ -872,21 +875,15 @@ struct object *do_find_symbol(struct object *string, struct object *package, cha
       }
       cursor = CONS_CDR(cursor);
     }
-
-    /* look in all exported symbols of used packages */
-    package_cursor = PACKAGE_PACKAGES(package);
-    while (package_cursor != NIL) {
-      pack = CONS_CAR(package_cursor);
-      sym = do_find_symbol(string, pack, 0);
-      if (sym != NULL)
-        return sym;
-      package_cursor = CONS_CDR(package_cursor);
-    }
   } else {
+    /* "my-package:my-symbol"
+        look in all symbols of my-package that have the home-package of my-package
+        and are marked as external. */
     cursor = PACKAGE_SYMBOLS(package);
     while (cursor != NIL) {
       sym = CONS_CAR(cursor);
-      if (SYMBOL_IS_EXTERNAL(sym) &&
+      if (SYMBOL_PACKAGE(sym) == package &&
+          SYMBOL_IS_EXTERNAL(sym) &&
           equals(SYMBOL_NAME(sym), string))
         return sym;
       cursor = CONS_CDR(cursor);
@@ -1028,6 +1025,7 @@ void gis_init(char load_core) {
   IF_DEBUG() printf("Done initalizing strings...\n");
 
   /* Bootstrap NIL */
+  NIL = NULL;
   NIL = symbol(gis->nil_str);
   /* All fields that are initialied to NIL must be re-initialized to NIL here because we just defined what NIL is */
   SYMBOL_PLIST(NIL) = NIL;
@@ -1037,13 +1035,12 @@ void gis_init(char load_core) {
   SYMBOL_TYPE(NIL) = NIL;
 
   /* NIL evaluates to itself */
-  SYMBOL_VALUE_IS_SET(NIL) = 1;
-  SYMBOL_VALUE(NIL) = NIL;
+  symbol_set_value(NIL, NIL);
 
   IF_DEBUG() printf("NIL has been bootstrapped...\n");
 
   /* Initialize packages */
-  gis->type_package = package(gis->type_str, NIL);
+  gis->type_package = package(gis->type_str);
 
   /* final NIL bootstrapping step (required the type package -- add nil to the type package) */
   SYMBOL_PACKAGE(NIL) = gis->type_package;
@@ -1051,10 +1048,10 @@ void gis_init(char load_core) {
   symbol_export(NIL); /* export nil */
 
   /* initialize other packages */
-  gis->lisp_package = package(gis->lisp_str, cons(gis->type_package, NIL));
-  gis->keyword_package = package(gis->keyword_str, NIL);
-  gis->user_package = package(gis->user_str, cons(gis->lisp_package, NIL));
-  gis->impl_package = package(gis->impl_str, NIL);
+  gis->lisp_package = package(gis->lisp_str);
+  gis->keyword_package = package(gis->keyword_str);
+  gis->user_package = package(gis->user_str);
+  gis->impl_package = package(gis->impl_str);
 
   IF_DEBUG() printf("Packages have been initialized...\n");
 
@@ -1135,7 +1132,8 @@ void gis_init(char load_core) {
   GIS_SYM(gis->type_function_sym, gis->function_str, gis->type_package);
   GIS_SYM(gis->type_cons_sym, gis->cons_str, gis->type_package);
   GIS_SYM(gis->type_int_sym, gis->int_str, gis->type_package);
-  GIS_SYM(gis->type_nil_sym, gis->nil_str, gis->type_package);
+  /* WARNING: Do NOT initialize type_nil_sym again. It has been bootstrapped already -- re-initializing will cause segfaults. */
+  /* keep this warning in the code in alphabetical order wherever type_nil_sym would have been. */
   GIS_SYM(gis->type_package_sym, gis->package_str, gis->type_package);
   GIS_SYM(gis->type_pointer_sym, gis->pointer_str, gis->type_package);
   GIS_SYM(gis->type_record_sym, gis->record_str, gis->type_package);
@@ -1152,6 +1150,10 @@ void gis_init(char load_core) {
   GIS_SYM(gis->type_void_sym, gis->void_str, gis->type_package);
 
   symbol_set_value(gis->type_t_sym, gis->type_t_sym); /* t has itself as its value */
+
+  use_package(gis->impl_package, gis->type_package);
+  use_package(gis->lisp_package, gis->type_package);
+  use_package(gis->user_package, gis->lisp_package);
 
   IF_DEBUG() printf("Symbols have been initialized...\n");
 
@@ -1292,6 +1294,16 @@ void flonum_convert(struct object *o) {
 
 void add_package(struct object *package) {
   symbol_set_value(gis->impl_packages_sym, cons(package, symbol_get_value(gis->impl_packages_sym)));
+}
+
+void use_package(struct object *p0, struct object *p1) {
+  if (PACKAGE_SYMBOLS(p1) == NIL)
+    return;
+  if (PACKAGE_SYMBOLS(p0) == NIL) {
+    PACKAGE_SYMBOLS(p0) = PACKAGE_SYMBOLS(p1);
+  } else { /* TODO: this won't work you have to iterate over both and create a new list. */
+    PACKAGE_SYMBOLS(p0) = cons(PACKAGE_SYMBOLS(p0), PACKAGE_SYMBOLS(p1));
+  }
 }
 
 struct object *find_package(struct object *name) {
@@ -3045,7 +3057,7 @@ void run_tests() {
   o0 =
       unmarshal_symbol(marshal_symbol(symbol(string("fwe")), NULL, NULL), NULL);
   assert(SYMBOL_PACKAGE(o0) == NIL);
-  add_package(package(string("peep"), NIL));
+  add_package(package(string("peep")));
   T_MAR_SYM("dinkle", "peep");
   /* make sure the symbol isn't interned into the wrong package */
   assert(unmarshal_symbol(marshal_symbol(intern(string("dinkle"),
