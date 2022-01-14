@@ -11,5 +11,6 @@ add_executable(bug
   src/debug.c
   src/ffi.c
   src/string.c
-  src/util.c)
+  src/util.c
+  src/os.c)
 target_link_libraries(bug ffi m)

@@ -8,7 +8,6 @@
 #include <string.h>
 #include <math.h>
 #include <float.h>
-#include <unistd.h> 
 
 /* for DLL support: */
 #include <windows.h>
@@ -544,6 +543,7 @@ struct gis {
 #include "marshal.h"
 #include "dynamic_byte_array.h"
 #include "dynamic_array.h"
+#include "os.h"
 #include "ffi.h"
 
 /**
@@ -558,7 +558,9 @@ struct object *run(struct gis *gis);
 struct object *compile(struct object *ast, struct object *bc, struct object *st, struct object *fst);
 struct object *compile_entire_file(struct object *input_file);
 struct object *eval(struct object *bc, struct object* args);
-struct object *read(struct object *s, struct object *package);
+/* Temporary -- commented out because unistd.h defines read and having this uncommented causes conflicts
+struct object *read(struct object *s, struct object *package); 
+*/
 
 char equals(struct object *o0, struct object *o1);
 

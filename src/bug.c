@@ -284,12 +284,6 @@ struct object *pointer(void *ptr) {
   return o;
 }
 
-void change_directory(struct object *path) {
-  OT("change-directory", 0, path, type_string);
-  dynamic_byte_array_force_cstr(path);
-  chdir(STRING_CONTENTS(path));
-}
-
 struct object *alloc_struct(struct object *type, char init_defaults) {
   struct object *o;
   struct object *instance;
