@@ -146,7 +146,7 @@ struct object *dlib(struct object *path) {
   dynamic_byte_array_force_cstr(path);
   DLIB_PTR(o) = LoadLibrary(STRING_CONTENTS(path));
   if (DLIB_PTR(o) == NULL) {
-    printf("Failed to load dynamic library %s.", STRING_CONTENTS(o));
+    printf("Failed to load dynamic library %s.\n", STRING_CONTENTS(path));
     PRINT_STACK_TRACE_AND_QUIT();
   }
   return o;
@@ -155,21 +155,55 @@ struct object *dlib(struct object *path) {
 /* can_instantiate indicates if this type supports having values with this type.
    e.g.: you can make value of a type string, type fixnum, etc... but having a value of type
    uint8 is not supported. Same with something like "void". Those values are just used for FFI. */
-struct object *type(struct object *name, char can_instantiate) {
+struct object *type(struct object *sym, struct object *struct_fields, char can_instantiate) {
+  unsigned int i;
+  struct object *cursor, *t;
   struct object *o;
-  OT2("type", 0, name, type_dynamic_byte_array, type_string);
+  OT("type", 0, sym, type_symbol);
+  OT_LIST("type", 1, struct_fields);
   o = object(type_type);
   NC(o, "Failed to allocate type object.");
   o->w1.value.type = malloc(sizeof(struct type));
   NC(o->w1.value.type, "Failed to allocate type.");
-  TYPE_NAME(o) = name;
-  TYPE_STRUCT(o) = NIL;
+  TYPE_NAME(o) = SYMBOL_NAME(sym);
+
   if (can_instantiate) {
     TYPE_ID(o) = DYNAMIC_ARRAY_LENGTH(gis->types);
     dynamic_array_push(gis->types, o);
   } else {
     TYPE_ID(o) = -1;
   }
+
+  /* if this is a struct, */
+  if (struct_fields != NIL) {
+    TYPE_STRUCT_FIELDS(o) = struct_fields;
+    TYPE_FFI_TYPE(o) = malloc(sizeof(ffi_type));
+
+    /* make a new ffi_type object */
+    TYPE_FFI_TYPE(o)->size = TYPE_FFI_TYPE(o)->alignment = 0;
+    TYPE_FFI_TYPE(o)->type = FFI_TYPE_STRUCT;
+    TYPE_FFI_TYPE(o)->elements =
+        malloc(sizeof(ffi_type *) *
+               (count(struct_fields) + 1)); /* TODO: make sure to free this */
+
+    i = 0;
+    cursor = struct_fields;
+    while (cursor != NIL) {
+      t = CONS_CAR(CONS_CDR(CONS_CAR(cursor)));
+      TYPE_FFI_TYPE(o)->elements[i] = ffi_type_designator_to_ffi_type(t);
+      ++i;
+      cursor = CONS_CDR(cursor);
+    }
+
+    TYPE_FFI_TYPE(o)->elements[i] = NULL; /* must be null terminated */
+    TYPE_STRUCT_NFIELDS(o) = i;
+    TYPE_STRUCT_OFFSETS(o) = malloc(sizeof(size_t) * i); /* TODO: GC clean up */ 
+    /* TODO: does this need a +1? I removed it not sure why it was ever there */
+    ffi_get_struct_offsets(FFI_DEFAULT_ABI, TYPE_FFI_TYPE(o),
+                           TYPE_STRUCT_OFFSETS(o));
+  }
+
+  symbol_set_type(sym, o);
   return o;
 }
 
@@ -198,14 +232,15 @@ struct object *dynamic_byte_array(ufixnum_t initial_capacity) {
   return o;
 }
 
-struct object *ffun(struct object *dlib, struct object *ffname, struct object* ret_type, struct object *params) {
+struct object *foreign_function(struct object *dlib, struct object *ffname, struct object* ret_type, struct object *params) {
   ffi_status status;
   struct object *o;
 
-  OT("ffun", 0, dlib, type_dlib);
-  OT2("ffun", 1, ffname, type_dynamic_byte_array, type_string);
-  OT2("ffun", 2, ret_type, type_dynamic_byte_array, type_string);
-  OT_LIST("ffun", 3, params);
+  OT("foreign_function", 0, dlib, type_dlib);
+  ffname = string_designator(ffname);
+  OT2("foreign_function", 1, ffname, type_dynamic_byte_array, type_string);
+  OT("foreign_function", 2, ret_type, type_symbol);
+  OT_LIST("foreign_function", 3, params);
 
   o = object(type_ffun);
   NC(o, "Failed to allocate ffun object.");
@@ -242,54 +277,6 @@ struct object *ffun(struct object *dlib, struct object *ffname, struct object* r
   return o;
 }
 
-struct object *structure(struct object *name, struct object *fields) {
-  unsigned int i;
-  struct object *cursor, *t;
-  struct object *o = object(type_struct);
-
-  OT2("structure", 0, name, type_symbol, type_string);
-  OT_LIST("structure", 1, fields);
-
-  NC(o, "Failed to allocate struct object.");
-  o->w1.value.structure = malloc(sizeof(struct structure));
-  if (o->w1.value.structure == NULL) {
-    printf("Failed to allocate struct.");
-    PRINT_STACK_TRACE_AND_QUIT();
-  }
-  STRUCTURE_NAME(o) = string_designator(name);
-  STRUCTURE_FIELDS(o) = fields;
-
-  STRUCTURE_FFI_TYPE(o) = malloc(sizeof(ffi_type));
-
-  /* make a new ffi_type object */
-  STRUCTURE_FFI_TYPE(o)->size = STRUCTURE_FFI_TYPE(o)->alignment = 0;
-  STRUCTURE_FFI_TYPE(o)->type = FFI_TYPE_STRUCT;
-  STRUCTURE_FFI_TYPE(o)->elements = malloc(sizeof(ffi_type *) * (count(fields) + 1)); /* TODO: make sure to free this */
-
-  i = 0;
-  cursor = fields;
-  while (cursor != NIL) {
-    t = CONS_CAR(CONS_CDR(CONS_CAR(cursor)));
-    STRUCTURE_FFI_TYPE(o)->elements[i] = ffi_type_designator_to_ffi_type(t);
-    ++i;
-    cursor = CONS_CDR(cursor);
-  }
-  STRUCTURE_FFI_TYPE(o)->elements[i] = NULL; /* must be null terminated */
-
-  STRUCTURE_NFIELDS(o) = i;
-
-  STRUCTURE_OFFSETS(o) = malloc(sizeof(size_t) * i); /* TODO: GC clean up */ /* TODO: does this need a +1? I removed it not sure why it was ever there */
-  ffi_get_struct_offsets(FFI_DEFAULT_ABI, STRUCTURE_FFI_TYPE(o), STRUCTURE_OFFSETS(o));
-
-  /* make new type for this struct */
-  STRUCTURE_TYPE(o) = type(string_designator(name), 1);
-  TYPE_STRUCT(STRUCTURE_TYPE(o)) = o; /* add a reference back to this struct from the type */
-
-  symbol_set_structure(name, o);
-
-  return o;
-}
-
 struct object *pointer(void *ptr) {
   struct object *o = object(type_ptr);
   NC(o, "Failed to allocate pointer object.");
@@ -297,7 +284,7 @@ struct object *pointer(void *ptr) {
   return o;
 }
 
-struct object *alloc_struct(struct object *structure, char init_defaults) {
+struct object *alloc_struct(struct object *type, char init_defaults) {
   struct object *o;
   struct object *instance;
   size_t i, nfields;
@@ -306,7 +293,7 @@ struct object *alloc_struct(struct object *structure, char init_defaults) {
   int default_sint_val;
 
   /* iterate over struct ffi types and input */
-  t = STRUCTURE_FFI_TYPE(structure);
+  t = TYPE_FFI_TYPE(type);
   instance = malloc(t->size); /* TODO: GC clean this up */
   if (instance == NULL) {
     printf("failed to malloc struct for ffi.");
@@ -318,18 +305,18 @@ struct object *alloc_struct(struct object *structure, char init_defaults) {
   if (init_defaults) {
     /* fill struct with default values */
     i = 0;
-    nfields = STRUCTURE_NFIELDS(structure);
+    nfields = TYPE_STRUCT_NFIELDS(type);
     for (; i < nfields; ++i) {
       if (t->elements[i] == &ffi_type_sint) {
         default_sint_val = 0;
         /* arithemtic can't be done on void* (size of elements is unknown) so
          * cast to a char* (because we know a4 is # of bytes) */
-        memcpy(&((char *)instance)[STRUCTURE_OFFSETS(structure)[i]], &default_sint_val, sizeof(int));
+        memcpy(&((char *)instance)[TYPE_STRUCT_OFFSETS(type)[i]], &default_sint_val, sizeof(int));
       } else if (t->elements[i] == &ffi_type_uint8) {
         default_uint8_val = 0;
         /* arithemtic can't be done on void* (size of elements is unknown) so
          * cast to a char* (because we know a4 is # of bytes) */
-        memcpy(&((char *)instance)[STRUCTURE_OFFSETS(structure)[i]], &default_uint8_val, sizeof(uint8_t));
+        memcpy(&((char *)instance)[TYPE_STRUCT_OFFSETS(type)[i]], &default_uint8_val, sizeof(uint8_t));
         /*((char*)instance)[offsets[a3]] = FIXNUM_VALUE(CONS_CAR(cursor2));*/
         /* why didn't this work?  */
       } else {
@@ -339,14 +326,14 @@ struct object *alloc_struct(struct object *structure, char init_defaults) {
     }
   }
 
-  OBJECT_TYPE(o) = (TYPE_ID(STRUCTURE_TYPE(structure)) << 2) | 2;
+  OBJECT_TYPE(o) = (TYPE_ID(type) << 2) | 2;
 
   return o;
 }
 
-/* get a field's value from a structure instance */
+/* get a field's value from a type instance */
 struct object *struct_field(struct object *instance, struct object *sdes) {
-  struct object *cursor, *field, *field_name, *structure;
+  struct object *cursor, *field, *field_name, *type;
   void *ptr;
   ufixnum_t i;
   fixnum_t fix;
@@ -355,9 +342,9 @@ struct object *struct_field(struct object *instance, struct object *sdes) {
 
   OT2("struct_field", 1, sdes, type_dynamic_byte_array, type_string);
 
-  structure = TYPE_STRUCT(type_of(instance));
+  type = type_of(instance);
 
-  if (structure == NIL) {
+  if (TYPE_STRUCT_FIELDS(type) == NIL) {
     printf("Type is not a structure.\n");
     PRINT_STACK_TRACE_AND_QUIT();
   }
@@ -367,7 +354,7 @@ struct object *struct_field(struct object *instance, struct object *sdes) {
   i = 0;
   field = NULL;
   field_name = string_designator(sdes);
-  cursor = STRUCTURE_FIELDS(structure);
+  cursor = TYPE_STRUCT_FIELDS(type);
   while (cursor != NIL) {
     if (equals(field_name, string_designator(CONS_CAR(CONS_CAR(cursor))))) {
       field = CONS_CAR(CONS_CDR(CONS_CAR(cursor)));
@@ -382,7 +369,7 @@ struct object *struct_field(struct object *instance, struct object *sdes) {
     PRINT_STACK_TRACE_AND_QUIT();
   }
 
-  ptr = &((char *)OBJECT_POINTER(instance))[STRUCTURE_OFFSETS(structure)[i]];
+  ptr = &((char *)OBJECT_POINTER(instance))[TYPE_STRUCT_OFFSETS(type)[i]];
   if (field == gis->int_type) {
     return fixnum(*(int*)ptr);
   } else if (field == gis->char_type) {
@@ -407,7 +394,7 @@ void set_struct_field(struct object *instance, struct object *sdes, struct objec
 
   OT2("set_struct_field", 1, sdes, type_dynamic_byte_array, type_string);
 
-  structure = TYPE_STRUCT(type_of(instance));
+  structure = type_of(instance);
 
   if (structure == NIL) {
     printf("Type is not a structure.\n");
@@ -419,7 +406,7 @@ void set_struct_field(struct object *instance, struct object *sdes, struct objec
   i = 0;
   field = NULL;
   field_name = string_designator(sdes);
-  cursor = STRUCTURE_FIELDS(structure);
+  cursor = TYPE_STRUCT_FIELDS(structure);
   while (cursor != NIL) {
     if (equals(field_name, string_designator(CONS_CAR(CONS_CAR(cursor))))) {
       field = CONS_CAR(CONS_CDR(CONS_CAR(cursor)));
@@ -434,7 +421,7 @@ void set_struct_field(struct object *instance, struct object *sdes, struct objec
     PRINT_STACK_TRACE_AND_QUIT();
   }
 
-  memcpy(&((char *)OBJECT_POINTER(instance))[STRUCTURE_OFFSETS(structure)[i]], &FIXNUM_VALUE(value), sizeof(int));
+  memcpy(&((char *)OBJECT_POINTER(instance))[TYPE_STRUCT_OFFSETS(structure)[i]], &FIXNUM_VALUE(value), sizeof(int));
 }
 
 struct object *function(struct object *constants, struct object *code, ufixnum_t stack_size) {
@@ -515,12 +502,10 @@ struct object *symbol(struct object *name) {
 
   SYMBOL_VALUE_IS_SET(o) = 0;
   SYMBOL_FUNCTION_IS_SET(o) = 0;
-  SYMBOL_STRUCTURE_IS_SET(o) = 0;
   SYMBOL_TYPE_IS_SET(o) = 0;
 
   SYMBOL_FUNCTION(o) = NIL;
   SYMBOL_VALUE(o) = NIL;
-  SYMBOL_STRUCTURE(o) = NIL;
   SYMBOL_TYPE(o) = NIL;
 
   return o;
@@ -688,8 +673,6 @@ char equals(struct object *o0, struct object *o1) {
       return o0 == o1;
     case type_dlib:
       return DLIB_PTR(o0) == DLIB_PTR(o1);
-    case type_struct:
-      return STRUCTURE_NAME(o0) == STRUCTURE_NAME(o1) && STRUCTURE_FFI_TYPE(o0) == STRUCTURE_FFI_TYPE(o1);
     case type_ffun:
       return FFUN_PTR(o0) == FFUN_PTR(o1);
     case type_ptr:
@@ -768,7 +751,7 @@ struct object *symbol_get_function(struct object *sym) {
         printf("::");
     }
     print_no_newline(SYMBOL_NAME(sym));
-    printf(" has no function.");
+    printf(" has no function.\n");
     PRINT_STACK_TRACE_AND_QUIT();
   }
 }
@@ -786,25 +769,7 @@ struct object *symbol_get_type(struct object *sym) {
         printf("::");
     }
     print_no_newline(SYMBOL_NAME(sym));
-    printf(" has no type.");
-    PRINT_STACK_TRACE_AND_QUIT();
-  }
-}
-
-struct object *symbol_get_struct(struct object *sym) {
-  if (SYMBOL_STRUCTURE_IS_SET(sym)) {
-    return SYMBOL_STRUCTURE(sym);
-  } else {
-    printf("Symbol ");
-    if (SYMBOL_PACKAGE(sym) != NIL) {
-      print_no_newline(PACKAGE_NAME(SYMBOL_PACKAGE(sym)));
-      if (SYMBOL_IS_EXTERNAL(sym))
-        printf(":");
-      else
-        printf("::");
-    }
-    print_no_newline(SYMBOL_NAME(sym));
-    printf(" has no struct.");
+    printf(" has no type.\n");
     PRINT_STACK_TRACE_AND_QUIT();
   }
 }
@@ -835,11 +800,6 @@ void symbol_set_type(struct object *sym, struct object *t) {
 void symbol_set_function(struct object *sym, struct object *f) {
   SYMBOL_FUNCTION(sym) = f;
   SYMBOL_FUNCTION_IS_SET(sym) = 1;
-}
-
-void symbol_set_structure(struct object *sym, struct object *s) {
-  SYMBOL_STRUCTURE(sym) = s;
-  SYMBOL_STRUCTURE_IS_SET(sym) = 1;
 }
 
 void symbol_set_value(struct object *sym, struct object *value) {
@@ -959,7 +919,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->find_package_str, "find-package");
   GIS_STR(gis->fixnum_str, "fixnum");
   GIS_STR(gis->flonum_str, "flonum");
-  GIS_STR(gis->foreign_function_str, "foreign_function");
+  GIS_STR(gis->foreign_function_str, "foreign-function");
   GIS_STR(gis->function_str, "function");
   GIS_STR(gis->struct_field_str, "struct-field");
   GIS_STR(gis->gt_str, ">");
@@ -1031,7 +991,6 @@ void gis_init(char load_core) {
   SYMBOL_PLIST(NIL) = NIL;
   SYMBOL_FUNCTION(NIL) = NIL;
   SYMBOL_PACKAGE(NIL) = NIL;
-  SYMBOL_STRUCTURE(NIL) = NIL;
   SYMBOL_TYPE(NIL) = NIL;
 
   /* NIL evaluates to itself */
@@ -1070,12 +1029,9 @@ void gis_init(char load_core) {
   GIS_SYM(gis->impl_compile_sym, gis->compile_str, gis->impl_package);
   GIS_SYM(gis->impl_data_stack_sym, gis->data_stack_str, gis->impl_package); /** the data stack (a cons list) */
   GIS_SYM(gis->impl_drop_sym, gis->drop_str, gis->impl_package);
-  GIS_SYM(gis->impl_dynamic_library_sym, gis->dynamic_library_str, gis->impl_package);
   GIS_SYM(gis->impl_eval_sym, gis->eval_str, gis->impl_package);
   GIS_SYM(gis->impl_f_sym, gis->f_str, gis->impl_package); /** the currently executing function */
   GIS_SYM(gis->impl_find_package_sym, gis->find_package_str, gis->impl_package);
-  GIS_SYM(gis->impl_foreign_function_sym, gis->foreign_function_str, gis->impl_package);
-  GIS_SYM(gis->impl_function_sym, gis->function_str, gis->impl_package);
   GIS_SYM(gis->impl_struct_field_sym, gis->struct_field_str, gis->impl_package);
   GIS_SYM(gis->impl_i_sym, gis->i_str, gis->impl_package); /** the index of the next instruction in bc to execute */
   GIS_SYM(gis->impl_list_sym, gis->list_str, gis->impl_package);
@@ -1161,8 +1117,8 @@ void gis_init(char load_core) {
   /* IMPORTANT -- the ordering these types are added to the types array must match the order they are defined in bug.h for the type enum */
   /* type_of cannot be called before this is setup */
   gis->types = dynamic_array(64);
-#define GIS_TYPE(t, sym, can_instantiate)    \
-  t = type(SYMBOL_NAME(sym), can_instantiate); \
+#define GIS_TYPE(t, sym, can_instantiate)      \
+  t = type(sym, NIL, can_instantiate); \
   symbol_set_type(sym, t);
 #define GIS_UNINSTANTIATABLE_TYPE(type, sym) \
   GIS_TYPE(type, sym, 0)
@@ -1213,8 +1169,8 @@ void gis_init(char load_core) {
   GIS_BUILTIN(gis->find_package_builtin, gis->impl_find_package_sym, 1) /* takes name of package */
 
   GIS_BUILTIN(gis->package_symbols_builtin, gis->impl_package_symbols_sym, 1) /* takes package object */
-  GIS_BUILTIN(gis->dynamic_library_builtin, gis->impl_dynamic_library_sym, 1)  /* takes the path */
-  GIS_BUILTIN(gis->foreign_function_builtin, gis->impl_foreign_function_sym, 4) /* takes the dlib, the name, and the parameter types */
+  GIS_BUILTIN(gis->dynamic_library_builtin, gis->type_dynamic_library_sym, 1)  /* takes the path */
+  GIS_BUILTIN(gis->foreign_function_builtin, gis->type_foreign_function_sym, 4) /* takes the dlib, the name, and the parameter types */
   GIS_BUILTIN(gis->type_of_builtin, gis->impl_type_of_sym, 1) /* takes the package object */
 
   GIS_BUILTIN(gis->call_builtin, gis->impl_call_sym, 1) /* takes either a function value or a symbol */
@@ -1297,13 +1253,14 @@ void add_package(struct object *package) {
 }
 
 void use_package(struct object *p0, struct object *p1) {
-  if (PACKAGE_SYMBOLS(p1) == NIL)
-    return;
-  if (PACKAGE_SYMBOLS(p0) == NIL) {
-    PACKAGE_SYMBOLS(p0) = PACKAGE_SYMBOLS(p1);
-  } else { /* TODO: this won't work you have to iterate over both and create a new list. */
-    PACKAGE_SYMBOLS(p0) = cons(PACKAGE_SYMBOLS(p0), PACKAGE_SYMBOLS(p1));
+  struct object *cursor, *symbols;
+  symbols = PACKAGE_SYMBOLS(p0);
+  cursor = PACKAGE_SYMBOLS(p1);
+  while (cursor != NIL) {
+    symbols = cons(CONS_CAR(cursor), symbols);
+    cursor = CONS_CDR(cursor);
   }
+  PACKAGE_SYMBOLS(p0) = symbols;
 }
 
 struct object *find_package(struct object *name) {
@@ -1694,19 +1651,15 @@ struct object *eval(struct object *bc, struct object* args) {
 
 struct object *compile_entire_file(struct object *input_file) {
   struct object *temp, *f;
-  printf("A\n");
   temp = NIL;
   while (byte_stream_has(input_file)) {
     temp = cons(read(input_file, GIS_PACKAGE), temp);
   }
-  printf("B\n");
   temp = cons_reverse(temp);
   temp = cons(gis->lisp_progn_sym, temp);
-  printf("C\n");
   f = compile(temp, NIL, NIL, NIL);
   /* drop the value returned by progn -- otherwise there will be garbage on the stack after compiling every file */
   dynamic_byte_array_push_char(FUNCTION_CODE(f), op_drop);
-  printf("D\n");
   return f;
 }
 
@@ -1899,7 +1852,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
             C_COMPILE(CONS_CAR(cursor));
             cursor = CONS_CDR(cursor);
           }
-        } else if (car == gis->impl_function_sym || car == gis->impl_macro_sym) {
+        } else if (car == gis->type_function_sym || car == gis->impl_macro_sym) {
           /* (function [name] [params] body) */
           name = C_ARG0();
 
@@ -2319,9 +2272,7 @@ void eval_builtin(struct object *f) {
   } else if (f == gis->type_of_builtin) {
     push(type_of(GET_LOCAL(0)));
   } else if (f == gis->struct_builtin) {
-    push(structure(GET_LOCAL(0), GET_LOCAL(1)));
-  } else if (f == gis->symbol_struct_builtin) {
-    push(symbol_get_struct(GET_LOCAL(0)));
+    push(type(GET_LOCAL(0), GET_LOCAL(1), 1));
   } else if (f == gis->alloc_struct_builtin) {
     push(alloc_struct(GET_LOCAL(0), 1));
   } else if (f == gis->struct_field_builtin) {
@@ -2332,7 +2283,7 @@ void eval_builtin(struct object *f) {
   } else if (f == gis->dynamic_library_builtin) {
     push(dlib(GET_LOCAL(0)));
   } else if (f == gis->foreign_function_builtin) {
-    push(ffun(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2), GET_LOCAL(3)));
+    push(foreign_function(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2), GET_LOCAL(3)));
   } else if (f == gis->package_symbols_builtin) {
     OT("package-symbols", 0, GET_LOCAL(0), type_package);
     push(PACKAGE_SYMBOLS(GET_LOCAL(0)));

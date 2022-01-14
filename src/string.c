@@ -275,11 +275,6 @@ struct object *do_to_string(struct object *o, char repr) {
       str = string_concat(str, string(buf));
       dynamic_byte_array_push_char(str, '>');
       return str;
-    case type_struct:
-      str = string("<struct ");
-      str = string_concat(str, STRUCTURE_NAME(o));
-      dynamic_byte_array_push_char(str, '>');
-      return str;
     case type_type:
       str = string("<type ");
       str = string_concat(str, TYPE_NAME(o));

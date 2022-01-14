@@ -25,7 +25,7 @@ ffi_type *struct_ffi_type_designator_to_ffi_type(struct object *o) {
 }
 
 ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
-  struct object *lhs, *t; /* , *rhs; */
+  struct object *lhs, *t, *t1; /* , *rhs; */
 
   t = type_of(o);
   if (t == gis->cons_type) { /* must be of form (* <any>) */
@@ -46,24 +46,26 @@ ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
     }
     printf("not impl\n");
     PRINT_STACK_TRACE_AND_QUIT();
-  } else if (t == gis->symbol_type) { /* must be a ffi symbol */
-    if (o == gis->char_type) return &ffi_type_schar;
-    else if (o == gis->int_type) {
+  } else if (t == gis->symbol_type) {
+    t1 = symbol_get_type(o);
+    if (t1 == gis->char_type) return &ffi_type_schar;
+    else if (t1 == gis->int_type) {
       return &ffi_type_sint;
     }
-    else if (o == gis->uint_type) return &ffi_type_uint;
-    else if (o == gis->uint8_type) {
+    else if (t1 == gis->uint_type) return &ffi_type_uint;
+    else if (t1 == gis->int_type) return &ffi_type_sint;
+    else if (t1 == gis->uint8_type) {
       return &ffi_type_uint8;
     }
-    else if (o == gis->void_type) return &ffi_type_void;
-    else if (o == gis->pointer_type) {
+    else if (t1 == gis->void_type) return &ffi_type_void;
+    else if (t1 == gis->pointer_type) {
       return &ffi_type_pointer;
-    } else if (o == gis->struct_type) {
+    } else if (t1 == gis->struct_type) {
       printf("Passing struct directly is not supported");
       print(o);
       PRINT_STACK_TRACE_AND_QUIT();
-    } else if (SYMBOL_STRUCTURE_IS_SET(o)) {
-      return STRUCTURE_FFI_TYPE(SYMBOL_STRUCTURE(o));
+    } else if (TYPE_STRUCT_FIELDS(t1) != NIL) {
+      return TYPE_FFI_TYPE(o);
     } else {
       printf("Invalid FFI type designator symbol: \n");
       print(o);
@@ -72,6 +74,7 @@ ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
   } else {
     printf("Invalid FFI type designator: \n");
     print(o);
+    print(type_of(o));
     PRINT_STACK_TRACE_AND_QUIT();
   }
 }

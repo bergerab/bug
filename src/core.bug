@@ -1,4 +1,4 @@
-(print "wefwef")
+"TODO change WD to root"
 
 "Cons helpers that should probably be builtins"
 (impl:function cadr (x)
@@ -135,12 +135,10 @@
 
 "================= mydll library ====================="
 "FFI testing"
-(print "bon")
 (impl:struct 'mydll-ivec2
 	'((x int)
 	  (y int)))
 
-(print "pon")
 (impl:struct 'mydll-rect
 	'((x int)
 	  (y int)
@@ -158,13 +156,13 @@
 	  (y uint8)
 		(z uint8)))
 
-(impl:struct 'mydll-tri
+(impl:struct 'mydll-color
 	'((r uint8)
 	  (g uint8)
 		(b uint8)
 		(a uint8)))
 
-(set 'mydll (impl:dynamic-library "experiments/mydll/mydll.dll"))
+(set 'mydll (impl:dynamic-library "../experiments/mydll/mydll.dll"))
 
 (set-symbol-function 'print-rect2
 	(impl:foreign-function
@@ -189,12 +187,12 @@
 (set-symbol-function 'print-4
 	(impl:foreign-function
   	mydll 'print_four
-  	'void '(mydll-4)))
+  	'void '(mydll-quad)))
 
 (set-symbol-function 'print-3
 	(impl:foreign-function
   	mydll 'print_three
-  	'void '(mydll-3)))
+  	'void '(mydll-tri)))
 
 (set-symbol-function 'print-color
 	(impl:foreign-function
@@ -226,7 +224,7 @@
 		(state uint8)
 		(keysym sdl-keysym)))
 
-(set 'sdl2 (impl:dynamic-library "experiments/sdl/SDL2.dll"))
+(set 'sdl2 (impl:dynamic-library "../experiments/sdl/SDL2.dll"))
 
 (set-symbol-function 'init
   (impl:foreign-function

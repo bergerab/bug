@@ -60,11 +60,9 @@ typedef double flonum_t;
 #define SYMBOL_IS_EXTERNAL(o) o->w1.value.symbol->is_external
 #define SYMBOL_VALUE_IS_SET(o) o->w1.value.symbol->value_is_set
 #define SYMBOL_FUNCTION_IS_SET(o) o->w1.value.symbol->function_is_set
-#define SYMBOL_STRUCTURE_IS_SET(o) o->w1.value.symbol->structure_is_set
 #define SYMBOL_TYPE_IS_SET(o) o->w1.value.symbol->type_is_set
 #define SYMBOL_VALUE(o) o->w1.value.symbol->value
 #define SYMBOL_FUNCTION(o) o->w1.value.symbol->function
-#define SYMBOL_STRUCTURE(o) o->w1.value.symbol->structure
 #define SYMBOL_TYPE(o) o->w1.value.symbol->type
 
 #define ARRAY_LENGTH(o) o->w1.value.array->length
@@ -108,16 +106,12 @@ typedef double flonum_t;
 #define DLIB_PATH(o) o->w1.value.dlib->path
 #define DLIB_PTR(o) o->w1.value.dlib->ptr
 
-#define STRUCTURE_NAME(o) o->w1.value.structure->name
-#define STRUCTURE_FIELDS(o) o->w1.value.structure->fields
-#define STRUCTURE_FFI_TYPE(o) o->w1.value.structure->ffi_type
-#define STRUCTURE_TYPE(o) o->w1.value.structure->type
-#define STRUCTURE_NFIELDS(o) o->w1.value.structure->nfields
-#define STRUCTURE_OFFSETS(o) o->w1.value.structure->offsets
-
 #define TYPE_NAME(o) o->w1.value.type->name
 #define TYPE_ID(o) o->w1.value.type->id
-#define TYPE_STRUCT(o) o->w1.value.type->structure
+#define TYPE_FFI_TYPE(o) o->w1.value.type->ffi_type
+#define TYPE_STRUCT_FIELDS(o) o->w1.value.type->struct_fields
+#define TYPE_STRUCT_NFIELDS(o) o->w1.value.type->struct_nfields
+#define TYPE_STRUCT_OFFSETS(o) o->w1.value.type->struct_offsets
 
 #define FFUN_FFNAME(o) o->w1.value.ffun->ffname
 #define FFUN_DLIB(o) o->w1.value.ffun->dlib
@@ -154,11 +148,10 @@ enum object_type {
   type_record = 46, /* type_nil won't appear on an object, only from calls to
                    get_object_type(...) */
   type_vec2 = 50,
-  type_dlib = 54,
-  type_ffun = 58, /** dynamic library */
-  type_struct = 62, /** foreign function (function from a dynamic library) */
-  type_ptr = 66, /** used in FFI */
-  type_type = 70
+  type_dlib = 54, /** dynamic library */
+  type_ffun = 58, /** foreign function (function from a dynamic library) */
+  type_ptr = 62, /** used for FFI */
+  type_type = 66
 };
 /* ATTENTION! when adding a new type, make sure to update this define below!
    this defines the border between types defined as builtins and the user. */
@@ -175,7 +168,6 @@ union value {
   struct package *package;
   struct enumerator *enumerator;
   struct file *file;
-  struct structure *structure;
   struct vec2 *vec2;
   struct dlib *dlib;
   struct ffun *ffun;
@@ -215,28 +207,17 @@ struct symbol {
   struct object *package; /** the package this symbol is defined in (the "home package") */
   struct object *value; /** the value slot */
   struct object *function; /** the function value slot */
-  struct object *structure; /** the struct value slot */
   struct object *type; /** the type value slot */
   struct object *plist; /** a plist that maps from namespace name to value */
   char is_external;
   char value_is_set;
   char function_is_set;
-  char structure_is_set;
   char type_is_set;
 };
 
 struct package {
   struct object *name; /** the name of the package (a string) */
   struct object *symbols; /** all the symbols in this package */
-};
-
-struct structure {
-  struct object *name;
-  struct object *fields;
-  struct object *type; /** the type that was created for object created from this structure */
-  ffi_type *ffi_type;
-  size_t *offsets;
-  ufixnum_t nfields;
 };
 
 struct dlib {
@@ -258,7 +239,10 @@ struct ffun {
 struct type {
   struct object *name;
   fixnum_t id; /** the id in gis->types of this type */
-  struct object *structure; /** if this type was created from a struct, this is a link to the struct */
+  ffi_type *ffi_type;
+  struct object *struct_fields;
+  ufixnum_t struct_nfields;
+  size_t *struct_offsets;
 };
 
 struct function {
@@ -412,11 +396,9 @@ struct gis {
   struct object *impl_compile_sym;
   struct object *impl_data_stack_sym; /** the data stack (a cons list) */
   struct object *impl_drop_sym;
-  struct object *impl_dynamic_library_sym;
   struct object *impl_eval_sym;
   struct object *impl_f_sym; /** the currently executing function */
   struct object *impl_find_package_sym;
-  struct object *impl_foreign_function_sym;
   struct object *impl_function_sym;
   struct object *impl_struct_field_sym;
   struct object *impl_i_sym; /** the index of the next instruction in bc to execute */
@@ -573,11 +555,8 @@ struct object *compile(struct object *ast, struct object *bc, struct object *st,
 struct object *compile_entire_file(struct object *input_file);
 struct object *eval(struct object *bc, struct object* args);
 struct object *read(struct object *s, struct object *package);
-struct object *type(struct object *name, char can_instantiate);
 
 char equals(struct object *o0, struct object *o1);
-
-void symbol_set_structure(struct object *sym, struct object *s);
 
 enum object_type object_type_of(struct object *o);
 struct object *type_name_of(struct object *o);
@@ -588,6 +567,11 @@ char *bstring_to_cstring(struct object *str);
 fixnum_t count(struct object *list);
 
 struct object *symbol_get_value(struct object *sym);
+struct object *symbol_get_type(struct object *sym);
+
+void symbol_set_type(struct object *sym, struct object *t);
+void symbol_set_function(struct object *sym, struct object *f);
+void symbol_set_value(struct object *sym, struct object *value);
 
 void print(struct object *o);
 
@@ -597,11 +581,9 @@ struct object *ufixnum(ufixnum_t ufixnum);
 struct object *flonum(flonum_t flo);
 struct object *vec2(flonum_t x, flonum_t y);
 struct object *dlib(struct object *path);
-struct object *type(struct object *name, char can_instantiate);
 struct object *dynamic_array(fixnum_t initial_capacity);
 struct object *dynamic_byte_array(ufixnum_t initial_capacity);
 struct object *ffun(struct object *dlib, struct object *ffname, struct object* ret_type, struct object *params);
-struct object *structure(struct object *name, struct object *fields);
 struct object *pointer(void *ptr);
 struct object *function(struct object *constants, struct object *code, ufixnum_t stack_size);
 struct object *string(char *contents);
@@ -609,6 +591,7 @@ struct object *enumerator(struct object *source);
 struct object *package(struct object *name);
 struct object *cons(struct object *car, struct object *cdr);
 struct object *symbol(struct object *name);
+struct object *type(struct object *name, struct object *struct_fields, char can_instantiate);
 struct object *file_stdin();
 struct object *file_stdout();
 struct object *open_file(struct object *path, struct object *mode);
