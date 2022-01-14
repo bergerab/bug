@@ -284,6 +284,12 @@ struct object *pointer(void *ptr) {
   return o;
 }
 
+void change_directory(struct object *path) {
+  OT("change-directory", 0, path, type_string);
+  dynamic_byte_array_force_cstr(path);
+  chdir(STRING_CONTENTS(path));
+}
+
 struct object *alloc_struct(struct object *type, char init_defaults) {
   struct object *o;
   struct object *instance;
@@ -901,6 +907,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->call_str, "call");
   GIS_STR(gis->car_str, "car");
   GIS_STR(gis->cdr_str, "cdr");
+  GIS_STR(gis->change_directory_str, "change-directory");
   GIS_STR(gis->char_str, "char");
   GIS_STR(gis->compile_str, "compile");
   GIS_STR(gis->cons_str, "cons");
@@ -1026,6 +1033,7 @@ void gis_init(char load_core) {
   GIS_SYM(gis->impl_and_sym, gis->and_str, gis->impl_package);
   GIS_SYM(gis->impl_call_sym, gis->call_str, gis->impl_package);
   GIS_SYM(gis->impl_call_stack_sym, gis->call_stack_str, gis->impl_package); /** stack for saving stack pointers and values for function calls (a cons list) */
+  GIS_SYM(gis->impl_change_directory_sym, gis->change_directory_str, gis->impl_package);
   GIS_SYM(gis->impl_compile_sym, gis->compile_str, gis->impl_package);
   GIS_SYM(gis->impl_data_stack_sym, gis->data_stack_str, gis->impl_package); /** the data stack (a cons list) */
   GIS_SYM(gis->impl_drop_sym, gis->drop_str, gis->impl_package);
@@ -1165,23 +1173,20 @@ void gis_init(char load_core) {
   symbol_set_function(sym, builtin);
 
   /* all builtin functions go here */
-  GIS_BUILTIN(gis->use_package_builtin, gis->impl_use_package_sym, 1) /* takes name of package */
-  GIS_BUILTIN(gis->find_package_builtin, gis->impl_find_package_sym, 1) /* takes name of package */
-
-  GIS_BUILTIN(gis->package_symbols_builtin, gis->impl_package_symbols_sym, 1) /* takes package object */
-  GIS_BUILTIN(gis->dynamic_library_builtin, gis->type_dynamic_library_sym, 1)  /* takes the path */
-  GIS_BUILTIN(gis->foreign_function_builtin, gis->type_foreign_function_sym, 4) /* takes the dlib, the name, and the parameter types */
-  GIS_BUILTIN(gis->type_of_builtin, gis->impl_type_of_sym, 1) /* takes the package object */
-
-  GIS_BUILTIN(gis->call_builtin, gis->impl_call_sym, 1) /* takes either a function value or a symbol */
-
-  GIS_BUILTIN(gis->compile_builtin, gis->impl_compile_sym, 4) /* (compile <expr> <?bytecode> <?symbol-value-table> <?function-value-table>) */
-
-  GIS_BUILTIN(gis->struct_builtin, gis->type_struct_sym, 2);
   GIS_BUILTIN(gis->alloc_struct_builtin, gis->impl_alloc_struct_sym, 1);
+  GIS_BUILTIN(gis->call_builtin, gis->impl_call_sym, 1) /* takes either a function value or a symbol */
+  GIS_BUILTIN(gis->change_directory_builtin, gis->impl_change_directory_sym, 1) /* takes the new directory */
+  GIS_BUILTIN(gis->compile_builtin, gis->impl_compile_sym, 4) /* (compile <expr> <?bytecode> <?symbol-value-table> <?function-value-table>) */
+  GIS_BUILTIN(gis->dynamic_library_builtin, gis->type_dynamic_library_sym, 1)  /* takes the path */
+  GIS_BUILTIN(gis->find_package_builtin, gis->impl_find_package_sym, 1) /* takes name of package */
+  GIS_BUILTIN(gis->foreign_function_builtin, gis->type_foreign_function_sym, 4) /* takes the dlib, the name, and the parameter types */
+  GIS_BUILTIN(gis->package_symbols_builtin, gis->impl_package_symbols_sym, 1) /* takes package object */
+  GIS_BUILTIN(gis->type_of_builtin, gis->impl_type_of_sym, 1) /* takes the package object */
+  GIS_BUILTIN(gis->struct_builtin, gis->type_struct_sym, 2);
   GIS_BUILTIN(gis->symbol_struct_builtin, gis->impl_symbol_struct_sym, 1);
   GIS_BUILTIN(gis->struct_field_builtin, gis->impl_struct_field_sym, 2);
   GIS_BUILTIN(gis->set_struct_field_builtin, gis->impl_set_struct_field_sym, 3);
+  GIS_BUILTIN(gis->use_package_builtin, gis->impl_use_package_sym, 1) /* takes name of package */
 
   /* TODO: implement eval..? no, just make the compiler in bug */
   GIS_BUILTIN(gis->eval_builtin, gis->impl_eval_sym, 2); /* (eval <fun> <?i>) */
@@ -2273,6 +2278,9 @@ void eval_builtin(struct object *f) {
     push(type_of(GET_LOCAL(0)));
   } else if (f == gis->struct_builtin) {
     push(type(GET_LOCAL(0), GET_LOCAL(1), 1));
+  } else if (f == gis->change_directory_builtin) {
+    change_directory(GET_LOCAL(0));
+    push(NIL);
   } else if (f == gis->alloc_struct_builtin) {
     push(alloc_struct(GET_LOCAL(0), 1));
   } else if (f == gis->struct_field_builtin) {

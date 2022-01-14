@@ -8,6 +8,7 @@
 #include <string.h>
 #include <math.h>
 #include <float.h>
+#include <unistd.h> 
 
 /* for DLL support: */
 #include <windows.h>
@@ -302,6 +303,7 @@ struct gis {
   struct object *call_str;
   struct object *car_str;
   struct object *cdr_str;
+  struct object *change_directory_str;
   struct object *char_str;
   struct object *compile_str;
   struct object *cons_str;
@@ -393,6 +395,7 @@ struct gis {
   struct object *impl_and_sym;
   struct object *impl_call_sym;
   struct object *impl_call_stack_sym; /** stack for saving stack pointers and values for function calls (a cons list) */
+  struct object *impl_change_directory_sym;
   struct object *impl_compile_sym;
   struct object *impl_data_stack_sym; /** the data stack (a cons list) */
   struct object *impl_drop_sym;
@@ -520,6 +523,7 @@ struct gis {
   /* Builtins */
   struct object *alloc_struct_builtin;
   struct object *call_builtin;
+  struct object *change_directory_builtin;
   struct object *compile_builtin;
   struct object *dynamic_library_builtin;
   struct object *eval_builtin;
