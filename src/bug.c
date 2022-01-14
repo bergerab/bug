@@ -333,14 +333,12 @@ struct object *alloc_struct(struct object *type, char init_defaults) {
 
 /* get a field's value from a type instance */
 struct object *struct_field(struct object *instance, struct object *sdes) {
-  struct object *cursor, *field, *field_name, *type;
+  struct object *cursor, *field, *field_name, *type, *inner_t, *field_t;
   void *ptr;
   ufixnum_t i;
   fixnum_t fix;
   ufixnum_t ufix;
   flonum_t flo;
-
-  OT2("struct_field", 1, sdes, type_dynamic_byte_array, type_string);
 
   type = type_of(instance);
 
@@ -370,17 +368,24 @@ struct object *struct_field(struct object *instance, struct object *sdes) {
   }
 
   ptr = &((char *)OBJECT_POINTER(instance))[TYPE_STRUCT_OFFSETS(type)[i]];
-  if (field == gis->int_type) {
-    return fixnum(*(int*)ptr);
-  } else if (field == gis->char_type) {
-    return fixnum(*(char*)ptr);
-  } else if (field == gis->uint8_type) {
-    return fixnum(*(uint8_t*)ptr);
-  } else if (field == gis->pointer_type) {
-    return pointer((void*)ptr);
+  inner_t = type_of(field);
+  if (inner_t == gis->symbol_type) {
+    field_t = symbol_get_type(field);
+    if (field_t == gis->int_type) {
+      return fixnum(*(int *)ptr);
+    } else if (field_t == gis->char_type) {
+      return fixnum(*(char *)ptr);
+    } else if (field_t == gis->uint8_type) {
+      return fixnum(*(uint8_t *)ptr);
+    } else if (field_t == gis->pointer_type) {
+      return pointer((void *)ptr);
+    } else {
+      printf("Unsupported field type.\n");
+      PRINT_STACK_TRACE_AND_QUIT();
+    }
   } else {
-    printf("Unsupported field type.");
-    PRINT_STACK_TRACE_AND_QUIT();
+    printf("The struct contains invalid fields.");
+    exit(1);
   }
 }
 
@@ -391,8 +396,6 @@ void set_struct_field(struct object *instance, struct object *sdes, struct objec
   fixnum_t fix;
   ufixnum_t ufix;
   flonum_t flo;
-
-  OT2("set_struct_field", 1, sdes, type_dynamic_byte_array, type_string);
 
   structure = type_of(instance);
 
@@ -962,7 +965,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->sub_str, "sub");
   GIS_STR(gis->symbol_function_str, "symbol-function");
   GIS_STR(gis->symbol_str, "symbol");
-  GIS_STR(gis->symbol_struct_str, "symbol-struct");
+  GIS_STR(gis->symbol_type_str, "symbol-type");
   GIS_STR(gis->symbol_value_str, "symbol-value");
   GIS_STR(gis->t_str, "t");
   GIS_STR(gis->temp_str, "temp");
@@ -1045,7 +1048,7 @@ void gis_init(char load_core) {
   GIS_SYM(gis->impl_push_sym, gis->push_str, gis->impl_package);
   GIS_SYM(gis->impl_strings_sym, gis->strings_str, gis->impl_package);
   GIS_SYM(gis->impl_set_struct_field_sym, gis->set_struct_field_str, gis->impl_package);
-  GIS_SYM(gis->impl_symbol_struct_sym, gis->symbol_struct_str, gis->impl_package);
+  GIS_SYM(gis->impl_symbol_type_sym, gis->symbol_type_str, gis->impl_package);
   GIS_SYM(gis->impl_type_of_sym, gis->type_of_str, gis->impl_package);
   GIS_SYM(gis->impl_use_package_sym, gis->use_package_str, gis->impl_package);
   GIS_SYM(gis->keyword_external_sym, gis->external_str, gis->keyword_package);
@@ -1177,7 +1180,7 @@ void gis_init(char load_core) {
   GIS_BUILTIN(gis->package_symbols_builtin, gis->impl_package_symbols_sym, 1) /* takes package object */
   GIS_BUILTIN(gis->type_of_builtin, gis->impl_type_of_sym, 1) /* takes the package object */
   GIS_BUILTIN(gis->struct_builtin, gis->type_struct_sym, 2);
-  GIS_BUILTIN(gis->symbol_struct_builtin, gis->impl_symbol_struct_sym, 1);
+  GIS_BUILTIN(gis->symbol_type_builtin, gis->impl_symbol_type_sym, 1);
   GIS_BUILTIN(gis->struct_field_builtin, gis->impl_struct_field_sym, 2);
   GIS_BUILTIN(gis->set_struct_field_builtin, gis->impl_set_struct_field_sym, 3);
   GIS_BUILTIN(gis->use_package_builtin, gis->impl_use_package_sym, 1) /* takes name of package */
@@ -2264,6 +2267,8 @@ void eval_builtin(struct object *f) {
     /* TODO */
   } else if (f == gis->find_package_builtin) {
     push(find_package(string_designator(GET_LOCAL(0))));
+  } else if (f == gis->symbol_type_builtin) {
+    push(symbol_get_type(GET_LOCAL(0)));
   } else if (f == gis->compile_builtin) {
     push(compile(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2), GET_LOCAL(3)));
   } else if (f == gis->eval_builtin) {

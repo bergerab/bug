@@ -208,3 +208,22 @@
   	'void '(mydll-ivec2)))
 
 "========================================================"
+
+(impl:function struct-test ()
+	(impl:struct 'rect
+		'((x int) (y int) (w int) (h int)))
+
+	(set 'rect (impl:alloc-struct (impl:symbol-type 'rect)))
+	(impl:set-struct-field rect 'x 10)
+	(impl:set-struct-field rect 'y 20)
+	(impl:set-struct-field rect 'w 200)
+	(impl:set-struct-field rect 'h 100)
+
+	(print rect)
+
+	(print (impl:struct-field rect 'x))
+	(print (impl:struct-field rect 'y))
+	(print (impl:struct-field rect 'w))
+	(print (impl:struct-field rect 'h))
+	(impl:set-struct-field rect 'w 23)
+	(print (impl:struct-field rect 'w)))
