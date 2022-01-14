@@ -320,7 +320,7 @@ struct object *alloc_struct(struct object *type, char init_defaults) {
         /*((char*)instance)[offsets[a3]] = FIXNUM_VALUE(CONS_CAR(cursor2));*/
         /* why didn't this work?  */
       } else {
-        printf("Unknown value when populating struct");
+        printf("Unknown value when populating struct\n");
         PRINT_STACK_TRACE_AND_QUIT();
       }
     }
@@ -333,7 +333,7 @@ struct object *alloc_struct(struct object *type, char init_defaults) {
 
 /* get a field's value from a type instance */
 struct object *struct_field(struct object *instance, struct object *sdes) {
-  struct object *cursor, *field, *field_name, *type, *inner_t, *field_t;
+  struct object *cursor, *field_name, *type, *field_type;
   void *ptr;
   ufixnum_t i;
   fixnum_t fix;
@@ -342,50 +342,39 @@ struct object *struct_field(struct object *instance, struct object *sdes) {
 
   type = type_of(instance);
 
-  if (TYPE_STRUCT_FIELDS(type) == NIL) {
+  if (TYPE_STRUCT_NFIELDS(type) == 0) {
     printf("Type is not a structure.\n");
     PRINT_STACK_TRACE_AND_QUIT();
   }
 
   fix = ufix = flo = 0;
 
-  i = 0;
-  field = NULL;
-  field_name = string_designator(sdes);
-  cursor = TYPE_STRUCT_FIELDS(type);
-  while (cursor != NIL) {
-    if (equals(field_name, string_designator(CONS_CAR(CONS_CAR(cursor))))) {
-      field = CONS_CAR(CONS_CDR(CONS_CAR(cursor)));
+  field_type = NIL;
+  for (i = 0; i < TYPE_STRUCT_NFIELDS(type); ++i) {
+    if (equals(sdes, TYPE_STRUCT_FIELD_NAMES(type)[i])) {
+      field_type = TYPE_STRUCT_FIELD_TYPES(type)[];
       break;
     }
-    cursor = CONS_CDR(cursor);
-    ++i;
   }
 
-  if (field == NULL) {
+  if (field_type == NULL) {
     printf("Field does not exist on structure.\n");
     PRINT_STACK_TRACE_AND_QUIT();
   }
 
   ptr = &((char *)OBJECT_POINTER(instance))[TYPE_STRUCT_OFFSETS(type)[i]];
-  inner_t = type_of(field);
-  if (inner_t == gis->symbol_type) {
-    field_t = symbol_get_type(field);
-    if (field_t == gis->int_type) {
-      return fixnum(*(int *)ptr);
-    } else if (field_t == gis->char_type) {
-      return fixnum(*(char *)ptr);
-    } else if (field_t == gis->uint8_type) {
-      return fixnum(*(uint8_t *)ptr);
-    } else if (field_t == gis->pointer_type) {
-      return pointer((void *)ptr);
-    } else {
-      printf("Unsupported field type.\n");
-      PRINT_STACK_TRACE_AND_QUIT();
-    }
+
+  if (field_type == gis->int_type) {
+    return fixnum(*(int *)ptr);
+  } else if (field_type == gis->char_type) {
+    return fixnum(*(char *)ptr);
+  } else if (field_type == gis->uint8_type) {
+    return fixnum(*(uint8_t *)ptr);
+  } else if (field_type == gis->pointer_type) {
+    return pointer((void *)ptr);
   } else {
-    printf("The struct contains invalid fields.");
-    exit(1);
+    printf("Unsupported field type.\n");
+    PRINT_STACK_TRACE_AND_QUIT();
   }
 }
 
@@ -406,17 +395,12 @@ void set_struct_field(struct object *instance, struct object *sdes, struct objec
 
   fix = ufix = flo = 0;
 
-  i = 0;
-  field = NULL;
-  field_name = string_designator(sdes);
-  cursor = TYPE_STRUCT_FIELDS(structure);
-  while (cursor != NIL) {
-    if (equals(field_name, string_designator(CONS_CAR(CONS_CAR(cursor))))) {
-      field = CONS_CAR(CONS_CDR(CONS_CAR(cursor)));
+  field_type = NIL;
+  for (i = 0; i < TYPE_STRUCT_NFIELDS(type); ++i) {
+    if (equals(sdes, TYPE_STRUCT_FIELD_NAMES(type)[i])) {
+      field_type = TYPE_STRUCT_FIELD_TYPES(type)[];
       break;
     }
-    cursor = CONS_CDR(cursor);
-    ++i;
   }
 
   if (field == NULL) {
@@ -424,6 +408,10 @@ void set_struct_field(struct object *instance, struct object *sdes, struct objec
     PRINT_STACK_TRACE_AND_QUIT();
   }
 
+  /*
+  * TODO: handle different types here:
+  * make impl:struct convert the ((x int) (y int)) to the appropriate type objects.
+  */
   memcpy(&((char *)OBJECT_POINTER(instance))[TYPE_STRUCT_OFFSETS(structure)[i]], &FIXNUM_VALUE(value), sizeof(int));
 }
 

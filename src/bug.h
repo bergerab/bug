@@ -109,7 +109,8 @@ typedef double flonum_t;
 #define TYPE_NAME(o) o->w1.value.type->name
 #define TYPE_ID(o) o->w1.value.type->id
 #define TYPE_FFI_TYPE(o) o->w1.value.type->ffi_type
-#define TYPE_STRUCT_FIELDS(o) o->w1.value.type->struct_fields
+#define TYPE_STRUCT_FIELD_NAMES(o) o->w1.value.type->struct_field_names
+#define TYPE_STRUCT_FIELD_TYPES(o) o->w1.value.type->struct_field_types
 #define TYPE_STRUCT_NFIELDS(o) o->w1.value.type->struct_nfields
 #define TYPE_STRUCT_OFFSETS(o) o->w1.value.type->struct_offsets
 
@@ -240,7 +241,8 @@ struct type {
   struct object *name;
   fixnum_t id; /** the id in gis->types of this type */
   ffi_type *ffi_type;
-  struct object *struct_fields;
+  struct object **struct_field_names;
+  struct object **struct_field_types;
   ufixnum_t struct_nfields;
   size_t *struct_offsets;
 };

@@ -1,0 +1,73 @@
+
+"================= mydll library ====================="
+"FFI testing"
+(impl:struct 'mydll-ivec2
+	'((x int)
+	  (y int)))
+
+(impl:struct 'mydll-rect
+	'((x int)
+	  (y int)
+		(w int)
+		(h int)))
+
+(impl:struct 'mydll-quad
+	'((w int)
+	  (x int)
+		(y int)
+		(z int)))
+
+(impl:struct 'mydll-tri
+	'((x uint8)
+	  (y uint8)
+		(z uint8)))
+
+(impl:struct 'mydll-color
+	'((r uint8)
+	  (g uint8)
+		(b uint8)
+		(a uint8)))
+
+(set 'mydll (impl:dynamic-library "../experiments/mydll/mydll.dll"))
+
+(set-symbol-function 'print-rect2
+	(impl:foreign-function
+  	mydll 'print_rect2
+  	'int '(mydll-rect mydll-rect)))
+
+(set-symbol-function 'print-me
+	(impl:foreign-function
+  	mydll 'print_me
+  	'int '()))
+
+(set-symbol-function 'multitest
+	(impl:foreign-function
+  	mydll 'multitest
+  	'int '(mydll-rect pointer mydll-color)))
+
+(set-symbol-function 'print-rect
+	(impl:foreign-function
+  	mydll 'print_rect
+  	'void '(mydll-rect)))
+
+(set-symbol-function 'print-4
+	(impl:foreign-function
+  	mydll 'print_four
+  	'void '(mydll-quad)))
+
+(set-symbol-function 'print-3
+	(impl:foreign-function
+  	mydll 'print_three
+  	'void '(mydll-tri)))
+
+(set-symbol-function 'print-color
+	(impl:foreign-function
+  	mydll 'print_color
+  	'void '(mydll-color)))
+
+(set-symbol-function 'print-ivec2
+	(impl:foreign-function
+  	mydll 'print_ivec2
+  	'void '(mydll-ivec2)))
+
+"========================================================"
