@@ -156,7 +156,7 @@ struct object *dlib(struct object *path) {
    e.g.: you can make value of a type string, type fixnum, etc... but having a value of type
    uint8 is not supported. Same with something like "void". Those values are just used for FFI. */
 struct object *type(struct object *sym, struct object *struct_fields, char can_instantiate) {
-  unsigned int i;
+  ufixnum_t i;
   struct object *cursor, *t;
   struct object *o;
   OT("type", 0, sym, type_symbol);
@@ -174,9 +174,20 @@ struct object *type(struct object *sym, struct object *struct_fields, char can_i
     TYPE_ID(o) = -1;
   }
 
+  TYPE_STRUCT_NFIELDS(o) = 0;
   /* if this is a struct, */
   if (struct_fields != NIL) {
-    TYPE_STRUCT_FIELDS(o) = struct_fields;
+    TYPE_STRUCT_NFIELDS(o) = count(struct_fields);
+
+    cursor = struct_fields;
+    i = 0;
+    while (cursor != NIL) {
+      TYPE_STRUCT_FIELD_NAMES(o)[i] = CONS_CAR(cursor);
+      TYPE_STRUCT_FIELD_TYPES(o)[i] = CONS_CAR(CONS_CDR(cursor));
+      cursor = CONS_CDR(struct_fields);
+      i++;
+    }
+
     TYPE_FFI_TYPE(o) = malloc(sizeof(ffi_type));
 
     /* make a new ffi_type object */
@@ -333,12 +344,9 @@ struct object *alloc_struct(struct object *type, char init_defaults) {
 
 /* get a field's value from a type instance */
 struct object *struct_field(struct object *instance, struct object *sdes) {
-  struct object *cursor, *field_name, *type, *field_type;
+  struct object *type, *field_type;
   void *ptr;
   ufixnum_t i;
-  fixnum_t fix;
-  ufixnum_t ufix;
-  flonum_t flo;
 
   type = type_of(instance);
 
@@ -347,12 +355,10 @@ struct object *struct_field(struct object *instance, struct object *sdes) {
     PRINT_STACK_TRACE_AND_QUIT();
   }
 
-  fix = ufix = flo = 0;
-
   field_type = NIL;
   for (i = 0; i < TYPE_STRUCT_NFIELDS(type); ++i) {
     if (equals(sdes, TYPE_STRUCT_FIELD_NAMES(type)[i])) {
-      field_type = TYPE_STRUCT_FIELD_TYPES(type)[];
+      field_type = TYPE_STRUCT_FIELD_TYPES(type)[i];
       break;
     }
   }
@@ -380,30 +386,29 @@ struct object *struct_field(struct object *instance, struct object *sdes) {
 
 /* set a field's value from a structure instance */
 void set_struct_field(struct object *instance, struct object *sdes, struct object *value) {
-  struct object *cursor, *field, *field_name, *structure;
+  struct object *type, *field_type;
   ufixnum_t i;
-  fixnum_t fix;
   ufixnum_t ufix;
   flonum_t flo;
 
-  structure = type_of(instance);
+  type = type_of(instance);
 
-  if (structure == NIL) {
+  if (type == NIL) {
     printf("Type is not a structure.\n");
     PRINT_STACK_TRACE_AND_QUIT();
   }
 
-  fix = ufix = flo = 0;
+  ufix = flo = 0;
 
   field_type = NIL;
   for (i = 0; i < TYPE_STRUCT_NFIELDS(type); ++i) {
     if (equals(sdes, TYPE_STRUCT_FIELD_NAMES(type)[i])) {
-      field_type = TYPE_STRUCT_FIELD_TYPES(type)[];
+      field_type = TYPE_STRUCT_FIELD_TYPES(type)[i];
       break;
     }
   }
 
-  if (field == NULL) {
+  if (field_type == NULL) {
     printf("Field does not exist on structure.\n");
     PRINT_STACK_TRACE_AND_QUIT();
   }
@@ -412,7 +417,7 @@ void set_struct_field(struct object *instance, struct object *sdes, struct objec
   * TODO: handle different types here:
   * make impl:struct convert the ((x int) (y int)) to the appropriate type objects.
   */
-  memcpy(&((char *)OBJECT_POINTER(instance))[TYPE_STRUCT_OFFSETS(structure)[i]], &FIXNUM_VALUE(value), sizeof(int));
+  memcpy(&((char *)OBJECT_POINTER(instance))[TYPE_STRUCT_OFFSETS(type)[i]], &FIXNUM_VALUE(value), sizeof(int));
 }
 
 struct object *function(struct object *constants, struct object *code, ufixnum_t stack_size) {

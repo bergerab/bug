@@ -64,7 +64,7 @@ ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
       printf("Passing struct directly is not supported");
       print(o);
       PRINT_STACK_TRACE_AND_QUIT();
-    } else if (TYPE_STRUCT_FIELDS(t1) != NIL) {
+    } else if (TYPE_STRUCT_NFIELDS(t1) > 0) {
       return TYPE_FFI_TYPE(o);
     } else {
       printf("Invalid FFI type designator symbol: \n");
