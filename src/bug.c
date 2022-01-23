@@ -179,12 +179,17 @@ struct object *type(struct object *sym, struct object *struct_fields, char can_i
   if (struct_fields != NIL) {
     TYPE_STRUCT_NFIELDS(o) = count(struct_fields);
 
+    TYPE_STRUCT_FIELD_NAMES(o) = malloc(sizeof(struct object*) * TYPE_STRUCT_NFIELDS(o)); /* TODO: GC free this */
+    TYPE_STRUCT_FIELD_TYPES(o) = malloc(sizeof(struct object*) * TYPE_STRUCT_NFIELDS(o)); /* TODO: GC free this */
+
     cursor = struct_fields;
+    print(cursor);
     i = 0;
     while (cursor != NIL) {
-      TYPE_STRUCT_FIELD_NAMES(o)[i] = CONS_CAR(cursor);
-      TYPE_STRUCT_FIELD_TYPES(o)[i] = CONS_CAR(CONS_CDR(cursor));
-      cursor = CONS_CDR(struct_fields);
+      print(CONS_CAR(cursor));
+      TYPE_STRUCT_FIELD_NAMES(o)[i] = CONS_CAR(CONS_CAR(cursor));
+      TYPE_STRUCT_FIELD_TYPES(o)[i] = CONS_CAR(CONS_CDR(CONS_CAR(cursor)));
+      cursor = CONS_CDR(cursor);
       i++;
     }
 
@@ -388,8 +393,6 @@ struct object *struct_field(struct object *instance, struct object *sdes) {
 void set_struct_field(struct object *instance, struct object *sdes, struct object *value) {
   struct object *type, *field_type;
   ufixnum_t i;
-  ufixnum_t ufix;
-  flonum_t flo;
 
   type = type_of(instance);
 
@@ -397,8 +400,6 @@ void set_struct_field(struct object *instance, struct object *sdes, struct objec
     printf("Type is not a structure.\n");
     PRINT_STACK_TRACE_AND_QUIT();
   }
-
-  ufix = flo = 0;
 
   field_type = NIL;
   for (i = 0; i < TYPE_STRUCT_NFIELDS(type); ++i) {
@@ -589,7 +590,7 @@ void print_stack() {
     i += 1; /* got to instruction index */
     i += 1; /* skip instruction index for now -- should translate this to line number later */
     for (j = 0; j < FUNCTION_NARGS(f); ++j) {
-      print(dynamic_array_get_ufixnum_t(gis->call_stack, i));
+      /* print(dynamic_array_get_ufixnum_t(gis->call_stack, i)); */
       i += 1;
     }
     printf(")\n");
