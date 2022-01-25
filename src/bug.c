@@ -854,13 +854,18 @@ struct object *do_find_symbol(struct object *string, struct object *package, cha
     /* "my-package::my-symbol" 
       Look in all symbols in "my-package" */
     cursor = PACKAGE_SYMBOLS(package);
+    printf("started looking in package symbols\n");
+    print(cursor);
+    print(package);
     while (cursor != NIL) {
+      printf("1");
       sym = CONS_CAR(cursor);
       if (equals(SYMBOL_NAME(sym), string)) {
         return sym;
       }
       cursor = CONS_CDR(cursor);
     }
+      printf("\n");
   } else {
     /* "my-package:my-symbol"
         look in all symbols of my-package that have the home-package of my-package
@@ -940,7 +945,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->div_str, "/");
   GIS_STR(gis->drop_str, "drop");
   GIS_STR(gis->dynamic_array_str, "dynamic-array");
-  GIS_STR(gis->dynamic_byte_array_str, "dynamic_byte_array_str");
+  GIS_STR(gis->dynamic_byte_array_str, "dynamic-byte-array");
   GIS_STR(gis->dynamic_library_str, "dynamic-library");
   GIS_STR(gis->enumerator_str, "enumerator");
   GIS_STR(gis->equals_str, "=");
@@ -1083,7 +1088,6 @@ void gis_init(char load_core) {
   GIS_SYM(gis->impl_macro_sym, gis->macro_str, gis->impl_package);
   GIS_SYM(gis->impl_marshal_sym, gis->marshal_str, gis->impl_package);
   GIS_SYM(gis->impl_open_file_sym, gis->open_file_str, gis->impl_package); 
-  GIS_SYM(gis->impl_package_sym, gis->package_str, gis->impl_package); /** the current package being evaluated */
   GIS_SYM(gis->impl_package_symbols_sym, gis->package_symbols_str, gis->impl_package); 
   GIS_SYM(gis->impl_packages_sym, gis->packages_str, gis->impl_package); /** all packages */
   GIS_SYM(gis->impl_pop_sym, gis->pop_str, gis->impl_package);
@@ -1259,7 +1263,7 @@ void gis_init(char load_core) {
   dynamic_array_push(gis->call_stack, NIL);
   dynamic_array_push(gis->call_stack, NIL);
 
-  symbol_set_value(gis->impl_package_sym, gis->user_package);
+  symbol_set_value(gis->type_package_sym, gis->user_package);
   symbol_set_value(gis->impl_packages_sym,
                   cons(gis->user_package, 
                     cons(gis->lisp_package, 
@@ -1714,12 +1718,17 @@ struct object *eval(struct object *bc, struct object* args) {
 struct object *compile_entire_file(struct object *input_file) {
   struct object *temp, *f;
   temp = NIL;
+  printf("top\n");
+  print(GIS_PACKAGE);
   while (byte_stream_has(input_file)) {
     temp = cons(read(input_file, GIS_PACKAGE), temp);
   }
+  printf("carry it\n");
   temp = cons_reverse(temp);
   temp = cons(gis->lisp_progn_sym, temp);
+  printf("before comp\n");
   f = compile(temp, NIL, NIL, NIL);
+  printf("after comp\n");
   /* drop the value returned by progn -- otherwise there will be garbage on the stack after compiling every file */
   dynamic_byte_array_push_char(FUNCTION_CODE(f), op_drop);
   return f;

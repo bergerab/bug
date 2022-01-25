@@ -1,5 +1,5 @@
 "SDL2_ttf uses a zlib dll, and requires that it is in the same directory as the caller."
-(impl:change-directory "./lib/")
+(impl:change-directory "lib/")
 
 "================= sdl2 library ====================="
 (impl:struct 'sdl-rect

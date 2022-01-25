@@ -1,3 +1,7 @@
+(print "wef")
+
+(print impl:package)
+
 (load "sdl.bug")
 
 (impl:function sdl-test ()

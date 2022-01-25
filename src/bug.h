@@ -127,7 +127,7 @@ typedef double flonum_t;
 /* don't allow more than 255 arguments (an arbitrary number). This is to avoid having to malloc when making the arg_types/arg_values arrays -- they can be made on the stack. */
 #define MAX_FFI_NARGS 255
 
-#define GIS_PACKAGE symbol_get_value(gis->impl_package_sym)
+#define GIS_PACKAGE symbol_get_value(gis->type_package_sym)
 
 #include "ops.h"
 
@@ -433,7 +433,6 @@ struct gis {
   struct object *impl_macro_sym;
   struct object *impl_marshal_sym;
   struct object *impl_open_file_sym;
-  struct object *impl_package_sym; /** the current package being evaluated */
   struct object *impl_package_symbols_sym; 
   struct object *impl_packages_sym; /** all packages */
   struct object *impl_pop_sym;
@@ -490,7 +489,7 @@ struct gis {
   struct object *type_cons_sym;
   struct object *type_int_sym;
   struct object *type_nil_sym;
-  struct object *type_package_sym;
+  struct object *type_package_sym; /** contains the type, and the current package */
   struct object *type_pointer_sym;
   struct object *type_record_sym;
   struct object *type_string_sym;

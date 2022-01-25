@@ -1,8 +1,3 @@
-"TODO change WD to root"
-
-"hack for SDL_tff.dll it won't load unless it has other DLLs in the same directory as it"
-(impl:change-directory "..")
-
 "Cons helpers that should probably be builtins"
 (impl:function cadr (x)
 	"Gets the second item in a list."
@@ -128,7 +123,6 @@
 	(car (do-quasiquote x)))"
 
 "===================== misc =========================="
-"why does (fib 10) crash?"
 (impl:function fib (x)
   (if (< x 2)
     x
@@ -153,18 +147,40 @@
 	(print (impl:struct-field rect 'w))
 	(print (impl:struct-field rect 'h))
 	(impl:set-struct-field rect 'w 23)
-	(print (impl:struct-field rect 'w)))
+	(print (impl:struct-field rect 'w))
+	
+  (impl:struct 'b
+   '((z int)
+     (a int)
+  	 (b int)
+  	 (c int)
+  	 (d int)))
+  
+  (impl:struct 'a
+   '((x int) 
+     (y b)))
+  
+  (impl:alloc-struct 'a)
+  (impl:struct-field (impl:alloc-struct 'a) 'y))
 
-(impl:struct 'b
- '((z int)
-   (a int)
-	 (b int)
-	 (c int)
-	 (d int)))
+"TODO change WD to root"
 
-(impl:struct 'a
- '((x int) 
-   (y b)))
+"
+Load BUGED
+"
 
-(impl:alloc-struct 'a)
-(impl:struct-field (impl:alloc-struct 'a) 'y)
+(print "FFF")
+
+"hack for SDL_tff.dll it won't load unless it has other DLLs in the same directory as it"
+(impl:function load (path)
+	(print "LOAD")
+	(let ((file (impl:open-file path "rb")))
+		(print "DDD")
+		(let ((bytecode (impl:compile-entire-file file)))
+			(print "COMPILED")
+			(print bytecode)
+			(impl:run-bytecode bytecode nil))))
+
+(impl:change-directory "../buged/")
+(print "aowiejfaWEFOWIEJF")
+(load "main.bug")

@@ -27,8 +27,12 @@ ffi_type *ffi_type_designator_to_ffi_type(struct object *o, char within_another_
     }
     else if (t1 == gis->uint_type) return &ffi_type_uint;
     else if (t1 == gis->int_type) return &ffi_type_sint;
+    else if (t1 == gis->string_type) return &ffi_type_pointer;
     else if (t1 == gis->uint8_type) {
       return &ffi_type_uint8;
+    }
+    else if (t1 == gis->uint16_type) {
+      return &ffi_type_uint16;
     }
     else if (t1 == gis->void_type) return &ffi_type_void;
     else if (t1 == gis->pointer_type) {
