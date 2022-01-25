@@ -761,6 +761,7 @@ struct object *byte_stream_lift(struct object *e) {
   }
 }
 
+/* TODO: limit n so that it cannot read more than the file */
 struct object *byte_stream_do_read(struct object *e, fixnum_t n, char peek) {
   struct object *ret, *t;
 

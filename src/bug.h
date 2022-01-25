@@ -305,7 +305,6 @@ struct gis {
   struct object *byte_stream_str;
   struct object *byte_stream_peek_str;
   struct object *byte_stream_read_str;
-  struct object *byte_stream_read_byte_str;
   struct object *call_stack_str;
   struct object *call_str;
   struct object *car_str;
@@ -413,7 +412,6 @@ struct gis {
   struct object *impl_byte_stream_sym;
   struct object *impl_byte_stream_peek_sym;
   struct object *impl_byte_stream_read_sym;
-  struct object *impl_byte_stream_read_byte_sym;
   struct object *impl_call_sym;
   struct object *impl_call_stack_sym; /** stack for saving stack pointers and values for function calls (a cons list) */
   struct object *impl_change_directory_sym;
@@ -557,7 +555,6 @@ struct gis {
   struct object *byte_stream_builtin;
   struct object *byte_stream_peek_builtin;
   struct object *byte_stream_read_builtin;
-  struct object *byte_stream_read_byte_builtin;
   struct object *call_builtin;
   struct object *change_directory_builtin;
   struct object *close_file_builtin;
