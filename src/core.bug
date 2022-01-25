@@ -158,7 +158,11 @@
 (print "a")
 
 (impl:struct 'b
- '((z int)))
+ '((z int)
+   (a int)
+	 (b int)
+	 (c int)
+	 (d int)))
 
 (print "b")
 

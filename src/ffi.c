@@ -1,30 +1,6 @@
 #include "ffi.h"
 
-/* TODO: require structs to be separated into definitions/not inlined */
-ffi_type *struct_ffi_type_designator_to_ffi_type(struct object *o) {
-  ffi_type *ft;
-  unsigned int i;
-  struct object *cursor;
-
-  /* make a new ffi_type object */
-  ft = malloc(sizeof(ffi_type)); /* TODO GC clean this up */
-  ft->size = ft->alignment = 0;
-  ft->type = FFI_TYPE_STRUCT;
-  ft->elements = malloc(sizeof(ffi_type *) * (count(CONS_CDR(o)) + 1));
-      /* TODO: GC */ /* plus one for null termination */
-
-  i = 0;
-  cursor = CONS_CDR(o);
-  while (cursor != NIL) {
-    ft->elements[i] = ffi_type_designator_to_ffi_type(CONS_CAR(cursor));
-    ++i;
-    cursor = CONS_CDR(cursor);
-  }
-  ft->elements[i] = NULL; /* must be null terminated */
-  return ft;
-}
-
-ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
+ffi_type *ffi_type_designator_to_ffi_type(struct object *o, char within_another_struct) {
   struct object *lhs, *t, *t1; /* , *rhs; */
 
   t = type_of(o);
@@ -40,9 +16,6 @@ ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
     }
     if (ffi_type_designator_is_string(o)) {
       return &ffi_type_pointer;
-    }
-    if (ffi_type_designator_is_struct(o)) {
-      return struct_ffi_type_designator_to_ffi_type(o);
     }
     printf("not impl\n");
     PRINT_STACK_TRACE_AND_QUIT();
@@ -65,7 +38,8 @@ ffi_type *ffi_type_designator_to_ffi_type(struct object *o) {
       print(o);
       PRINT_STACK_TRACE_AND_QUIT();
     } else if (TYPE_STRUCT_NFIELDS(t1) > 0) {
-      return TYPE_FFI_TYPE(o);
+      /* return TYPE_FFI_TYPE(t1); */
+      return &ffi_type_pointer;
     } else {
       printf("Invalid FFI type designator symbol: \n");
       print(o);

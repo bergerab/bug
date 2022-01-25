@@ -190,7 +190,6 @@ struct object *type(struct object *sym, struct object *struct_fields, char can_i
     print(cursor);
     i = 0;
     while (cursor != NIL) {
-      print(CONS_CAR(cursor));
       TYPE_STRUCT_FIELD_NAMES(o)[i] = CONS_CAR(CONS_CAR(cursor));
       field_type = CONS_CAR(CONS_CDR(CONS_CAR(cursor)));
       if (type_of(field_type) == gis->symbol_type)
@@ -213,7 +212,7 @@ struct object *type(struct object *sym, struct object *struct_fields, char can_i
     cursor = struct_fields;
     while (cursor != NIL) {
       t = CONS_CAR(CONS_CDR(CONS_CAR(cursor)));
-      TYPE_FFI_TYPE(o)->elements[i] = ffi_type_designator_to_ffi_type(t);
+      TYPE_FFI_TYPE(o)->elements[i] = ffi_type_designator_to_ffi_type(t, 1);
       ++i;
       cursor = CONS_CDR(cursor);
     }
@@ -221,9 +220,11 @@ struct object *type(struct object *sym, struct object *struct_fields, char can_i
     TYPE_FFI_TYPE(o)->elements[i] = NULL; /* must be null terminated */
     TYPE_STRUCT_NFIELDS(o) = i;
     TYPE_STRUCT_OFFSETS(o) = malloc(sizeof(size_t) * i); /* TODO: GC clean up */ 
-    /* TODO: does this need a +1? I removed it not sure why it was ever there */
     ffi_get_struct_offsets(FFI_DEFAULT_ABI, TYPE_FFI_TYPE(o),
                            TYPE_STRUCT_OFFSETS(o));
+    printf("size of struct");
+    printf("%d\n", (int) TYPE_FFI_TYPE(o)->size);
+    printf("%d\n", sizeof(void*));
   }
 
   symbol_set_type(sym, o);
@@ -282,7 +283,7 @@ struct object *foreign_function(struct object *dlib, struct object *ffname, stru
   FFUN_ARGTYPES(o) = malloc(sizeof(ffi_type*) * MAX_FFI_NARGS);
   FFUN_NARGS(o) = 0;
   while (params != NIL) {
-    FFUN_ARGTYPES(o)[FFUN_NARGS(o)++] = ffi_type_designator_to_ffi_type(CONS_CAR(params));
+    FFUN_ARGTYPES(o)[FFUN_NARGS(o)++] = ffi_type_designator_to_ffi_type(CONS_CAR(params), 1); /* TODO: within_another_struct=1 -- bad name */
 
     if (FFUN_NARGS(o) > MAX_FFI_NARGS) {
       printf("Too many arguments for foreign function.");
@@ -292,7 +293,7 @@ struct object *foreign_function(struct object *dlib, struct object *ffname, stru
   }
 
   FFUN_CIF(o) = malloc(sizeof(ffi_cif));
-  if ((status = ffi_prep_cif(FFUN_CIF(o), FFI_DEFAULT_ABI, FFUN_NARGS(o), ffi_type_designator_to_ffi_type(FFUN_RET(o)), FFUN_ARGTYPES(o))) != FFI_OK) {
+  if ((status = ffi_prep_cif(FFUN_CIF(o), FFI_DEFAULT_ABI, FFUN_NARGS(o), ffi_type_designator_to_ffi_type(FFUN_RET(o), 1), FFUN_ARGTYPES(o))) != FFI_OK) {
       printf("PRINT_STACK_TRACE_AND_QUIT preparing CIF.\n");
       PRINT_STACK_TRACE_AND_QUIT();
   }
@@ -348,7 +349,7 @@ struct object *struct_field(struct object *instance, struct object *sdes) {
   } else if (field_type == gis->pointer_type) {
     return pointer((void *)ptr);
   } else if (!TYPE_BUILTIN(field_type)) {
-    temp = pointer(ptr);
+    temp = pointer(*(void **)ptr);
     set_struct_type(field_type, temp);
     return temp;
   } else {
@@ -397,7 +398,7 @@ struct object *alloc_struct_inner(struct object *type, char init_defaults) {
         /* why didn't this work?  */
       } else if (!TYPE_BUILTIN(field_type)) {
         struct_value = alloc_struct_inner(field_type, init_defaults);
-        memcpy(&((char *)instance)[TYPE_STRUCT_OFFSETS(type)[i]], &struct_value, sizeof(void*));
+        memcpy(&((char *)instance)[TYPE_STRUCT_OFFSETS(type)[i]], &struct_value, sizeof(void *));
       } else {
         printf("Unknown value when populating struct\n");
         print(field_name);
