@@ -302,13 +302,19 @@ struct gis {
   struct object *add_str;
   struct object *alloc_struct_str;
   struct object *b_str;
+  struct object *byte_stream_str;
+  struct object *byte_stream_peek_str;
+  struct object *byte_stream_read_str;
+  struct object *byte_stream_read_byte_str;
   struct object *call_stack_str;
   struct object *call_str;
   struct object *car_str;
   struct object *cdr_str;
   struct object *change_directory_str;
   struct object *char_str;
+  struct object *close_file_str;
   struct object *compile_str;
+  struct object *compile_entire_file_str;
   struct object *cons_str;
   struct object *data_stack_str;
   struct object *div_str;
@@ -343,9 +349,11 @@ struct gis {
   struct object *lt_str;
   struct object *lte_str;
   struct object *macro_str;
+  struct object *marshal_str;
   struct object *mul_str;
   struct object *nil_str;
   struct object *or_str;
+  struct object *open_file_str;
   struct object *package_str; 
   struct object *package_symbols_str; 
   struct object *packages_str; 
@@ -356,7 +364,11 @@ struct gis {
   struct object *push_str;
   struct object *quasiquote_str;
   struct object *quote_str;
+  struct object *read_str;
+  struct object *read_bytecode_file_str;
+  struct object *read_file_str;
   struct object *record_str;
+  struct object *run_bytecode_str;
   struct object *set_str;
   struct object *set_symbol_function_str;
   struct object *set_struct_field_str;
@@ -373,18 +385,21 @@ struct gis {
   struct object *temp_str;
   struct object *type_of_str;
   struct object *type_str;
-  struct object *use_package_str; 
-  struct object *user_str;
-  struct object *unquote_str;
-  struct object *unquote_splicing_str;
   struct object *ufixnum_str;
   struct object *uint_str;
   struct object *uint8_str;
   struct object *uint16_str;
+  struct object *unmarshal_str;
+  struct object *use_package_str; 
+  struct object *user_str;
+  struct object *unquote_str;
+  struct object *unquote_splicing_str;
   struct object *value_str;
   struct object *var_str;
   struct object *void_str;
   struct object *vec2_str;
+  struct object *write_bytecode_file_str;
+  struct object *write_file_str;
   struct object *x_str;
   struct object *y_str;
 
@@ -395,20 +410,31 @@ struct gis {
      */
   struct object *impl_alloc_struct_sym;
   struct object *impl_and_sym;
+  struct object *impl_byte_stream_sym;
+  struct object *impl_byte_stream_peek_sym;
+  struct object *impl_byte_stream_read_sym;
+  struct object *impl_byte_stream_read_byte_sym;
   struct object *impl_call_sym;
   struct object *impl_call_stack_sym; /** stack for saving stack pointers and values for function calls (a cons list) */
   struct object *impl_change_directory_sym;
+  struct object *impl_close_file_sym;
   struct object *impl_compile_sym;
+  struct object *impl_compile_entire_file_sym;
   struct object *impl_data_stack_sym; /** the data stack (a cons list) */
   struct object *impl_drop_sym;
-  struct object *impl_eval_sym;
   struct object *impl_f_sym; /** the currently executing function */
   struct object *impl_find_package_sym;
   struct object *impl_function_sym;
+  struct object *impl_read_sym;
+  struct object *impl_read_bytecode_file_sym;
+  struct object *impl_read_file_sym;
+  struct object *impl_run_bytecode_sym;
   struct object *impl_struct_field_sym;
   struct object *impl_i_sym; /** the index of the next instruction in bc to execute */
   struct object *impl_list_sym;
   struct object *impl_macro_sym;
+  struct object *impl_marshal_sym;
+  struct object *impl_open_file_sym;
   struct object *impl_package_sym; /** the current package being evaluated */
   struct object *impl_package_symbols_sym; 
   struct object *impl_packages_sym; /** all packages */
@@ -418,7 +444,10 @@ struct gis {
   struct object *impl_set_struct_field_sym;
   struct object *impl_symbol_type_sym;
   struct object *impl_type_of_sym;
+  struct object *impl_unmarshal_sym;
   struct object *impl_use_package_sym;
+  struct object *impl_write_bytecode_file_sym;
+  struct object *impl_write_file_sym;
   struct object *keyword_external_sym;
   struct object *keyword_function_sym;
   struct object *keyword_inherited_sym;
@@ -525,21 +554,35 @@ struct gis {
 
   /* Builtins */
   struct object *alloc_struct_builtin;
+  struct object *byte_stream_builtin;
+  struct object *byte_stream_peek_builtin;
+  struct object *byte_stream_read_builtin;
+  struct object *byte_stream_read_byte_builtin;
   struct object *call_builtin;
   struct object *change_directory_builtin;
+  struct object *close_file_builtin;
   struct object *compile_builtin;
+  struct object *compile_entire_file_builtin;
   struct object *dynamic_library_builtin;
-  struct object *eval_builtin;
   struct object *find_package_builtin;
   struct object *foreign_function_builtin;
+  struct object *read_builtin;
+  struct object *read_bytecode_file_builtin;
+  struct object *read_file_builtin;
+  struct object *run_bytecode_builtin; /* this is currently called "eval" in the C code -- but run-bytecode is less confusing for LISP */
   struct object *struct_field_builtin;
   struct object *macro_builtin;
+  struct object *marshal_builtin;
+  struct object *open_file_builtin;
   struct object *package_symbols_builtin;
   struct object *set_struct_field_builtin;
   struct object *struct_builtin;
   struct object *symbol_type_builtin;
   struct object *type_of_builtin;
+  struct object *unmarshal_builtin;
   struct object *use_package_builtin;
+  struct object *write_bytecode_file_builtin;
+  struct object *write_file_builtin;
 };
 
 #include "string.h"

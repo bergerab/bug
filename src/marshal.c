@@ -748,7 +748,7 @@ struct object *read_bytecode_file(struct object *s) {
  * Idempotently lift the value into a stream.
  */
 struct object *byte_stream_lift(struct object *e) {
-  if (type_of(e) == gis->dynamic_byte_array_type||
+  if (type_of(e) == gis->dynamic_byte_array_type ||
       type_of(e) == gis->string_type) {
     return enumerator(e);
   } else if (type_of(e) == gis->file_type ||
