@@ -854,18 +854,13 @@ struct object *do_find_symbol(struct object *string, struct object *package, cha
     /* "my-package::my-symbol" 
       Look in all symbols in "my-package" */
     cursor = PACKAGE_SYMBOLS(package);
-    printf("started looking in package symbols\n");
-    print(cursor);
-    print(package);
     while (cursor != NIL) {
-      printf("1");
       sym = CONS_CAR(cursor);
       if (equals(SYMBOL_NAME(sym), string)) {
         return sym;
       }
       cursor = CONS_CDR(cursor);
     }
-      printf("\n");
   } else {
     /* "my-package:my-symbol"
         look in all symbols of my-package that have the home-package of my-package
@@ -1084,7 +1079,6 @@ void gis_init(char load_core) {
   GIS_SYM(gis->impl_find_package_sym, gis->find_package_str, gis->impl_package);
   GIS_SYM(gis->impl_struct_field_sym, gis->struct_field_str, gis->impl_package);
   GIS_SYM(gis->impl_i_sym, gis->i_str, gis->impl_package); /** the index of the next instruction in bc to execute */
-  GIS_SYM(gis->impl_list_sym, gis->list_str, gis->impl_package);
   GIS_SYM(gis->impl_macro_sym, gis->macro_str, gis->impl_package);
   GIS_SYM(gis->impl_marshal_sym, gis->marshal_str, gis->impl_package);
   GIS_SYM(gis->impl_open_file_sym, gis->open_file_str, gis->impl_package); 
@@ -1120,6 +1114,7 @@ void gis_init(char load_core) {
   GIS_SYM(gis->lisp_gte_sym, gis->gte_str, gis->lisp_package);
   GIS_SYM(gis->lisp_if_sym, gis->if_str, gis->lisp_package);
   GIS_SYM(gis->lisp_let_sym, gis->let_str, gis->lisp_package);
+  GIS_SYM(gis->lisp_list_sym, gis->list_str, gis->lisp_package);
   GIS_SYM(gis->lisp_lt_sym, gis->lt_str, gis->lisp_package);
   GIS_SYM(gis->lisp_lte_sym, gis->lte_str, gis->lisp_package);
   GIS_SYM(gis->lisp_mul_sym, gis->mul_str, gis->lisp_package);
@@ -1227,7 +1222,6 @@ void gis_init(char load_core) {
   GIS_BUILTIN(gis->byte_stream_builtin, gis->impl_byte_stream_sym, 1);
   GIS_BUILTIN(gis->byte_stream_peek_builtin, gis->impl_byte_stream_peek_sym, 2);
   GIS_BUILTIN(gis->byte_stream_read_builtin, gis->impl_byte_stream_read_sym, 2);
-  GIS_BUILTIN(gis->call_builtin, gis->impl_call_sym, 1) /* takes either a function value or a symbol */
   GIS_BUILTIN(gis->change_directory_builtin, gis->impl_change_directory_sym, 1) /* takes the new directory */
   GIS_BUILTIN(gis->close_file_builtin, gis->impl_close_file_sym, 1);
   GIS_BUILTIN(gis->compile_builtin, gis->impl_compile_sym, 4);
@@ -1277,7 +1271,7 @@ void gis_init(char load_core) {
   /* Load core.bug */
   if (load_core) {
     IF_DEBUG() printf("============ Loading core... ==============\n");
-    eval(compile_entire_file(open_file(string("../src/core.bug"), string("rb"))), NIL);
+    eval(compile_entire_file(open_file(string("../src/core.bug"), string("rb")), 0), NIL);
     IF_DEBUG() printf("============ Core loaded... ===============\n");
   }
 }
@@ -1715,22 +1709,22 @@ struct object *eval(struct object *bc, struct object* args) {
   return eval_at_instruction(bc, 0, args);
 }
 
-struct object *compile_entire_file(struct object *input_file) {
+struct object *compile_entire_file(struct object *input_file, char should_return) {
   struct object *temp, *f;
   temp = NIL;
-  printf("top\n");
-  print(GIS_PACKAGE);
   while (byte_stream_has(input_file)) {
     temp = cons(read(input_file, GIS_PACKAGE), temp);
   }
-  printf("carry it\n");
   temp = cons_reverse(temp);
   temp = cons(gis->lisp_progn_sym, temp);
-  printf("before comp\n");
   f = compile(temp, NIL, NIL, NIL);
-  printf("after comp\n");
-  /* drop the value returned by progn -- otherwise there will be garbage on the stack after compiling every file */
-  dynamic_byte_array_push_char(FUNCTION_CODE(f), op_drop);
+  if (should_return) {
+    dynamic_byte_array_push_char(FUNCTION_CODE(f), op_return_function);
+  } else {
+    /* drop the value returned by progn -- otherwise there will be garbage on
+     * the stack after compiling every file */
+    dynamic_byte_array_push_char(FUNCTION_CODE(f), op_drop);
+  }
   return f;
 }
 
@@ -2083,7 +2077,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
           COMPILE_DO_EACH({ C_PUSH_CODE(op_print); });
           C_PUSH_CODE(op_print_nl);
           C_PUSH_CODE(op_load_nil);
-        } else if (car == gis->impl_list_sym) {
+        } else if (car == gis->lisp_list_sym) {
           COMPILE_DO_EACH({});
           C_PUSH_CODE(op_list);
           marshal_ufixnum_t(length, C_CODE, 0);
@@ -2366,7 +2360,7 @@ void eval_builtin(struct object *f) {
   } else if (f == gis->compile_builtin) {
     push(compile(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2), GET_LOCAL(3)));
   } else if (f == gis->compile_entire_file_builtin) {
-    push(compile_entire_file(GET_LOCAL(0)));
+    push(compile_entire_file(GET_LOCAL(0), 1));
   } else if (f == gis->open_file_builtin) {
     push(open_file(GET_LOCAL(0), GET_LOCAL(1)));
   } else if (f == gis->read_builtin) {
@@ -2375,7 +2369,7 @@ void eval_builtin(struct object *f) {
     push(read_bytecode_file(GET_LOCAL(0)));
   } else if (f == gis->read_file_builtin) {
     push(read_file(GET_LOCAL(0)));
-  } else if (f == gis->run_bytecode_builtin) {
+  } else if (f == gis->run_bytecode_builtin) { /* TODO: this builtin is weird -- you can run bytecode simply by calling it like a function (f) -- this can probably be removed*/
     push(eval(GET_LOCAL(0), GET_LOCAL(1)));
   } else if (f == gis->marshal_builtin) {
     push(marshal(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2)));
@@ -2739,7 +2733,7 @@ eval_restart:
         }
 
         /* if this is a foreign function */
-        if (type_of(f) == gis->ffun_type) {
+        if (type_of(f) == gis->foreign_function_type) {
           cursor = FFUN_PARAMS(f);
           if (a0 > FFUN_NARGS(f)) {
             printf("Insufficient arguments were passed to foreign function.");
@@ -2758,10 +2752,11 @@ eval_restart:
               arg_values[a2] = &STRING_CONTENTS(STACK_I(a1));
             } else if (type_of(STACK_I(a1)) == gis->pointer_type) {
               arg_values[a2] = &OBJECT_POINTER(STACK_I(a1));
-            } else if (type_of(STACK_I(a1)) ==
-                       gis->cons_type) { /* convert to struct* */
+            } else if (!TYPE_BUILTIN(type_of(STACK_I(a1)))) { /* IMPORTANT TODO: validate that it is the same type from the ffun signature */
+              arg_values[a2] = &OBJECT_POINTER(STACK_I(a1));
             } else {
               printf("Argument not supported for foreign functions.");
+              print(STACK_I(a1));
             }
             --a1;
             ++a2;
@@ -2786,7 +2781,8 @@ eval_restart:
           UFIXNUM_VALUE(i) += 1; /* advance to the next instruction */
           goto eval_restart;     /* restart the evaluation loop */
         } else if (type_of(f) != gis->function_type) {
-          printf("Attempted to call a non-function object.");
+          printf("Attempted to call a non-function object.\n");
+          print(type_of(f));
           PRINT_STACK_TRACE_AND_QUIT();
         }
 
@@ -3883,7 +3879,7 @@ int main(int argc, char **argv) {
     close_file(input_file);
     input_file = byte_stream_lift(temp);
     output_file = open_file(output_filepath, string("wb"));
-    bc = compile_entire_file(input_file);
+    bc = compile_entire_file(input_file, 0);
     write_bytecode_file(output_file, bc);
     close_file(output_file);
   } else if (interpret_mode) { /* add logic to compile the file if given a

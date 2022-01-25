@@ -1,4 +1,3 @@
-
 "================= mydll library ====================="
 "FFI testing"
 (impl:struct 'mydll-ivec2
@@ -71,3 +70,17 @@
   	'void '(mydll-ivec2)))
 
 "========================================================"
+
+(impl:function test-mydll ()
+	(let ((r0 (impl:alloc-struct 'mydll-rect))
+			  (r1 (impl:alloc-struct 'mydll-rect)))
+		(impl:set-struct-field r0 'x 4)
+		(impl:set-struct-field r0 'y 5)
+		(impl:set-struct-field r0 'w 6)
+		(impl:set-struct-field r0 'h 7)
+		(impl:set-struct-field r1 'x 8)
+		(impl:set-struct-field r1 'y 9)
+		(impl:set-struct-field r1 'w 10)
+		(impl:set-struct-field r1 'h 11)
+		(print (impl:struct-field r0 'x))
+		(print-rect2 r0 r1)))

@@ -169,18 +169,13 @@
 Load BUGED
 "
 
-(print "FFF")
-
 "hack for SDL_tff.dll it won't load unless it has other DLLs in the same directory as it"
 (impl:function load (path)
-	(print "LOAD")
 	(let ((file (impl:open-file path "rb")))
-		(print "DDD")
-		(let ((bytecode (impl:compile-entire-file file)))
-			(print "COMPILED")
-			(print bytecode)
-			(impl:run-bytecode bytecode nil))))
+		(let ((f (impl:compile-entire-file file)))
+			(impl:call f))))
+
+(load "../experiments/mydll/mydll.bug")
 
 (impl:change-directory "../buged/")
-(print "aowiejfaWEFOWIEJF")
 (load "main.bug")

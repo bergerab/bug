@@ -19,7 +19,7 @@
 		(state uint8)
 		(keysym sdl-keysym)))
 
-(set 'sdl2 (impl:dynamic-library "./SDL2.dll"))
+(set 'sdl2 (impl:dynamic-library "SDL2.dll"))
 
 (set-symbol-function 'init
   (impl:foreign-function
@@ -84,7 +84,7 @@
 		(b uint8)
 		(a uint8)))
 
-(set 'sdl2-ttf (impl:dynamic-library "./SDL2_ttf.dll"))
+(set 'sdl2-ttf (impl:dynamic-library "SDL2_ttf.dll"))
 
 (set-symbol-function 'ttf-init
   (impl:foreign-function
@@ -110,6 +110,7 @@
 (impl:function load-bmp-tex (ren path)
 	(create-texture-from-surface ren (load-bmp path)))
 "========================================================"
+(impl:change-directory "..") "back to the root"
 
 (impl:function make-text (x y message)
 	(let ((surface (render-text-solid *font* message *font-color*)))
@@ -131,19 +132,46 @@
 (impl:function render-text (x y message)
 	(render (make-text x y message)))
 
+(set '_render_rect (impl:alloc-struct 'sdl-rect))
 (impl:function render (object)
 	(if (= (car object) :text)
-		(render-copy *renderer* (get-text-texture object) nil 
-				(list (get-text-x object) (get-text-y object) 
-				 	    (* *font-size* 5) *font-size*))
+		(progn 
+			(impl:set-struct-field _render_rect 'x (get-text-x object))
+			(impl:set-struct-field _render_rect 'y (get-text-y object))
+			(impl:set-struct-field _render_rect 'w (* *font-size* 5))
+			(impl:set-struct-field _render_rect 'h *font-size*)
+			(render-copy *renderer* (get-text-texture object) (impl:alloc-struct 'sdl-rect) _render_rect))
 		nil))
 
 (impl:function render-loop (x)
 	(render-clear *renderer*)
-	(set '*font-color* (list x 0 255 0))
 	(render-text 0 10 "hello")
-	(set '*font-color* (list x 0 0 0))
 	(render-text 100 200 "hello")
 	(render-present *renderer*)
-	(delay 100)
+	(print "loop")
+	(delay 1000)
 	(render-loop (+ x 1)))
+
+(impl:function sdl-test ()
+	(init 3)
+
+	(set '*window* (create-window "Hello World!" 100 100 620 387 4))
+	(set '*renderer* (create-renderer *window* 0 2))
+
+	(if (nil? (ttf-init))
+		(print "SDL_TTF failed to initialize.")
+		nil)
+
+	(set '*font-size* 64)
+	(set '*font* (open-font "fonts/iosevka.ttf" *font-size*))
+	(set '*font-color* (impl:alloc-struct 'sdl-color))
+	(impl:set-struct-field *font-color* 'r 255)
+	(impl:set-struct-field *font-color* 'g 0)
+	(impl:set-struct-field *font-color* 'b 255)
+	(impl:set-struct-field *font-color* 'a 0)
+
+	(if (nil? *font*)
+		(print "Failed to load font.")
+		nil)
+
+	(render-loop 0))

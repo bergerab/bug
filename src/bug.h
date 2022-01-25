@@ -429,7 +429,6 @@ struct gis {
   struct object *impl_run_bytecode_sym;
   struct object *impl_struct_field_sym;
   struct object *impl_i_sym; /** the index of the next instruction in bc to execute */
-  struct object *impl_list_sym;
   struct object *impl_macro_sym;
   struct object *impl_marshal_sym;
   struct object *impl_open_file_sym;
@@ -461,6 +460,7 @@ struct gis {
   struct object *lisp_gte_sym;
   struct object *lisp_if_sym;
   struct object *lisp_let_sym;
+  struct object *lisp_list_sym;
   struct object *lisp_lt_sym;
   struct object *lisp_lte_sym;
   struct object *lisp_mul_sym;
@@ -520,7 +520,6 @@ struct gis {
   struct object *dynamic_byte_array_type; 
   struct object *dynamic_library_type;
   struct object *enumerator_type; 
-  struct object *ffun_type;
   struct object *file_type; 
   struct object *fixnum_type;
   struct object *flonum_type;
@@ -554,7 +553,6 @@ struct gis {
   struct object *byte_stream_builtin;
   struct object *byte_stream_peek_builtin;
   struct object *byte_stream_read_builtin;
-  struct object *call_builtin;
   struct object *change_directory_builtin;
   struct object *close_file_builtin;
   struct object *compile_builtin;
@@ -599,7 +597,7 @@ struct gis *gis;
 struct object *run(struct gis *gis);
 
 struct object *compile(struct object *ast, struct object *bc, struct object *st, struct object *fst);
-struct object *compile_entire_file(struct object *input_file);
+struct object *compile_entire_file(struct object *input_file, char should_return);
 struct object *eval(struct object *bc, struct object* args);
 /* Temporary -- commented out because unistd.h defines read and having this uncommented causes conflicts
 struct object *read(struct object *s, struct object *package); 
