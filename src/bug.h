@@ -393,7 +393,6 @@ struct gis {
      and be named like this:
       <package>_<symbol-name>_sym
      */
-  struct object *impl_add_sym;
   struct object *impl_alloc_struct_sym;
   struct object *impl_and_sym;
   struct object *impl_call_sym;
@@ -425,6 +424,7 @@ struct gis {
   struct object *keyword_inherited_sym;
   struct object *keyword_internal_sym;
   struct object *keyword_value_sym;
+  struct object *lisp_add_sym;
   struct object *lisp_car_sym;
   struct object *lisp_cdr_sym;
   struct object *lisp_cons_sym;

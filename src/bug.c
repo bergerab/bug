@@ -187,7 +187,6 @@ struct object *type(struct object *sym, struct object *struct_fields, char can_i
     TYPE_STRUCT_FIELD_TYPES(o) = malloc(sizeof(struct object*) * TYPE_STRUCT_NFIELDS(o)); /* TODO: GC free this */
 
     cursor = struct_fields;
-    print(cursor);
     i = 0;
     while (cursor != NIL) {
       TYPE_STRUCT_FIELD_NAMES(o)[i] = CONS_CAR(CONS_CAR(cursor));
@@ -222,9 +221,6 @@ struct object *type(struct object *sym, struct object *struct_fields, char can_i
     TYPE_STRUCT_OFFSETS(o) = malloc(sizeof(size_t) * i); /* TODO: GC clean up */ 
     ffi_get_struct_offsets(FFI_DEFAULT_ABI, TYPE_FFI_TYPE(o),
                            TYPE_STRUCT_OFFSETS(o));
-    printf("size of struct");
-    printf("%d\n", (int) TYPE_FFI_TYPE(o)->size);
-    printf("%d\n", sizeof(void*));
   }
 
   symbol_set_type(sym, o);
@@ -924,7 +920,7 @@ void gis_init(char load_core) {
 #define GIS_STR(str, cstr) str = string(cstr);
   GIS_STR(gis->a_str, "a");
   GIS_STR(gis->and_str, "and");
-  GIS_STR(gis->add_str, "add");
+  GIS_STR(gis->add_str, "+");
   GIS_STR(gis->alloc_struct_str, "alloc-struct");
   GIS_STR(gis->b_str, "b");
   GIS_STR(gis->call_stack_str, "call-stack");
@@ -989,7 +985,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->string_str, "string");
   GIS_STR(gis->strings_str, "strings");
   GIS_STR(gis->struct_str, "struct");
-  GIS_STR(gis->sub_str, "sub");
+  GIS_STR(gis->sub_str, "-");
   GIS_STR(gis->symbol_function_str, "symbol-function");
   GIS_STR(gis->symbol_str, "symbol");
   GIS_STR(gis->symbol_type_str, "symbol-type");
@@ -1052,7 +1048,6 @@ void gis_init(char load_core) {
   PACKAGE_SYMBOLS(pack) = cons(sym, PACKAGE_SYMBOLS(pack)); \
   symbol_export(sym);
 
-  GIS_SYM(gis->impl_add_sym, gis->add_str, gis->impl_package);
   GIS_SYM(gis->impl_alloc_struct_sym, gis->alloc_struct_str, gis->impl_package);
   GIS_SYM(gis->impl_and_sym, gis->and_str, gis->impl_package);
   GIS_SYM(gis->impl_call_sym, gis->call_str, gis->impl_package);
@@ -1083,6 +1078,7 @@ void gis_init(char load_core) {
   GIS_SYM(gis->keyword_inherited_sym, gis->inherited_str, gis->keyword_package);
   GIS_SYM(gis->keyword_internal_sym, gis->internal_str, gis->keyword_package);
   GIS_SYM(gis->keyword_value_sym, gis->value_str, gis->keyword_package);
+  GIS_SYM(gis->lisp_add_sym, gis->add_str, gis->lisp_package);
   GIS_SYM(gis->lisp_car_sym, gis->car_str, gis->lisp_package);
   GIS_SYM(gis->lisp_cdr_sym, gis->cdr_str, gis->lisp_package);
   GIS_SYM(gis->lisp_cons_sym, gis->cons_str, gis->lisp_package);
@@ -2057,7 +2053,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
 
           C_PUSH_CODE(op_call_function);
           marshal_ufixnum_t(length, C_CODE, 0);
-        } else if (car == gis->impl_add_sym) {
+        } else if (car == gis->lisp_add_sym) {
           length = 0;
           cursor = CONS_CDR(value);
           lhs = NULL;
