@@ -108,6 +108,7 @@ typedef double flonum_t;
 
 #define TYPE_NAME(o) o->w1.value.type->name
 #define TYPE_ID(o) o->w1.value.type->id
+#define TYPE_BUILTIN(o) o->w1.value.type->builtin
 #define TYPE_FFI_TYPE(o) o->w1.value.type->ffi_type
 #define TYPE_STRUCT_FIELD_NAMES(o) o->w1.value.type->struct_field_names
 #define TYPE_STRUCT_FIELD_TYPES(o) o->w1.value.type->struct_field_types
@@ -245,6 +246,7 @@ struct type {
   struct object **struct_field_types;
   ufixnum_t struct_nfields;
   size_t *struct_offsets;
+  char builtin; /** is this type builtin or user defined? */
 };
 
 struct function {
@@ -599,7 +601,7 @@ struct object *enumerator(struct object *source);
 struct object *package(struct object *name);
 struct object *cons(struct object *car, struct object *cdr);
 struct object *symbol(struct object *name);
-struct object *type(struct object *name, struct object *struct_fields, char can_instantiate);
+struct object *type(struct object *name, struct object *struct_fields, char can_instantiate, char builtin);
 struct object *file_stdin();
 struct object *file_stdout();
 struct object *open_file(struct object *path, struct object *mode);

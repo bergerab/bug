@@ -156,11 +156,17 @@
 	(print (impl:struct-field rect 'w)))
 
 (print "a")
+
 (impl:struct 'b
  '((z int)))
+
 (print "b")
+
 (impl:struct 'a
  '((x int) (y b)))
+
 (print "c")
 
-(impl:alloc-struct (impl:symbol-type 'b))
+(impl:alloc-struct 'a)
+
+(impl:struct-field (impl:alloc-struct 'a) 'y)

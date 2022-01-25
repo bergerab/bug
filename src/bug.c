@@ -155,10 +155,11 @@ struct object *dlib(struct object *path) {
 /* can_instantiate indicates if this type supports having values with this type.
    e.g.: you can make value of a type string, type fixnum, etc... but having a value of type
    uint8 is not supported. Same with something like "void". Those values are just used for FFI. */
-struct object *type(struct object *sym, struct object *struct_fields, char can_instantiate) {
+struct object *type(struct object *sym, struct object *struct_fields, char can_instantiate, char builtin) {
   ufixnum_t i;
   struct object *cursor, *t;
   struct object *o;
+  struct object *field_type;
   OT("type", 0, sym, type_symbol);
   OT_LIST("type", 1, struct_fields);
   o = object(type_type);
@@ -175,6 +176,9 @@ struct object *type(struct object *sym, struct object *struct_fields, char can_i
   }
 
   TYPE_STRUCT_NFIELDS(o) = 0;
+
+  TYPE_BUILTIN(o) = builtin;
+
   /* if this is a struct, */
   if (struct_fields != NIL) {
     TYPE_STRUCT_NFIELDS(o) = count(struct_fields);
@@ -188,7 +192,10 @@ struct object *type(struct object *sym, struct object *struct_fields, char can_i
     while (cursor != NIL) {
       print(CONS_CAR(cursor));
       TYPE_STRUCT_FIELD_NAMES(o)[i] = CONS_CAR(CONS_CAR(cursor));
-      TYPE_STRUCT_FIELD_TYPES(o)[i] = CONS_CAR(CONS_CDR(CONS_CAR(cursor)));
+      field_type = CONS_CAR(CONS_CDR(CONS_CAR(cursor)));
+      if (type_of(field_type) == gis->symbol_type)
+        field_type = symbol_get_type(field_type);
+      TYPE_STRUCT_FIELD_TYPES(o)[i] = field_type;
       cursor = CONS_CDR(cursor);
       i++;
     }
@@ -300,56 +307,13 @@ struct object *pointer(void *ptr) {
   return o;
 }
 
-struct object *alloc_struct(struct object *type, char init_defaults) {
-  struct object *o;
-  struct object *instance;
-  size_t i, nfields;
-  ffi_type *t;
-  uint8_t default_uint8_val;
-  int default_sint_val;
-
-  /* iterate over struct ffi types and input */
-  t = TYPE_FFI_TYPE(type);
-  instance = malloc(t->size); /* TODO: GC clean this up */
-  if (instance == NULL) {
-    printf("failed to malloc struct for ffi.");
-    PRINT_STACK_TRACE_AND_QUIT();
-  }
-
-  o = pointer(instance);
-
-  if (init_defaults) {
-    /* fill struct with default values */
-    i = 0;
-    nfields = TYPE_STRUCT_NFIELDS(type);
-    for (; i < nfields; ++i) {
-      if (t->elements[i] == &ffi_type_sint) {
-        default_sint_val = 0;
-        /* arithemtic can't be done on void* (size of elements is unknown) so
-         * cast to a char* (because we know a4 is # of bytes) */
-        memcpy(&((char *)instance)[TYPE_STRUCT_OFFSETS(type)[i]], &default_sint_val, sizeof(int));
-      } else if (t->elements[i] == &ffi_type_uint8) {
-        default_uint8_val = 0;
-        /* arithemtic can't be done on void* (size of elements is unknown) so
-         * cast to a char* (because we know a4 is # of bytes) */
-        memcpy(&((char *)instance)[TYPE_STRUCT_OFFSETS(type)[i]], &default_uint8_val, sizeof(uint8_t));
-        /*((char*)instance)[offsets[a3]] = FIXNUM_VALUE(CONS_CAR(cursor2));*/
-        /* why didn't this work?  */
-      } else {
-        printf("Unknown value when populating struct\n");
-        PRINT_STACK_TRACE_AND_QUIT();
-      }
-    }
-  }
-
-  OBJECT_TYPE(o) = (TYPE_ID(type) << 2) | 2;
-
-  return o;
+void set_struct_type(struct object *type, struct object *instance) {
+  OBJECT_TYPE(instance) = (TYPE_ID(type) << 2) | 2;
 }
 
 /* get a field's value from a type instance */
 struct object *struct_field(struct object *instance, struct object *sdes) {
-  struct object *type, *field_type;
+  struct object *type, *field_type, *temp;
   void *ptr;
   ufixnum_t i;
 
@@ -368,7 +332,7 @@ struct object *struct_field(struct object *instance, struct object *sdes) {
     }
   }
 
-  if (field_type == NULL) {
+  if (field_type == NIL) {
     printf("Field does not exist on structure.\n");
     PRINT_STACK_TRACE_AND_QUIT();
   }
@@ -383,10 +347,78 @@ struct object *struct_field(struct object *instance, struct object *sdes) {
     return fixnum(*(uint8_t *)ptr);
   } else if (field_type == gis->pointer_type) {
     return pointer((void *)ptr);
+  } else if (!TYPE_BUILTIN(field_type)) {
+    temp = pointer(ptr);
+    set_struct_type(field_type, temp);
+    return temp;
   } else {
     printf("Unsupported field type.\n");
+    print(field_type);
     PRINT_STACK_TRACE_AND_QUIT();
   }
+}
+
+struct object *alloc_struct_inner(struct object *type, char init_defaults) {
+  struct object *instance;
+  struct object *field_type;
+  struct object *field_name;
+  void *struct_value;
+  size_t i, nfields;
+  ffi_type *t;
+  uint8_t default_uint8_val;
+  int default_sint_val;
+
+  /* iterate over struct ffi types and input */
+  t = TYPE_FFI_TYPE(type);
+  instance = malloc(t->size); /* TODO: GC clean this up */
+  if (instance == NULL) {
+    printf("failed to malloc struct for ffi.");
+    PRINT_STACK_TRACE_AND_QUIT();
+  }
+
+  if (init_defaults) {
+    /* fill struct with default values */
+    i = 0;
+    nfields = TYPE_STRUCT_NFIELDS(type);
+    for (; i < nfields; ++i) {
+      field_type = TYPE_STRUCT_FIELD_TYPES(type)[i];
+      field_name = TYPE_STRUCT_FIELD_NAMES(type)[i];
+      if (t->elements[i] == &ffi_type_sint) {
+        default_sint_val = 0;
+        /* arithemtic can't be done on void* (size of elements is unknown) so
+         * cast to a char* (because we know a4 is # of bytes) */
+        memcpy(&((char *)instance)[TYPE_STRUCT_OFFSETS(type)[i]], &default_sint_val, sizeof(int));
+      } else if (t->elements[i] == &ffi_type_uint8) {
+        default_uint8_val = 0;
+        /* arithemtic can't be done on void* (size of elements is unknown) so
+         * cast to a char* (because we know a4 is # of bytes) */
+        memcpy(&((char *)instance)[TYPE_STRUCT_OFFSETS(type)[i]], &default_uint8_val, sizeof(uint8_t));
+        /*((char*)instance)[offsets[a3]] = FIXNUM_VALUE(CONS_CAR(cursor2));*/
+        /* why didn't this work?  */
+      } else if (!TYPE_BUILTIN(field_type)) {
+        struct_value = alloc_struct_inner(field_type, init_defaults);
+        memcpy(&((char *)instance)[TYPE_STRUCT_OFFSETS(type)[i]], &struct_value, sizeof(void*));
+      } else {
+        printf("Unknown value when populating struct\n");
+        print(field_name);
+        print(field_type);
+        printf("%d\n", TYPE_STRUCT_NFIELDS(field_type) > 0);
+        print(type_of(field_type));
+        PRINT_STACK_TRACE_AND_QUIT();
+      }
+    }
+  }
+  return instance;
+}
+
+struct object *alloc_struct(struct object *type, char init_defaults) {
+  struct object *o;
+  if (type_of(type) == gis->symbol_type) {
+    type = symbol_get_type(type);
+  }
+  o = pointer(alloc_struct_inner(type, init_defaults));
+  set_struct_type(type, o);
+  return o;
 }
 
 /* set a field's value from a structure instance */
@@ -1116,8 +1148,8 @@ void gis_init(char load_core) {
   /* IMPORTANT -- the ordering these types are added to the types array must match the order they are defined in bug.h for the type enum */
   /* type_of cannot be called before this is setup */
   gis->types = dynamic_array(64);
-#define GIS_TYPE(t, sym, can_instantiate)      \
-  t = type(sym, NIL, can_instantiate); \
+#define GIS_TYPE(t, sym, can_instantiate) \
+  t = type(sym, NIL, can_instantiate, 1); \
   symbol_set_type(sym, t);
 #define GIS_UNINSTANTIATABLE_TYPE(type, sym) \
   GIS_TYPE(type, sym, 0)
@@ -1140,7 +1172,6 @@ void gis_init(char load_core) {
   GIS_INSTANTIATABLE_TYPE(gis->vec2_type, gis->type_vec2_sym);
   GIS_INSTANTIATABLE_TYPE(gis->dynamic_library_type, gis->type_dynamic_library_sym);
   GIS_INSTANTIATABLE_TYPE(gis->foreign_function_type, gis->type_foreign_function_sym);
-  GIS_INSTANTIATABLE_TYPE(gis->struct_type, gis->type_struct_sym);
   GIS_INSTANTIATABLE_TYPE(gis->pointer_type, gis->type_pointer_sym);
   GIS_INSTANTIATABLE_TYPE(gis->type_type, gis->type_type_sym);
 
@@ -2270,7 +2301,7 @@ void eval_builtin(struct object *f) {
   } else if (f == gis->type_of_builtin) {
     push(type_of(GET_LOCAL(0)));
   } else if (f == gis->struct_builtin) {
-    push(type(GET_LOCAL(0), GET_LOCAL(1), 1));
+    push(type(GET_LOCAL(0), GET_LOCAL(1), 1, 0));
   } else if (f == gis->change_directory_builtin) {
     change_directory(GET_LOCAL(0));
     push(NIL);
