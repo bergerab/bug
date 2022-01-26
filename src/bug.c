@@ -2759,7 +2759,9 @@ eval_restart:
           a2 = 0;  /* for indexing arg_values */
           while (cursor != NIL) {
             /* TODO: handle pass by value */
-            if (type_of(STACK_I(a1)) == gis->nil_type) {
+            if (is_pass_by_value_struct(CONS_CAR(cursor)) != NULL) {
+              arg_values[a2] = OBJECT_POINTER(STACK_I(a1));
+            } else if (type_of(STACK_I(a1)) == gis->nil_type) {
               arg_values[a2] = &ffi_null;
             } else if (type_of(STACK_I(a1)) == gis->fixnum_type) {
               arg_values[a2] = &FIXNUM_VALUE(STACK_I(a1));

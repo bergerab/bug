@@ -174,7 +174,7 @@
 	(set '*font* (open-font "fonts/iosevka.ttf" *font-size*))
 	(set '*font-color* (impl:alloc-struct 'sdl-color))
 	(impl:set-struct-field *font-color* 'r 0)
-	(impl:set-struct-field *font-color* 'g 0)
+	(impl:set-struct-field *font-color* 'g 255)
 	(impl:set-struct-field *font-color* 'b 0)
 	(impl:set-struct-field *font-color* 'a 0)
 

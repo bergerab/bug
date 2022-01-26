@@ -1,7 +1,36 @@
 #include "ffi.h"
 
+ffi_type *is_pass_by_value_struct(struct object *o) {
+  struct object *lhs, *rhs;
+
+  if (type_of(o) != gis->cons_type) return NULL;
+
+  lhs = CONS_CAR(o);
+
+  if (CONS_CDR(o) == NIL) {
+    printf("Takes at least argument.");
+    PRINT_STACK_TRACE_AND_QUIT();
+  }
+
+  rhs = CONS_CAR(CONS_CDR(o));
+
+  if (lhs == gis->impl_pass_by_value_sym) {
+    if (type_of(rhs) == gis->symbol_type) {
+      rhs = symbol_get_type(rhs);
+    }
+    if (type_of(rhs) != gis->type_type) {
+      printf("pass-by-value requires a type or symbol.\n");
+      PRINT_STACK_TRACE_AND_QUIT();
+    }
+    return TYPE_FFI_TYPE(rhs);
+  }
+
+  return NULL;
+}
+
 ffi_type *ffi_type_designator_to_ffi_type(struct object *o, char within_another_struct) {
-  struct object *lhs, *t, *rhs; 
+  struct object *t; 
+  ffi_type *temp;
 
   t = type_of(o);
   if (t == gis->symbol_type) {
@@ -9,30 +38,9 @@ ffi_type *ffi_type_designator_to_ffi_type(struct object *o, char within_another_
     t = gis->type_type;
   }
 
-  if (t == gis->cons_type) { /* must be of form (* <any>) */
-    lhs = CONS_CAR(o);
-
-    if (CONS_CDR(o) == NIL) {
-      printf("Takes at least argument.");
-      PRINT_STACK_TRACE_AND_QUIT();
-    }
-
-    rhs = CONS_CAR(CONS_CDR(o));
-
-    if (lhs == gis->impl_pass_by_value_sym) {
-      if (type_of(rhs) == gis->symbol_type) {
-        rhs = symbol_get_type(rhs);
-      }
-      if (type_of(rhs) != gis->type_type) {
-        printf("pass-by-value requires a type or symbol.\n");
-        PRINT_STACK_TRACE_AND_QUIT();
-      }
-      return TYPE_FFI_TYPE(rhs);
-    }
-
-    print(o);
-    printf("not impl\n");
-    PRINT_STACK_TRACE_AND_QUIT();
+  temp = is_pass_by_value_struct(o);
+  if (temp != NULL) { /* must be of form (* <any>) */
+    return temp;
   } else if (t == gis->type_type) {
     if (o == gis->char_type) return &ffi_type_schar;
     else if (o == gis->int_type) {
