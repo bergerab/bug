@@ -145,7 +145,7 @@
 
 (impl:function render-loop (x)
 	(render-clear *renderer*)
-	(render-text 0 10 "hello")
+	(render-text 10 10 "hello")
 	(render-text 100 200 "hello")
 	(render-present *renderer*)
 	(print "loop")
@@ -164,11 +164,13 @@
 
 	(set '*font-size* 64)
 	(set '*font* (open-font "fonts/iosevka.ttf" *font-size*))
+	(print *font*)
+	(print (impl:type-of *font*))
 	(set '*font-color* (impl:alloc-struct 'sdl-color))
 	(impl:set-struct-field *font-color* 'r 255)
-	(impl:set-struct-field *font-color* 'g 0)
+	(impl:set-struct-field *font-color* 'g 255)
 	(impl:set-struct-field *font-color* 'b 255)
-	(impl:set-struct-field *font-color* 'a 0)
+	(impl:set-struct-field *font-color* 'a 10)
 
 	(if (nil? *font*)
 		(print "Failed to load font.")

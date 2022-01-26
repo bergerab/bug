@@ -273,8 +273,16 @@ struct object *foreign_function(struct object *dlib, struct object *ffname, stru
     printf("Failed to load foreign function %s.", STRING_CONTENTS(FFUN_FFNAME(o)));
     PRINT_STACK_TRACE_AND_QUIT();
   }
-  FFUN_PARAMS(o) = params;
-  FFUN_RET(o) = ret_type;
+  FFUN_PARAM_TYPES(o) = params;
+
+  FFUN_RET_TYPE(o) = ret_type;
+  if (type_of(FFUN_RET_TYPE(o)) == gis->symbol_type) {
+    FFUN_RET_TYPE(o) = symbol_get_type(FFUN_RET_TYPE(o));
+  }
+  if (type_of(FFUN_RET_TYPE(o)) != gis->type_type) {
+    printf("Foreign function requires a type.\n");
+    PRINT_STACK_TRACE_AND_QUIT();
+  }
 
   FFUN_ARGTYPES(o) = malloc(sizeof(ffi_type*) * MAX_FFI_NARGS);
   FFUN_NARGS(o) = 0;
@@ -288,8 +296,10 @@ struct object *foreign_function(struct object *dlib, struct object *ffname, stru
     params = CONS_CDR(params);
   }
 
+  FFUN_FFI_RET_TYPE(o) = ffi_type_designator_to_ffi_type(FFUN_RET_TYPE(o), 1);
+
   FFUN_CIF(o) = malloc(sizeof(ffi_cif));
-  if ((status = ffi_prep_cif(FFUN_CIF(o), FFI_DEFAULT_ABI, FFUN_NARGS(o), ffi_type_designator_to_ffi_type(FFUN_RET(o), 1), FFUN_ARGTYPES(o))) != FFI_OK) {
+  if ((status = ffi_prep_cif(FFUN_CIF(o), FFI_DEFAULT_ABI, FFUN_NARGS(o), FFUN_FFI_RET_TYPE(o), FFUN_ARGTYPES(o))) != FFI_OK) {
       printf("PRINT_STACK_TRACE_AND_QUIT preparing CIF.\n");
       PRINT_STACK_TRACE_AND_QUIT();
   }
@@ -2734,7 +2744,7 @@ eval_restart:
 
         /* if this is a foreign function */
         if (type_of(f) == gis->foreign_function_type) {
-          cursor = FFUN_PARAMS(f);
+          cursor = FFUN_PARAM_TYPES(f);
           if (a0 > FFUN_NARGS(f)) {
             printf("Insufficient arguments were passed to foreign function.");
             PRINT_STACK_TRACE_AND_QUIT();
@@ -2767,10 +2777,10 @@ eval_restart:
            */
           DYNAMIC_ARRAY_LENGTH(gis->data_stack) -= a0 + 1;
 
-          if (FFUN_RET(f) == gis->pointer_type) {
+          if (FFUN_RET_TYPE(f) == gis->pointer_type) {
             ffi_call(FFUN_CIF(f), FFI_FN(FFUN_PTR(f)), &ptr_result, arg_values);
             push(pointer(ptr_result));
-          } else if (ffi_type_designator_is_string(FFUN_RET(f))) {
+          } else if (ffi_type_designator_is_string(FFUN_RET_TYPE(f))) {
             ffi_call(FFUN_CIF(f), FFI_FN(FFUN_PTR(f)), &ptr_result, arg_values);
             push(string(ptr_result));
           } else {

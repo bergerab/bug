@@ -118,8 +118,9 @@ typedef double flonum_t;
 #define FFUN_FFNAME(o) o->w1.value.ffun->ffname
 #define FFUN_DLIB(o) o->w1.value.ffun->dlib
 #define FFUN_PTR(o) o->w1.value.ffun->ptr
-#define FFUN_RET(o) o->w1.value.ffun->ret
-#define FFUN_PARAMS(o) o->w1.value.ffun->params
+#define FFUN_RET_TYPE(o) o->w1.value.ffun->ret_type
+#define FFUN_FFI_RET_TYPE(o) o->w1.value.ffun->ffi_ret_type
+#define FFUN_PARAM_TYPES(o) o->w1.value.ffun->param_types
 #define FFUN_CIF(o) o->w1.value.ffun->cif
 #define FFUN_ARGTYPES(o) o->w1.value.ffun->arg_types
 #define FFUN_NARGS(o) o->w1.value.ffun->nargs
@@ -230,11 +231,12 @@ struct dlib {
 struct ffun {
   struct object *ffname; /** the foreign function name */
   struct object *dlib; /** the dynamic library this function is from */
-  struct object *ret; /** the return type */
-  struct object *params; /** the type parameters this function takes */
+  struct object *ret_type; /** the return type */
+  struct object *param_types; /** the type parameters this function takes */
   FARPROC ptr; /* a pointer to the foreign function */
   ffi_cif *cif;
   ffi_type **arg_types;
+  ffi_type *ffi_ret_type; /** the return type for libffi */
   ufixnum_t nargs;
 };
 
@@ -630,7 +632,7 @@ struct object *vec2(flonum_t x, flonum_t y);
 struct object *dlib(struct object *path);
 struct object *dynamic_array(fixnum_t initial_capacity);
 struct object *dynamic_byte_array(ufixnum_t initial_capacity);
-struct object *ffun(struct object *dlib, struct object *ffname, struct object* ret_type, struct object *params);
+struct object *ffun(struct object *dlib, struct object *ffname, struct object* ret_type, struct object *param_types);
 struct object *pointer(void *ptr);
 struct object *function(struct object *constants, struct object *code, ufixnum_t stack_size);
 struct object *string(char *contents);
