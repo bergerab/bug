@@ -96,10 +96,11 @@
   	sdl2-ttf 'TTF_OpenFont
     'pointer '(pointer int)))
 
+" TODO: sdl-color needs to be passed by value this is how it is in the ttf-sdl2 library "
 (set-symbol-function 'render-text-solid
   (impl:foreign-function
   	sdl2-ttf 'TTF_RenderText_Solid
-    'pointer '(pointer pointer sdl-color)))
+    'pointer '(pointer pointer (impl:pass-by-value sdl-color))))
 
 "helper functions"
 
@@ -132,6 +133,12 @@
 (impl:function render-text (x y message)
 	(render (make-text x y message)))
 
+(set '*default-rect* (impl:alloc-struct 'sdl-rect))
+(impl:set-struct-field *default-rect* 'x 0)
+(impl:set-struct-field *default-rect* 'y 0)
+(impl:set-struct-field *default-rect* 'w 0)
+(impl:set-struct-field *default-rect* 'h 0)
+
 (set '_render_rect (impl:alloc-struct 'sdl-rect))
 (impl:function render (object)
 	(if (= (car object) :text)
@@ -140,16 +147,17 @@
 			(impl:set-struct-field _render_rect 'y (get-text-y object))
 			(impl:set-struct-field _render_rect 'w (* *font-size* 5))
 			(impl:set-struct-field _render_rect 'h *font-size*)
-			(render-copy *renderer* (get-text-texture object) (impl:alloc-struct 'sdl-rect) _render_rect))
+			(render-copy *renderer* (get-text-texture object) nil _render_rect))
 		nil))
 
 (impl:function render-loop (x)
 	(render-clear *renderer*)
-	(render-text 10 10 "hello")
-	(render-text 100 200 "hello")
+	(render-text 0 0 "hello awoiefj awoiefj awoei jfawoei fjawoefi jaweoif jaweofi ")
 	(render-present *renderer*)
 	(print "loop")
-	(delay 1000)
+	(if (get-error)
+		(print (get-error)))
+	(delay 100)
 	(render-loop (+ x 1)))
 
 (impl:function sdl-test ()
@@ -164,16 +172,17 @@
 
 	(set '*font-size* 64)
 	(set '*font* (open-font "fonts/iosevka.ttf" *font-size*))
-	(print *font*)
-	(print (impl:type-of *font*))
 	(set '*font-color* (impl:alloc-struct 'sdl-color))
-	(impl:set-struct-field *font-color* 'r 255)
-	(impl:set-struct-field *font-color* 'g 255)
-	(impl:set-struct-field *font-color* 'b 255)
-	(impl:set-struct-field *font-color* 'a 10)
+	(impl:set-struct-field *font-color* 'r 0)
+	(impl:set-struct-field *font-color* 'g 0)
+	(impl:set-struct-field *font-color* 'b 0)
+	(impl:set-struct-field *font-color* 'a 0)
 
 	(if (nil? *font*)
 		(print "Failed to load font.")
 		nil)
+
+	(if (get-error)
+		(print (get-error)))
 
 	(render-loop 0))

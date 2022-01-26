@@ -358,6 +358,7 @@ struct gis {
   struct object *package_str; 
   struct object *package_symbols_str; 
   struct object *packages_str; 
+  struct object *pass_by_value_str;
   struct object *pointer_str;
   struct object *pop_str;
   struct object *progn_str;
@@ -436,6 +437,7 @@ struct gis {
   struct object *impl_open_file_sym;
   struct object *impl_package_symbols_sym; 
   struct object *impl_packages_sym; /** all packages */
+  struct object *impl_pass_by_value_sym; 
   struct object *impl_pop_sym;
   struct object *impl_push_sym;
   struct object *impl_strings_sym;

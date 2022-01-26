@@ -5,6 +5,9 @@
 
 #include "bug.h"
 
+/* used as a reference to null as a variable */
+void *ffi_null = NULL;
+
 /*===============================*
  *===============================*
  * Types                         *
@@ -987,6 +990,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->package_str, "package");
   GIS_STR(gis->package_symbols_str, "package-symbols");
   GIS_STR(gis->packages_str, "packages");
+  GIS_STR(gis->pass_by_value_str, "pass-by-value");
   GIS_STR(gis->pointer_str, "pointer");
   GIS_STR(gis->pop_str, "pop");
   GIS_STR(gis->progn_str, "progn");
@@ -1094,6 +1098,7 @@ void gis_init(char load_core) {
   GIS_SYM(gis->impl_open_file_sym, gis->open_file_str, gis->impl_package); 
   GIS_SYM(gis->impl_package_symbols_sym, gis->package_symbols_str, gis->impl_package); 
   GIS_SYM(gis->impl_packages_sym, gis->packages_str, gis->impl_package); /** all packages */
+  GIS_SYM(gis->impl_pass_by_value_sym, gis->pass_by_value_str, gis->impl_package);
   GIS_SYM(gis->impl_pop_sym, gis->pop_str, gis->impl_package);
   GIS_SYM(gis->impl_push_sym, gis->push_str, gis->impl_package);
   GIS_SYM(gis->impl_read_sym, gis->read_str, gis->impl_package);
@@ -2753,8 +2758,9 @@ eval_restart:
           a1 = a0; /* for indexing arguments */
           a2 = 0;  /* for indexing arg_values */
           while (cursor != NIL) {
+            /* TODO: handle pass by value */
             if (type_of(STACK_I(a1)) == gis->nil_type) {
-              arg_values[a2] = NULL;
+              arg_values[a2] = &ffi_null;
             } else if (type_of(STACK_I(a1)) == gis->fixnum_type) {
               arg_values[a2] = &FIXNUM_VALUE(STACK_I(a1));
             } else if (type_of(STACK_I(a1)) == gis->string_type) {
@@ -2780,7 +2786,7 @@ eval_restart:
           if (FFUN_RET_TYPE(f) == gis->pointer_type) {
             ffi_call(FFUN_CIF(f), FFI_FN(FFUN_PTR(f)), &ptr_result, arg_values);
             push(pointer(ptr_result));
-          } else if (ffi_type_designator_is_string(FFUN_RET_TYPE(f))) {
+          } else if (FFUN_RET_TYPE(f) == gis->string_type) {
             ffi_call(FFUN_CIF(f), FFI_FN(FFUN_PTR(f)), &ptr_result, arg_values);
             push(string(ptr_result));
           } else {
