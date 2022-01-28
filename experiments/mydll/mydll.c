@@ -44,6 +44,10 @@ void print_ivec2(struct ivec2 *v) {
   else printf("Vec2<x=%d, y=%d>\n", v->x, v->y);
 }
 
+void print_four_by_value(struct four r) {
+  printf("Rect<x=%d, y=%d w=%d, h=%d>\n", r.x, r.y, r.w, r.h);
+}
+
 void print_four(struct four *r) {
   if (r == NULL) printf("<null>");
   else printf("Rect<x=%d, y=%d w=%d, h=%d>\n", r->x, r->y, r->w, r->h);

@@ -259,7 +259,9 @@ struct object *marshal_function(struct object *bc, struct object *ba, char inclu
   marshal_dynamic_array(FUNCTION_CONSTANTS(bc), ba, 0, cache);
   marshal_ufixnum_t(FUNCTION_STACK_SIZE(bc), ba, 0);
   marshal_dynamic_byte_array(FUNCTION_CODE(bc), ba, 0);
+  marshal_symbol(FUNCTION_NAME(bc), ba, cache);
   marshal_ufixnum_t(FUNCTION_NARGS(bc), ba, 0);
+  marshal_ufixnum_t(FUNCTION_ACCEPTS_ALL(bc), ba, 0);
   marshal_ufixnum_t(FUNCTION_NAME(bc) != NIL, ba, 0);
   if (FUNCTION_NAME(bc) != NIL) 
     marshal_symbol(FUNCTION_NAME(bc), ba, 0);
@@ -617,7 +619,9 @@ struct object *unmarshal_function(struct object *s, char includes_header, struct
   stack_size = unmarshal_ufixnum_t(s);
   code = unmarshal_dynamic_byte_array(s, 0);
   f = function(constants, code, stack_size);
+  FUNCTION_NAME(f) = unmarshal_symbol(s, cache);
   FUNCTION_NARGS(f) = unmarshal_ufixnum_t(s);
+  FUNCTION_ACCEPTS_ALL(f) = unmarshal_ufixnum_t(s);
   if (unmarshal_ufixnum_t(s)) {
     FUNCTION_NAME(f) = unmarshal_symbol(s, cache);
   }

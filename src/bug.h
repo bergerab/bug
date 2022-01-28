@@ -84,6 +84,7 @@ typedef double flonum_t;
 #define FUNCTION_NARGS(o) o->w1.value.function->nargs
 #define FUNCTION_NAME(o) o->w1.value.function->name
 #define FUNCTION_IS_BUILTIN(o) o->w1.value.function->is_builtin
+#define FUNCTION_ACCEPTS_ALL(o) o->w1.value.function->accepts_all
 #define FUNCTION_IS_MACRO(o) o->w1.value.function->is_macro
 
 #define STRING_LENGTH(o) DYNAMIC_BYTE_ARRAY_LENGTH(o)
@@ -259,6 +260,7 @@ struct function {
   ufixnum_t nargs; /** how many arguments does this require? */
   char is_builtin; /** is this a builtin function? */
   char is_macro; /** is this a macro? */
+  char accepts_all; /** is this a (function _ all ...) function? */
 };
 
 struct file {
@@ -318,6 +320,8 @@ struct gis {
   struct object *compile_entire_file_str;
   struct object *cons_str;
   struct object *data_stack_str;
+  struct object *define_function_str;
+  struct object *define_struct_str;
   struct object *div_str;
   struct object *drop_str;
   struct object *dynamic_array_str;
@@ -358,7 +362,6 @@ struct gis {
   struct object *package_str; 
   struct object *package_symbols_str; 
   struct object *packages_str; 
-  struct object *pass_by_value_str;
   struct object *pointer_str;
   struct object *pop_str;
   struct object *progn_str;
@@ -391,6 +394,7 @@ struct gis {
   struct object *uint_str;
   struct object *uint8_str;
   struct object *uint16_str;
+  struct object *uint32_str;
   struct object *unmarshal_str;
   struct object *use_package_str; 
   struct object *user_str;
@@ -422,6 +426,8 @@ struct gis {
   struct object *impl_compile_sym;
   struct object *impl_compile_entire_file_sym;
   struct object *impl_data_stack_sym; /** the data stack (a cons list) */
+  struct object *impl_define_function_sym;
+  struct object *impl_define_struct_sym;
   struct object *impl_drop_sym;
   struct object *impl_f_sym; /** the currently executing function */
   struct object *impl_find_package_sym;
@@ -437,7 +443,6 @@ struct gis {
   struct object *impl_open_file_sym;
   struct object *impl_package_symbols_sym; 
   struct object *impl_packages_sym; /** all packages */
-  struct object *impl_pass_by_value_sym; 
   struct object *impl_pop_sym;
   struct object *impl_push_sym;
   struct object *impl_strings_sym;
@@ -504,6 +509,7 @@ struct gis {
   struct object *type_ufixnum_sym;
   struct object *type_uint_sym;
   struct object *type_uint16_sym;
+  struct object *type_uint32_sym;
   struct object *type_uint8_sym;
   struct object *type_vec2_sym;
   struct object *type_void_sym;
@@ -542,6 +548,7 @@ struct gis {
   struct object *uint_type;
   struct object *uint8_type;
   struct object *uint16_type;
+  struct object *uint32_type;
   struct object *vec2_type; 
   struct object *void_type;
 
@@ -574,7 +581,7 @@ struct gis {
   struct object *open_file_builtin;
   struct object *package_symbols_builtin;
   struct object *set_struct_field_builtin;
-  struct object *struct_builtin;
+  struct object *define_struct_builtin;
   struct object *symbol_type_builtin;
   struct object *type_of_builtin;
   struct object *unmarshal_builtin;
@@ -656,5 +663,7 @@ void use_package(struct object *p0, struct object *p1);
 
 struct object *write_file(struct object *file, struct object *o);
 struct object *read_file(struct object *file);
+
+struct object *call_function(struct object *f, struct object *args);
 
 #endif

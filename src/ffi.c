@@ -1,6 +1,6 @@
 #include "ffi.h"
 
-ffi_type *is_pass_by_value_struct(struct object *o) {
+ffi_type *is_type_designator_a_pointer(struct object *o) {
   struct object *lhs, *rhs;
 
   if (type_of(o) != gis->cons_type) return NULL;
@@ -14,15 +14,15 @@ ffi_type *is_pass_by_value_struct(struct object *o) {
 
   rhs = CONS_CAR(CONS_CDR(o));
 
-  if (lhs == gis->impl_pass_by_value_sym) {
+  if (lhs == gis->type_pointer_sym) {
     if (type_of(rhs) == gis->symbol_type) {
       rhs = symbol_get_type(rhs);
     }
     if (type_of(rhs) != gis->type_type) {
-      printf("pass-by-value requires a type or symbol.\n");
+      printf("Pointer requires a type parameter.\n");
       PRINT_STACK_TRACE_AND_QUIT();
     }
-    return TYPE_FFI_TYPE(rhs);
+    return &ffi_type_pointer;
   }
 
   return NULL;
@@ -38,7 +38,7 @@ ffi_type *ffi_type_designator_to_ffi_type(struct object *o, char within_another_
     t = gis->type_type;
   }
 
-  temp = is_pass_by_value_struct(o);
+  temp = is_type_designator_a_pointer(o);
   if (temp != NULL) { /* must be of form (* <any>) */
     return temp;
   } else if (t == gis->type_type) {
@@ -49,21 +49,19 @@ ffi_type *ffi_type_designator_to_ffi_type(struct object *o, char within_another_
     else if (o == gis->uint_type) return &ffi_type_uint;
     else if (o == gis->int_type) return &ffi_type_sint;
     else if (o == gis->string_type) return &ffi_type_pointer;
-    else if (o == gis->uint8_type) {
-      return &ffi_type_uint8;
-    }
-    else if (o == gis->uint16_type) {
-      return &ffi_type_uint16;
-    }
+    else if (o == gis->uint8_type) return &ffi_type_uint8;
+    else if (o == gis->uint16_type) return &ffi_type_uint16;
+    else if (o == gis->uint32_type) return &ffi_type_uint32;
     else if (o == gis->void_type) return &ffi_type_void;
     else if (o == gis->pointer_type) {
-      return &ffi_type_pointer;
+      printf("Pointer takes one argument.\n");
+      PRINT_STACK_TRACE_AND_QUIT();
     } else if (o == gis->struct_type) {
       printf("Passing struct directly is not supported");
       print(o);
       PRINT_STACK_TRACE_AND_QUIT();
-    } else if (TYPE_STRUCT_NFIELDS(o) > 0) {
-      return &ffi_type_pointer;
+    } else if (!TYPE_BUILTIN(o)) {
+      return TYPE_FFI_TYPE(o);
     } else {
       printf("Invalid FFI type designator symbol: \n");
       print(o);

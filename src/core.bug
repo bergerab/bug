@@ -1,58 +1,49 @@
 "Cons helpers that should probably be builtins"
-(impl:function cadr (x)
+(impl:define-function cadr (x)
 	"Gets the second item in a list."
   (car (cdr x)))
 
-(impl:function caddr (x)
+(impl:define-function caddr (x)
 	"Gets the third item in a list."
   (car (cdr (cdr x))))
 
-(impl:function cadddr (x)
+(impl:define-function cadddr (x)
 	"Gets the fourth item in a list."
   (car (cdr (cdr (cdr x)))))
 
-(impl:function caddddr (x)
+(impl:define-function caddddr (x)
 	"Gets the fifth item in a list."
   (car (cdr (cdr (cdr (cdr x))))))
 
-(impl:function caar (x)
+(impl:define-function caar (x)
 	"Gets the first item in the nested list of a list of lists."
   (car (car x)))
 
-(impl:function cddr (x)
+(impl:define-function cddr (x)
 	"Skips the first two items in a list."
   (cdr (cdr x)))
 
-(impl:function nil? (x)
+(impl:define-function nil? (x)
 	"Is x nil?"
 	(= x nil))
 
-(impl:function list? (x)
+(impl:define-function list? (x)
 	"Is x a list (either cons cell or nil)?"
-  (let ((type (impl:type-of x)))
-    (or (= type 'cons)
-        (= type nil))))
+    (or (= (type-of x) (symbol-type 'cons))
+        (= x nil)))
 
-(impl:function cons? (x)
+(impl:define-function cons? (x)
 	"Is x a cons cell?"
-  (let ((type (impl:type-of x)))
-    (= type 'cons)))
+    (= (type-of x) (symbol-type 'cons)))
 
-(impl:function mapcar (f xs)
+(impl:define-function mapcar (f xs)
 	"Applies f to each item in the list xs and returns a new list containing the yielded values."
 	(if xs
-		(cons (impl:call f (car xs)) 
+		(cons (call f (car xs)) 
 				  (mapcar f (cdr xs)))
 		nil))
 
-(impl:function foreach (f xs)
-	(if xs
-		(progn
-			(impl:call f (car xs))
-			(foreach f (cdr xs)))
-		nil))
-
-(impl:function concat (xs ys)
+(impl:define-function concat (xs ys)
 	"Creates a new single list that contains all items in xs followed by all items in ys (maintains ordering)."
 	(if xs
 		(cons (car xs) (concat (cdr xs) ys))
@@ -60,29 +51,29 @@
 				(cons (car ys) (concat xs (cdr ys)))
 					nil)))
 
-(impl:function concatn (lists)
+(impl:define-function concatn (lists)
 	(do-concatn (car lists) (cdr lists)))
 
-(impl:function do-concatn (list lists)
+(impl:define-function do-concatn (list lists)
 	(if list
 		(cons (car list) (do-concatn (cdr list) lists))
 		(if lists
 			(do-concatn (car lists) (cdr lists))
 			nil)))
 
-(impl:function unquoted? (x)
+(impl:define-function unquoted? (x)
 	"Does x have the form (UNQUOTE ...)?"
 	(if (list? x)
 	    (= (car x) 'unquote)
 	  nil))
 
-(impl:function unquote-spliced? (x)
+(impl:define-function unquote-spliced? (x)
 	"Does x have the form (UNQUOTE-SPLICING ...)?"
 	(if (list? x)
 	    (= (car x) 'unquote-splicing)
 	  nil))
 
-(impl:function do-quasiquote (x)
+(impl:define-function do-quasiquote (x)
 	"
 	Takes any expression x and returns the quasiquoted result.
 	Quasiquoting indicates that the given expression's quoting rules will be
@@ -112,56 +103,106 @@
 	apply a UNQUOTE-SPLICING.
 	"
 	(if (unquoted? x)
-		     (list (cadr x))
-		   (if (unquote-spliced? x)
-		       (list (cadr x))
-		     (if (cons? x)
-				   	(list (concatn (mapcar (symbol-function 'do-quasiquote) x)))
-		       (list (list 'quote x))))))
+ 	 (list 'list (cadr x))
+   (if (unquote-spliced? x)
+     (cadr x)
+     (if (cons? x)
+	     (list 'list (concat (list 'concatn) (list (concat (list 'list) (mapcar (symbol-function 'do-quasiquote) x)))))
+       (list 'list (list 'quote x))))))
 
-"(impl:macro quasiquote (x)
-	(car (do-quasiquote x)))"
+(macro quasiquote (x)
+	(cadr (do-quasiquote x)))
+
+(macro when args
+	`(if ,(car args)
+			(progn 
+				,@(cdr args))
+				nil))
+
+(macro unless args
+	`(when (= nil ,(car args)) 
+			,@(cdr args)))
+
+(macro setq (sym val)
+	`(set ',sym ,val))
+
+(macro make (type)
+	`(alloc-struct ',type))
+
+(macro setf (instance field value)
+	`(set-struct-field ,instance ',field , value))
+
+(macro getf (instance field)
+	`(struct-field ,instance ',field))
+
+(macro function args
+	`(impl:define-function ,@args))
+
+(macro print-return (x)
+	`(let ((i-need-to-implement-gensym ,x))
+		(print i-need-to-implement-gensym)
+		i-need-to-implement-gensym))
+
+(macro struct (name fields)
+	`(impl:define-struct ',name ',fields))
+
+"
+(with-fields rect (x y)
+	(+ x y))
+(let ((x (getf rect x))
+      (y (getf rect y)))
+ (+ x y))
+"
+(macro with-fields (instance fields)
+	nil)
+
+"TODO: make macroexpand builtin"
+
+"===================== html =========================="
+"====================================================="
 
 "===================== misc =========================="
-(impl:function fib (x)
+(function fib (x)
   (if (< x 2)
     x
     (+ (fib (- x 2)) 
        (fib (- x 1)))))
 "====================================================="
 
-(impl:function struct-test ()
-	(impl:struct 'rect
-		'((x int) (y int) (w int) (h int)))
+(function struct-test ()
+	(struct rect
+		((x int) (y int) (w int) (h int)))
 
-	(set 'rect (impl:alloc-struct (impl:symbol-type 'rect)))
-	(impl:set-struct-field rect 'x 10)
-	(impl:set-struct-field rect 'y 20)
-	(impl:set-struct-field rect 'w 200)
-	(impl:set-struct-field rect 'h 100)
+	(setq rect (make rect))
+	(setf rect x 10)
+	(setf rect y 20)
+	(setf rect w 200)
+	(setf rect h 100)
 
 	(print rect)
 
-	(print (impl:struct-field rect 'x))
-	(print (impl:struct-field rect 'y))
-	(print (impl:struct-field rect 'w))
-	(print (impl:struct-field rect 'h))
-	(impl:set-struct-field rect 'w 23)
-	(print (impl:struct-field rect 'w))
-	
-  (impl:struct 'b
-   '((z int)
-     (a int)
-  	 (b int)
-  	 (c int)
-  	 (d int)))
+	(print (getf rect x))
+	(print (getf rect y))
+	(print (getf rect w))
+	(print (getf rect h))
+	(getf rect w 23)
+	(print (getf rect w)))
+
+(function advanced-struct-test ()
+  (struct b
+   ((z int)
+    (a int)
+  	(b int)
+  	(c int)
+  	(d int)))
   
-  (impl:struct 'a
-   '((x int) 
-     (y b)))
+" TODO: this should be OK to say (pointer b)"
+  (struct a
+   ((x int) 
+    (y (pointer b))))
   
-  (impl:alloc-struct 'a)
-  (impl:struct-field (impl:alloc-struct 'a) 'y))
+  (make a)
+  (getf (make a) y))
 
 "TODO change WD to root"
 
@@ -169,11 +210,11 @@
 Load BUGED
 "
 
-"hack for SDL_tff.dll it won't load unless it has other DLLs in the same directory as it"
-(impl:function load (path)
-	(let ((file (impl:open-file path "rb")))
-		(let ((f (impl:compile-entire-file file)))
-			(impl:call f))))
+"this shouldn't be done runtime -- when bug compiler is written in bug that will be easier to do"
+(function load (path)
+	(let ((file (open-file path "rb")))
+		(let ((f (compile-entire-file file)))
+			(call f))))
 
 (load "../experiments/mydll/mydll.bug")
 

@@ -232,8 +232,15 @@ struct object *do_to_string(struct object *o, char repr) {
     case type_dynamic_array:
       return to_string_dynamic_array(o);
     case type_function:
-      if (0 && FUNCTION_NAME(o) != NIL) {
-        str = string("<function ");
+      str = string("<");
+      if (FUNCTION_IS_MACRO(o)) {
+        str = string_concat(str, gis->macro_str);
+      } else {
+        str = string_concat(str, gis->function_str);
+      }
+      dynamic_byte_array_push_char(str, ' ');
+
+      if (FUNCTION_NAME(o) != NIL) {
         str = string_concat(str, SYMBOL_NAME(FUNCTION_NAME(o)));
         dynamic_byte_array_push_char(str, '>');
         return str;

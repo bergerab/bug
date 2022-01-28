@@ -31,7 +31,7 @@ char *type_name_cstr(struct object *o) {
 
 /* returns object of type type. */
 struct object *type_of(struct object *o) {
-  if (o == NIL) return gis->nil_type;
+  if (o == NIL) return gis->symbol_type;
   if (HAS_OBJECT_TYPE(o)) {
     /* cannot use validation here, because validation calls type_of and infinitely recurses */
     return dynamic_array_get_ufixnum_t(gis->types, TYPE_INDEX(o));
@@ -262,7 +262,7 @@ struct object *foreign_function(struct object *dlib, struct object *ffname, stru
   OT("foreign_function", 0, dlib, type_dlib);
   ffname = string_designator(ffname);
   OT2("foreign_function", 1, ffname, type_dynamic_byte_array, type_string);
-  OT("foreign_function", 2, ret_type, type_symbol);
+  /* OT("foreign_function", 2, ret_type, type_symbol); accepts a symbol or a list now. */
   OT_LIST("foreign_function", 3, params);
 
   o = object(type_ffun);
@@ -282,16 +282,18 @@ struct object *foreign_function(struct object *dlib, struct object *ffname, stru
   if (type_of(FFUN_RET_TYPE(o)) == gis->symbol_type) {
     FFUN_RET_TYPE(o) = symbol_get_type(FFUN_RET_TYPE(o));
   }
+  /* FFUN_RET_TYPE can also be (pointer void), (pointer int), etc...
   if (type_of(FFUN_RET_TYPE(o)) != gis->type_type) {
     printf("Foreign function requires a type.\n");
     PRINT_STACK_TRACE_AND_QUIT();
   }
+  */
 
   FFUN_ARGTYPES(o) = malloc(sizeof(ffi_type*) * MAX_FFI_NARGS);
   FFUN_NARGS(o) = 0;
+
   while (params != NIL) {
     FFUN_ARGTYPES(o)[FFUN_NARGS(o)++] = ffi_type_designator_to_ffi_type(CONS_CAR(params), 1); /* TODO: within_another_struct=1 -- bad name */
-
     if (FFUN_NARGS(o) > MAX_FFI_NARGS) {
       printf("Too many arguments for foreign function.");
       PRINT_STACK_TRACE_AND_QUIT();
@@ -355,6 +357,10 @@ struct object *struct_field(struct object *instance, struct object *sdes) {
     return fixnum(*(char *)ptr);
   } else if (field_type == gis->uint8_type) {
     return fixnum(*(uint8_t *)ptr);
+  } else if (field_type == gis->uint16_type) {
+    return fixnum(*(uint16_t *)ptr);
+  } else if (field_type == gis->uint32_type) {
+    return fixnum(*(uint32_t *)ptr);
   } else if (field_type == gis->pointer_type) {
     return pointer((void *)ptr);
   } else if (!TYPE_BUILTIN(field_type)) {
@@ -376,6 +382,8 @@ struct object *alloc_struct_inner(struct object *type, char init_defaults) {
   size_t i, nfields;
   ffi_type *t;
   uint8_t default_uint8_val;
+  uint16_t default_uint16_val;
+  uint32_t default_uint32_val;
   int default_sint_val;
 
   /* iterate over struct ffi types and input */
@@ -398,6 +406,16 @@ struct object *alloc_struct_inner(struct object *type, char init_defaults) {
         /* arithemtic can't be done on void* (size of elements is unknown) so
          * cast to a char* (because we know a4 is # of bytes) */
         memcpy(&((char *)instance)[TYPE_STRUCT_OFFSETS(type)[i]], &default_sint_val, sizeof(int));
+      } else if (t->elements[i] == &ffi_type_uint32) {
+        default_uint32_val = 0;
+        /* arithemtic can't be done on void* (size of elements is unknown) so
+         * cast to a char* (because we know a4 is # of bytes) */
+        memcpy(&((char *)instance)[TYPE_STRUCT_OFFSETS(type)[i]], &default_uint32_val, sizeof(uint32_t));
+      } else if (t->elements[i] == &ffi_type_uint16) {
+        default_uint16_val = 0;
+        /* arithemtic can't be done on void* (size of elements is unknown) so
+         * cast to a char* (because we know a4 is # of bytes) */
+        memcpy(&((char *)instance)[TYPE_STRUCT_OFFSETS(type)[i]], &default_uint16_val, sizeof(uint16_t));
       } else if (t->elements[i] == &ffi_type_uint8) {
         default_uint8_val = 0;
         /* arithemtic can't be done on void* (size of elements is unknown) so
@@ -476,6 +494,7 @@ struct object *function(struct object *constants, struct object *code, ufixnum_t
   FUNCTION_NARGS(o) = 0;
   FUNCTION_IS_BUILTIN(o) = 0;
   FUNCTION_IS_MACRO(o) = 0;
+  FUNCTION_ACCEPTS_ALL(o) = 0;
   return o;
 }
 
@@ -615,20 +634,28 @@ void close_file(struct object *file) {
  * error handling                *
  *===============================*
  *===============================*/
+int print_stack_did_recurse = 0;
 void print_stack() {
   ufixnum_t i, j, len;
   struct object *f;
+  ++print_stack_did_recurse;
   len = DYNAMIC_ARRAY_LENGTH(gis->call_stack);
   i = 0;
+  if (print_stack_did_recurse > 1) { /* prevent infinite recursion if the source of the error was a function called within this function */
+    exit(1);
+  }
   while (i < len) {
     f = dynamic_array_get_ufixnum_t(gis->call_stack, i);
-    if (f == NIL) { /* top level */
-      printf("Top level\n");
-      i += 2;
-      continue;
+    if (type_of(f) != gis->function_type) {
+      printf("Error while printing call stack. Expected a function but found: ");
+      print(f);
+      exit(1);
+    } else if (FUNCTION_NAME(f) != NIL) {
+      dynamic_byte_array_force_cstr(SYMBOL_NAME(FUNCTION_NAME(f)));
+      printf("(%s ", STRING_CONTENTS(SYMBOL_NAME(FUNCTION_NAME(f))));
+    } else {
+      printf("(<anonymous-function> ");
     }
-    dynamic_byte_array_force_cstr(FUNCTION_NAME(f));
-    printf("(%s ", STRING_CONTENTS(FUNCTION_NAME(f)));
     i += 1; /* got to instruction index */
     i += 1; /* skip instruction index for now -- should translate this to line number later */
     for (j = 0; j < FUNCTION_NARGS(f); ++j) {
@@ -637,6 +664,7 @@ void print_stack() {
     }
     printf(")\n");
   }
+  --print_stack_did_recurse;
   printf("instruction-index = ");
   print(symbol_get_value(gis->impl_i_sym));
   printf("\n");
@@ -950,6 +978,8 @@ void gis_init(char load_core) {
   GIS_STR(gis->compile_entire_file_str, "compile-entire-file");
   GIS_STR(gis->cons_str, "cons");
   GIS_STR(gis->data_stack_str, "data-stack");
+  GIS_STR(gis->define_function_str, "define-function");
+  GIS_STR(gis->define_struct_str, "define-struct");
   GIS_STR(gis->div_str, "/");
   GIS_STR(gis->drop_str, "drop");
   GIS_STR(gis->dynamic_array_str, "dynamic-array");
@@ -990,7 +1020,6 @@ void gis_init(char load_core) {
   GIS_STR(gis->package_str, "package");
   GIS_STR(gis->package_symbols_str, "package-symbols");
   GIS_STR(gis->packages_str, "packages");
-  GIS_STR(gis->pass_by_value_str, "pass-by-value");
   GIS_STR(gis->pointer_str, "pointer");
   GIS_STR(gis->pop_str, "pop");
   GIS_STR(gis->progn_str, "progn");
@@ -1028,6 +1057,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->uint_str, "uint");
   GIS_STR(gis->uint8_str, "uint8");
   GIS_STR(gis->uint16_str, "uint16");
+  GIS_STR(gis->uint32_str, "uint32");
   GIS_STR(gis->value_str, "value");
   GIS_STR(gis->var_str, "var");
   GIS_STR(gis->void_str, "void");
@@ -1088,6 +1118,8 @@ void gis_init(char load_core) {
   GIS_SYM(gis->impl_compile_sym, gis->compile_str, gis->impl_package);
   GIS_SYM(gis->impl_compile_entire_file_sym, gis->compile_entire_file_str, gis->impl_package);
   GIS_SYM(gis->impl_data_stack_sym, gis->data_stack_str, gis->impl_package); /** the data stack (a cons list) */
+  GIS_SYM(gis->impl_define_function_sym, gis->define_function_str, gis->impl_package);
+  GIS_SYM(gis->impl_define_struct_sym, gis->define_struct_str, gis->impl_package);
   GIS_SYM(gis->impl_drop_sym, gis->drop_str, gis->impl_package);
   GIS_SYM(gis->impl_f_sym, gis->f_str, gis->impl_package); /** the currently executing function */
   GIS_SYM(gis->impl_find_package_sym, gis->find_package_str, gis->impl_package);
@@ -1098,7 +1130,6 @@ void gis_init(char load_core) {
   GIS_SYM(gis->impl_open_file_sym, gis->open_file_str, gis->impl_package); 
   GIS_SYM(gis->impl_package_symbols_sym, gis->package_symbols_str, gis->impl_package); 
   GIS_SYM(gis->impl_packages_sym, gis->packages_str, gis->impl_package); /** all packages */
-  GIS_SYM(gis->impl_pass_by_value_sym, gis->pass_by_value_str, gis->impl_package);
   GIS_SYM(gis->impl_pop_sym, gis->pop_str, gis->impl_package);
   GIS_SYM(gis->impl_push_sym, gis->push_str, gis->impl_package);
   GIS_SYM(gis->impl_read_sym, gis->read_str, gis->impl_package);
@@ -1121,10 +1152,8 @@ void gis_init(char load_core) {
   GIS_SYM(gis->lisp_add_sym, gis->add_str, gis->lisp_package);
   GIS_SYM(gis->lisp_car_sym, gis->car_str, gis->lisp_package);
   GIS_SYM(gis->lisp_cdr_sym, gis->cdr_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_cons_sym, gis->cons_str, gis->lisp_package);
   GIS_SYM(gis->lisp_div_sym, gis->div_str, gis->lisp_package);
   GIS_SYM(gis->lisp_equals_sym, gis->equals_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_function_sym, gis->function_str, gis->lisp_package);
   GIS_SYM(gis->lisp_gt_sym, gis->gt_str, gis->lisp_package);
   GIS_SYM(gis->lisp_gte_sym, gis->gte_str, gis->lisp_package);
   GIS_SYM(gis->lisp_if_sym, gis->if_str, gis->lisp_package);
@@ -1170,9 +1199,23 @@ void gis_init(char load_core) {
   GIS_SYM(gis->type_ufixnum_sym, gis->ufixnum_str, gis->type_package);
   GIS_SYM(gis->type_uint_sym, gis->uint_str, gis->type_package);
   GIS_SYM(gis->type_uint16_sym, gis->uint16_str, gis->type_package);
+  GIS_SYM(gis->type_uint32_sym, gis->uint32_str, gis->type_package);
   GIS_SYM(gis->type_uint8_sym, gis->uint8_str, gis->type_package);
   GIS_SYM(gis->type_vec2_sym, gis->vec2_str, gis->type_package);
   GIS_SYM(gis->type_void_sym, gis->void_str, gis->type_package);
+
+  /* add symbols to lisp package to make them visible */
+  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->type_function_sym, PACKAGE_SYMBOLS(gis->lisp_package));
+  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_macro_sym, PACKAGE_SYMBOLS(gis->lisp_package));
+  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_open_file_sym, PACKAGE_SYMBOLS(gis->lisp_package));
+  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_close_file_sym, PACKAGE_SYMBOLS(gis->lisp_package));
+  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_compile_entire_file_sym, PACKAGE_SYMBOLS(gis->lisp_package));
+  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_call_sym, PACKAGE_SYMBOLS(gis->lisp_package));
+  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_symbol_type_sym, PACKAGE_SYMBOLS(gis->lisp_package));
+  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_alloc_struct_sym, PACKAGE_SYMBOLS(gis->lisp_package));
+  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_set_struct_field_sym, PACKAGE_SYMBOLS(gis->lisp_package));
+  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_struct_field_sym, PACKAGE_SYMBOLS(gis->lisp_package));
+  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_type_of_sym, PACKAGE_SYMBOLS(gis->lisp_package));
 
   symbol_set_value(gis->type_t_sym, gis->type_t_sym); /* t has itself as its value */
 
@@ -1205,6 +1248,7 @@ void gis_init(char load_core) {
   GIS_INSTANTIATABLE_TYPE(gis->function_type, gis->type_function_sym);
   GIS_INSTANTIATABLE_TYPE(gis->file_type, gis->type_file_sym);
   GIS_INSTANTIATABLE_TYPE(gis->enumerator_type, gis->type_enumerator_sym);
+  /* TODO: remove "nil-type" ? */
   GIS_UNINSTANTIATABLE_TYPE(gis->nil_type, gis->type_nil_sym); /* nil is uninstantiatable there is only one value of nil, that is pre-defined. We don't want users to be able to make more than one nil. */
   GIS_INSTANTIATABLE_TYPE(gis->record_type, gis->type_record_sym);
   GIS_INSTANTIATABLE_TYPE(gis->vec2_type, gis->type_vec2_sym);
@@ -1222,6 +1266,7 @@ void gis_init(char load_core) {
   GIS_UNINSTANTIATABLE_TYPE(gis->int_type, gis->type_int_sym);
   GIS_UNINSTANTIATABLE_TYPE(gis->uint8_type, gis->type_uint8_sym);
   GIS_UNINSTANTIATABLE_TYPE(gis->uint16_type, gis->type_uint16_sym);
+  GIS_UNINSTANTIATABLE_TYPE(gis->uint32_type, gis->type_uint32_sym);
   GIS_UNINSTANTIATABLE_TYPE(gis->uint_type, gis->type_uint_sym);
 
   IF_DEBUG() printf("Types have been initialized...\n");
@@ -1252,7 +1297,7 @@ void gis_init(char load_core) {
   GIS_BUILTIN(gis->read_bytecode_file_builtin, gis->impl_read_bytecode_file_sym, 1);
   GIS_BUILTIN(gis->read_file_builtin, gis->impl_read_file_sym, 1);
   GIS_BUILTIN(gis->run_bytecode_builtin, gis->impl_run_bytecode_sym, 2);
-  GIS_BUILTIN(gis->struct_builtin, gis->type_struct_sym, 2);
+  GIS_BUILTIN(gis->define_struct_builtin, gis->impl_define_struct_sym, 2);
   GIS_BUILTIN(gis->symbol_type_builtin, gis->impl_symbol_type_sym, 1);
   GIS_BUILTIN(gis->struct_field_builtin, gis->impl_struct_field_sym, 2);
   GIS_BUILTIN(gis->set_struct_field_builtin, gis->impl_set_struct_field_sym, 3);
@@ -1268,9 +1313,6 @@ void gis_init(char load_core) {
   symbol_set_value(gis->impl_data_stack_sym, gis->data_stack);
   gis->call_stack = dynamic_array(10);
   symbol_set_value(gis->impl_call_stack_sym, gis->call_stack); /* using a dynamic array to make looking up arguments on the stack faster */
-  /* by default the top level call stack has a function of NIL, the instruction index doesn't matter so it is also nil */
-  dynamic_array_push(gis->call_stack, NIL);
-  dynamic_array_push(gis->call_stack, NIL);
 
   symbol_set_value(gis->type_package_sym, gis->user_package);
   symbol_set_value(gis->impl_packages_sym,
@@ -1849,7 +1891,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
 
   value = ast;
   t = type_of(value);
-  if (t == gis->nil_type || t == gis->flonum_type || t == gis->fixnum_type ||
+  if (value == NIL || t == gis->flonum_type || t == gis->fixnum_type ||
       t == gis->ufixnum_type || t == gis->string_type ||
       t == gis->dynamic_byte_array_type || t == gis->package_type ||
       t == gis->vec2_type || t == gis->enumerator_type) {
@@ -1889,7 +1931,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
       if (alist_get_value(st, car) !=
           NIL) { /* if the value exists in the symbol table */
       } else {   /* either it is undefined or a special form */
-        if (car == gis->lisp_cons_sym) {
+        if (car == gis->type_cons_sym) {
           SF_REQ_N(2, value);
           C_COMPILE_ARG0;
           C_COMPILE_ARG1;
@@ -1932,13 +1974,13 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
             C_COMPILE(CONS_CAR(cursor));
             cursor = CONS_CDR(cursor);
           }
-        } else if (car == gis->type_function_sym || car == gis->impl_macro_sym) {
+        } else if (car == gis->impl_define_function_sym || car == gis->impl_macro_sym) {
           /* (function [name] [params] body) */
           name = C_ARG0();
 
           /* check if the name position is actually filled with the params
            * (anonymous function) */
-          if (type_of(name) == gis->cons_type || type_of(name) == gis->nil_type) {
+          if (type_of(name) == gis->cons_type || name == NIL) {
             params = name;
             /* set name to NIL as a flag for later */
             name = NIL;
@@ -1950,18 +1992,29 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
             params = C_ARG1();
           }
 
-          cursor = params;
-          length = 0;
-          tst = st;
-          while (cursor != NIL) {
-            k = CONS_CAR(cursor);
-            /* add to the symbol table that the body of the function will use */
-            tst = alist_extend(tst, k, ufixnum(length));
-            cursor = CONS_CDR(cursor);
-            ++length;
+          fun = function(dynamic_array(10), dynamic_byte_array(10), 0);
+
+          /* params can be a symbol, in that case all the given arguments are accepted and bound to that symbol */
+          if (type_of(params) == gis->symbol_type) {
+              length = 0;
+              tst = st;
+              tst = alist_extend(tst, params, ufixnum(length));
+              FUNCTION_ACCEPTS_ALL(fun) = 1;
+              ++length;
+          } else {
+            cursor = params;
+            length = 0;
+            tst = st;
+            while (cursor != NIL) {
+              k = CONS_CAR(cursor);
+              /* add to the symbol table that the body of the function will use */
+              tst = alist_extend(tst, k, ufixnum(length));
+              cursor = CONS_CDR(cursor);
+              ++length;
+            }
           }
 
-          fun = function(dynamic_array(10), dynamic_byte_array(10), length);
+          FUNCTION_STACK_SIZE(fun) = length;
           FUNCTION_NARGS(fun) = length;
           FUNCTION_NAME(fun) = name;
 
@@ -2279,7 +2332,8 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
           if (SYMBOL_FUNCTION_IS_SET(car) &&
               type_of(SYMBOL_FUNCTION(car)) == gis->function_type &&
               FUNCTION_IS_MACRO(SYMBOL_FUNCTION(car))) {
-            compile(eval(SYMBOL_FUNCTION(car), CONS_CDR(value)), f, st, fst);
+            t = call_function(SYMBOL_FUNCTION(car), CONS_CDR(value));
+            compile(t, f, st, fst);
           } else {
             COMPILE_DO_EACH({});
             gen_load_constant(f, car);
@@ -2349,7 +2403,7 @@ void eval_builtin(struct object *f) {
     push(symbol_get_type(GET_LOCAL(0)));
   } else if (f == gis->type_of_builtin) {
     push(type_of(GET_LOCAL(0)));
-  } else if (f == gis->struct_builtin) {
+  } else if (f == gis->define_struct_builtin) {
     push(type(GET_LOCAL(0), GET_LOCAL(1), 1, 0));
   } else if (f == gis->change_directory_builtin) {
     change_directory(GET_LOCAL(0));
@@ -2451,210 +2505,296 @@ void eval_builtin(struct object *f) {
   DYNAMIC_ARRAY_VALUES(gis->data_stack) \
   [DYNAMIC_ARRAY_LENGTH(gis->data_stack) - 1 - (i)]
 
-/* returns the top of the stack for convience */
-/* evaluates gis->function starting at instruction gis->i */
-/* assumes gis->i and gis->f is set and call_stack has been initialized with
- * space for all stack args */
-struct object *run(struct gis *gis) {
-  unsigned long byte_count,
-      op_arg_byte_count; /* number of  bytes in this bytecode */
-  unsigned char t0, op;  /* temporary for reading bytecode arguments */
-  unsigned long a0, a1;  /* the arguments for bytecode parameters */
-  unsigned long a2;
-  long sa0;               /* argument for jumps */
-  struct object *v0, *v1; /* temps for values popped off the stack */
-  struct object *c0; /* temps for constants (used for bytecode arguments) */
-  struct object *temp_i, *temp_f, *f;
+void prepare_function_call(unsigned long nargs, struct object *old_f, struct object *old_i, struct object *new_f) {
+  unsigned long argi;
+  struct object *args;
+
+  symbol_set_value(gis->impl_f_sym, new_f);
+
+  /* transfer arguments from data stack to call stack */
+  if (FUNCTION_ACCEPTS_ALL(new_f)) {
+    args = NIL;
+    for (argi = 0; argi < nargs; ++argi) {
+      args = cons(STACK_I(argi + 1), args);
+    }
+    dynamic_array_push(gis->call_stack, args);
+  } else {
+    for (argi = nargs; argi > 0; --argi) {
+      dynamic_array_push(gis->call_stack, STACK_I(argi));
+    }
+  }
+
+  /* remove all arguments and the function from the data stack at once */
+  DYNAMIC_ARRAY_LENGTH(gis->data_stack) -= nargs + 1;
+
+  /* initialize any temps with NIL -- could be improved by just adding to
+   * the call stack's length */
+  for (argi = 0; argi < FUNCTION_STACK_SIZE(new_f) - FUNCTION_NARGS(new_f); ++argi) {
+    dynamic_array_push(gis->call_stack, NIL);
+  }
+
+  /* save the instruction index, and function */
+  UFIXNUM_VALUE(old_i) += 1; /* resume at the next instruction */
+  dynamic_array_push(gis->call_stack, old_i);
+  dynamic_array_push(gis->call_stack, old_f);
+
+  symbol_set_value(gis->impl_i_sym,
+                   ufixnum(0)); /* start the bytecode interpreter at the first instruction */
+}
+
+struct object *call_function(struct object *f, struct object *args) {
   struct object *cursor;
-  struct dynamic_byte_array
-      *code; /* the byte array containing the bytes in the bytecode */
-  struct dynamic_array *constants; /* the constants array */
-  unsigned long constants_length;  /* the length of the constants array */
-  struct object *i;
-  ufixnum_t ufix0;
-  void *arg_values[MAX_FFI_NARGS]; /* for calling foreign functions */
-  ffi_sarg sresult;                /* signed result */
-  void *ptr_result;
-  /* jump to this label after setting a new gis->i and gis->f
-     (and pushing the old i and bc to the call-stack) */
+  ufixnum_t i, nargs;
 
-eval_restart:
-  f = symbol_get_value(gis->impl_f_sym);
-  code = FUNCTION_CODE(f)->w1.value.dynamic_byte_array;
-  constants = FUNCTION_CONSTANTS(f)->w1.value.dynamic_array;
-  constants_length = constants->length;
-  byte_count = code->length;
-  i = symbol_get_value(gis->impl_i_sym);
+  /* transfer arguments from data stack to call stack */
+  if (FUNCTION_ACCEPTS_ALL(f)) {
+    nargs = 1;
+    dynamic_array_push(gis->call_stack, args);
+  } else {
+    nargs = 0;
+    cursor = args;
+    while (cursor != NIL) {
+      dynamic_array_push(gis->call_stack, CONS_CAR(cursor));
+      cursor = CONS_CDR(cursor);
+      ++nargs;
+    }
+  }
 
-  while (UFIXNUM_VALUE(i) < byte_count) {
-    op = code->bytes[UFIXNUM_VALUE(i)];
-    switch (op) {
-      case op_drop: /* drop ( x -- ) */
-        SC("drop", 1);
-        pop();
-        break;
-      case op_dup: /* dup ( x -- x x ) */
-        SC("dup", 1);
-        dup();
-        break;
-      case op_cons: /* cons ( car cdr -- (cons car cdr) ) */
-        SC("cons", 2);
-        v1 = pop(); /* cdr */
-        v0 = pop(); /* car */
-        push(cons(v0, v1));
-        break;
-      case op_intern: /* intern ( string -- symbol ) */
-        SC("intern", 1);
-        v0 = pop();
-        printf("op_intern is not implemented.");
-        PRINT_STACK_TRACE_AND_QUIT();
-        OT("intern", 0, v0, type_string);
-        push(intern(pop(), NIL));
-        break;
-      case op_car: /* car ( (cons car cdr) -- car ) */
-        SC("car", 1);
-        v0 = pop();
-        if (v0 == NIL) {
-          push(NIL);
-        } else if (type_of(v0) == gis->cons_type) {
-          push(CONS_CAR(v0));
-        } else {
-          printf("Can only car a list (was given a %s).",
-                 type_name_of_cstr(v0));
+  /* initialize any temps with NIL -- could be improved by just adding to
+   * the call stack's length */
+  for (i = 0; i < FUNCTION_STACK_SIZE(f) - FUNCTION_NARGS(f); ++i) {
+    dynamic_array_push(gis->call_stack, NIL);
+  }
+
+  /* save the instruction index, and function */
+  /* if there is anything to return to --
+     if this is a macro that is being called from the top level, there would be nothing to return to. */
+  if (symbol_get_value(gis->impl_f_sym) != NIL) {
+    /* resume at the next instruction */
+    if (symbol_get_value(gis->impl_i_sym) != NIL) { /* impl_i_sym's value can be null if a builtin was just called */
+      UFIXNUM_VALUE(symbol_get_value(gis->impl_i_sym)) += 1;
+      dynamic_array_push(gis->call_stack, symbol_get_value(gis->impl_i_sym));
+    } else {
+      dynamic_array_push(gis->call_stack, NIL);
+    }
+    dynamic_array_push(gis->call_stack, symbol_get_value(gis->impl_f_sym));
+  } else {
+    /* there is no where to return to, but because we put the function/instruction-index at the top
+       of the stack, we need to fill it with something (because GET_LOCAL(...) depends on that) */
+    dynamic_array_push(gis->call_stack, NIL);
+    dynamic_array_push(gis->call_stack, NIL);
+  }
+
+  /* start the bytecode interpreter at the first instruction */
+  symbol_set_value(gis->impl_i_sym, ufixnum(0));
+  symbol_set_value(gis->impl_f_sym, f);
+  return run(gis);
+}
+
+/* returns the top of the stack for convience */
+  /* evaluates gis->function starting at instruction gis->i */
+  /* assumes gis->i and gis->f is set and call_stack has been initialized with
+   * space for all stack args */
+  struct object *run(struct gis * gis) {
+    unsigned long byte_count,
+        op_arg_byte_count; /* number of  bytes in this bytecode */
+    unsigned char t0, op;  /* temporary for reading bytecode arguments */
+    unsigned long a0, a1;  /* the arguments for bytecode parameters */
+    unsigned long a2;
+    long sa0;               /* argument for jumps */
+    struct object *v0, *v1; /* temps for values popped off the stack */
+    struct object *c0; /* temps for constants (used for bytecode arguments) */
+    struct object *temp_i, *temp_f, *f;
+    struct object *cursor;
+    struct dynamic_byte_array
+        *code; /* the byte array containing the bytes in the bytecode */
+    struct dynamic_array *constants; /* the constants array */
+    unsigned long constants_length;  /* the length of the constants array */
+    struct object *i;
+    ufixnum_t ufix0;
+    void *arg_values[MAX_FFI_NARGS]; /* for calling foreign functions */
+    ffi_sarg sresult;                /* signed result */
+    void *ptr_result;
+    /* jump to this label after setting a new gis->i and gis->f
+       (and pushing the old i and bc to the call-stack) */
+
+  eval_restart:
+    f = symbol_get_value(gis->impl_f_sym);
+    code = FUNCTION_CODE(f)->w1.value.dynamic_byte_array;
+    constants = FUNCTION_CONSTANTS(f)->w1.value.dynamic_array;
+    constants_length = constants->length;
+    byte_count = code->length;
+    i = symbol_get_value(gis->impl_i_sym);
+
+    while (UFIXNUM_VALUE(i) < byte_count) {
+      op = code->bytes[UFIXNUM_VALUE(i)];
+      switch (op) {
+        case op_drop: /* drop ( x -- ) */
+          SC("drop", 1);
+          pop();
+          break;
+        case op_dup: /* dup ( x -- x x ) */
+          SC("dup", 1);
+          dup();
+          break;
+        case op_cons: /* cons ( car cdr -- (cons car cdr) ) */
+          SC("cons", 2);
+          v1 = pop(); /* cdr */
+          v0 = pop(); /* car */
+          push(cons(v0, v1));
+          break;
+        case op_intern: /* intern ( string -- symbol ) */
+          SC("intern", 1);
+          v0 = pop();
+          printf("op_intern is not implemented.");
           PRINT_STACK_TRACE_AND_QUIT();
-        }
-        break;
-      case op_cdr: /* cdr ( (cons car cdr) -- cdr ) */
-        SC("cdr", 1);
-        v0 = pop();
-        if (v0 == NIL) {
+          OT("intern", 0, v0, type_string);
+          push(intern(pop(), NIL));
+          break;
+        case op_car: /* car ( (cons car cdr) -- car ) */
+          SC("car", 1);
+          v0 = pop();
+          if (v0 == NIL) {
+            push(NIL);
+          } else if (type_of(v0) == gis->cons_type) {
+            push(CONS_CAR(v0));
+          } else {
+            printf("Can only car a list (was given a %s).",
+                   type_name_of_cstr(v0));
+            PRINT_STACK_TRACE_AND_QUIT();
+          }
+          break;
+        case op_cdr: /* cdr ( (cons car cdr) -- cdr ) */
+          SC("cdr", 1);
+          v0 = pop();
+          if (v0 == NIL) {
+            push(NIL);
+          } else if (type_of(v0) == gis->cons_type) {
+            push(CONS_CDR(v0));
+          } else {
+            printf("Can only cdr a list (was given a %s).",
+                   type_name_of_cstr(v0));
+            PRINT_STACK_TRACE_AND_QUIT();
+          }
+          break;
+        case op_gt: /* gt ( x y -- x>y ) */
+          SC("gt", 2);
+          v1 = pop(); /* y */
+          STACK_I(0) = FIXNUM_VALUE(STACK_I(0)) > FIXNUM_VALUE(v1)
+                           ? T
+                           : NIL; /* TODO: support flonum/ufixnum */
+          break;
+        case op_lt: /* lt ( x y -- x<y ) */
+          SC("lt", 2);
+          v1 = pop(); /* y */
+          STACK_I(0) = FIXNUM_VALUE(STACK_I(0)) < FIXNUM_VALUE(v1)
+                           ? T
+                           : NIL; /* TODO: support flonum/ufixnum */
+          break;
+        case op_lti: /* lti <n> ( x -- x<n ) */
+          SC("lti", 1);
+          READ_OP_ARG();
+          STACK_I(0) = FIXNUM_VALUE(STACK_I(0)) < a0
+                           ? T
+                           : NIL; /* TODO: support flonum/ufixnum */
+          break;
+        case op_gte: /* gte ( x y -- x>=y ) */
+          SC("gte", 2);
+          v1 = pop(); /* y */
+          STACK_I(0) = FIXNUM_VALUE(STACK_I(0)) >= FIXNUM_VALUE(v1)
+                           ? T
+                           : NIL; /* TODO: support flonum/ufixnum */
+          break;
+        case op_lte: /* gte ( x y -- x<=y ) */
+          SC("lte", 2);
+          v1 = pop(); /* y */
+          STACK_I(0) = FIXNUM_VALUE(STACK_I(0)) <= FIXNUM_VALUE(v1)
+                           ? T
+                           : NIL; /* TODO: support flonum/ufixnum */
+          break;
+        case op_add: /* add ( x y -- x+y ) */
+          SC("add", 2);
+          v1 = pop(); /* y */
+          STACK_I(0) =
+              fixnum(FIXNUM_VALUE(STACK_I(0)) +
+                     FIXNUM_VALUE(v1)); /* TODO: support flonum/ufixnum */
+          break;
+        case op_addi: /* add-i <n> ( x -- x+n ) */
+          READ_OP_ARG();
+          STACK_I(0) = fixnum(FIXNUM_VALUE(STACK_I(0)) + a0);
+          break;
+        case op_subi: /* add-i <n> ( x -- ) */
+          READ_OP_ARG();
+          STACK_I(0) = fixnum(FIXNUM_VALUE(STACK_I(0)) - a0);
+          break;
+        case op_sub: /* sub ( x y -- x-y ) */
+          SC("sub", 2);
+          v1 = pop(); /* y */
+          STACK_I(0) =
+              fixnum(FIXNUM_VALUE(STACK_I(0)) -
+                     FIXNUM_VALUE(v1)); /* TODO: support flonum/ufixnum */
+          break;
+        case op_mul: /* mul ( x y -- x*y ) */
+          SC("mul", 2);
+          v1 = pop(); /* y */
+          STACK_I(0) =
+              fixnum(FIXNUM_VALUE(STACK_I(0)) *
+                     FIXNUM_VALUE(v1)); /* TODO: support flonum/ufixnum */
+          break;
+        case op_div: /* div ( x y -- x/y ) */
+          SC("div", 2);
+          v1 = pop(); /* y */
+          STACK_I(0) =
+              fixnum(FIXNUM_VALUE(STACK_I(0)) /
+                     FIXNUM_VALUE(v1)); /* TODO: support flonum/ufixnum */
+          break;
+        case op_eq: /* eq ( x y -- z ) */
+          SC("eq", 2);
+          v1 = pop(); /* y */
+          /* TODO: add t */
+          STACK_I(0) = equals(STACK_I(0), v1) ? gis->type_t_sym : NIL;
+          break;
+        case op_and: /* and ( x y -- z ) */
+          SC("and", 2);
+          v1 = pop(); /* y */
+          if (STACK_I(0) != NIL && v1 != NIL)
+            STACK_I(0) = v1;
+          else
+            STACK_I(0) = NIL;
+          break;
+        case op_list: /* list <n> ( ...n... -- ) */
+          READ_OP_ARG();
+          if (a0 == 0)
+            push(NIL);
+          else if (a0 == 1)
+            STACK_I(0) = cons(STACK_I(0), NIL);
+          else {
+            STACK_I(0) = cons(STACK_I(0), NIL);
+            for (a1 = 1; a1 < a0; ++a1)
+              STACK_I(0) = cons(STACK_I(a1), STACK_I(0));
+            /* set the earliest stack item to be the result, because so we can
+             * simply update the data stack's count to pop the args */
+            STACK_I(a0 - 1) = STACK_I(0);
+            gis->data_stack->w1.value.dynamic_array->length -= a0 - 1;
+          }
+          break;
+        case op_or: /* or ( x y -- z ) */
+          SC("or", 2);
+          v1 = pop(); /* y */
+          if (STACK_I(0) != NIL && v1 != NIL) {
+            STACK_I(0) = v1;
+          } else if (STACK_I(0) != NIL) {
+            /* do nothing - v0 is already on the stack */
+          } else if (v1 != NIL) {
+            STACK_I(0) = v1;
+          } else {
+            STACK_I(0) = NIL;
+          }
+          break;
+        case op_load_nil:
           push(NIL);
-        } else if (type_of(v0) == gis->cons_type) {
-          push(CONS_CDR(v0));
-        } else {
-          printf("Can only cdr a list (was given a %s).",
-                 type_name_of_cstr(v0));
-          PRINT_STACK_TRACE_AND_QUIT();
-        }
-        break;
-      case op_gt: /* gt ( x y -- x>y ) */
-        SC("gt", 2);
-        v1 = pop(); /* y */
-        STACK_I(0) = FIXNUM_VALUE(STACK_I(0)) > FIXNUM_VALUE(v1)
-                         ? T
-                         : NIL; /* TODO: support flonum/ufixnum */
-        break;
-      case op_lt: /* lt ( x y -- x<y ) */
-        SC("lt", 2);
-        v1 = pop(); /* y */
-        STACK_I(0) = FIXNUM_VALUE(STACK_I(0)) < FIXNUM_VALUE(v1)
-                         ? T
-                         : NIL; /* TODO: support flonum/ufixnum */
-        break;
-      case op_lti: /* lti <n> ( x -- x<n ) */
-        SC("lti", 1);
-        READ_OP_ARG();
-        STACK_I(0) = FIXNUM_VALUE(STACK_I(0)) < a0
-                         ? T
-                         : NIL; /* TODO: support flonum/ufixnum */
-        break;
-      case op_gte: /* gte ( x y -- x>=y ) */
-        SC("gte", 2);
-        v1 = pop(); /* y */
-        STACK_I(0) = FIXNUM_VALUE(STACK_I(0)) >= FIXNUM_VALUE(v1)
-                         ? T
-                         : NIL; /* TODO: support flonum/ufixnum */
-        break;
-      case op_lte: /* gte ( x y -- x<=y ) */
-        SC("lte", 2);
-        v1 = pop(); /* y */
-        STACK_I(0) = FIXNUM_VALUE(STACK_I(0)) <= FIXNUM_VALUE(v1)
-                         ? T
-                         : NIL; /* TODO: support flonum/ufixnum */
-        break;
-      case op_add: /* add ( x y -- x+y ) */
-        SC("add", 2);
-        v1 = pop(); /* y */
-        STACK_I(0) =
-            fixnum(FIXNUM_VALUE(STACK_I(0)) +
-                   FIXNUM_VALUE(v1)); /* TODO: support flonum/ufixnum */
-        break;
-      case op_addi: /* add-i <n> ( x -- x+n ) */
-        READ_OP_ARG();
-        STACK_I(0) = fixnum(FIXNUM_VALUE(STACK_I(0)) + a0);
-        break;
-      case op_subi: /* add-i <n> ( x -- ) */
-        READ_OP_ARG();
-        STACK_I(0) = fixnum(FIXNUM_VALUE(STACK_I(0)) - a0);
-        break;
-      case op_sub: /* sub ( x y -- x-y ) */
-        SC("sub", 2);
-        v1 = pop(); /* y */
-        STACK_I(0) =
-            fixnum(FIXNUM_VALUE(STACK_I(0)) -
-                   FIXNUM_VALUE(v1)); /* TODO: support flonum/ufixnum */
-        break;
-      case op_mul: /* mul ( x y -- x*y ) */
-        SC("mul", 2);
-        v1 = pop(); /* y */
-        STACK_I(0) =
-            fixnum(FIXNUM_VALUE(STACK_I(0)) *
-                   FIXNUM_VALUE(v1)); /* TODO: support flonum/ufixnum */
-        break;
-      case op_div: /* div ( x y -- x/y ) */
-        SC("div", 2);
-        v1 = pop(); /* y */
-        STACK_I(0) =
-            fixnum(FIXNUM_VALUE(STACK_I(0)) /
-                   FIXNUM_VALUE(v1)); /* TODO: support flonum/ufixnum */
-        break;
-      case op_eq: /* eq ( x y -- z ) */
-        SC("eq", 2);
-        v1 = pop(); /* y */
-        /* TODO: add t */
-        STACK_I(0) = equals(STACK_I(0), v1) ? gis->type_t_sym : NIL;
-        break;
-      case op_and: /* and ( x y -- z ) */
-        SC("and", 2);
-        v1 = pop(); /* y */
-        if (STACK_I(0) != NIL && v1 != NIL)
-          STACK_I(0) = v1;
-        else
-          STACK_I(0) = NIL;
-        break;
-      case op_list: /* list <n> ( ...n... -- ) */
-        READ_OP_ARG();
-        if (a0 == 0)
-          push(NIL);
-        else if (a0 == 1)
-          STACK_I(0) = cons(STACK_I(0), NIL);
-        else {
-          STACK_I(0) = cons(STACK_I(0), NIL);
-          for (a1 = 1; a1 < a0; ++a1)
-            STACK_I(0) = cons(STACK_I(a1), STACK_I(0));
-          /* set the earliest stack item to be the result, because so we can
-           * simply update the data stack's count to pop the args */
-          STACK_I(a0 - 1) = STACK_I(0);
-          gis->data_stack->w1.value.dynamic_array->length -= a0 - 1;
-        }
-        break;
-      case op_or: /* or ( x y -- z ) */
-        SC("or", 2);
-        v1 = pop(); /* y */
-        if (STACK_I(0) != NIL && v1 != NIL) {
-          STACK_I(0) = v1;
-        } else if (STACK_I(0) != NIL) {
-          /* do nothing - v0 is already on the stack */
-        } else if (v1 != NIL) {
-          STACK_I(0) = v1;
-        } else {
-          STACK_I(0) = NIL;
-        }
-        break;
-      case op_load_nil:
-        push(NIL);
-        break;
-      case op_const_0:
+          break;
+        case op_const_0:
 #ifdef RUN_TIME_CHECKS
         if (constants->length < 1) {
           printf("Out of bounds of constants vector.");
@@ -2758,10 +2898,9 @@ eval_restart:
           a1 = a0; /* for indexing arguments */
           a2 = 0;  /* for indexing arg_values */
           while (cursor != NIL) {
-            /* TODO: handle pass by value */
-            if (is_pass_by_value_struct(CONS_CAR(cursor)) != NULL) {
-              arg_values[a2] = OBJECT_POINTER(STACK_I(a1));
-            } else if (type_of(STACK_I(a1)) == gis->nil_type) {
+            if (is_type_designator_a_pointer(CONS_CAR(cursor)) != NULL) { /* IMPORTANT TODO: validate that it is the same type from the ffun signature */
+              arg_values[a2] = &OBJECT_POINTER(STACK_I(a1));
+            } else if (STACK_I(a1) == NIL) {
               arg_values[a2] = &ffi_null;
             } else if (type_of(STACK_I(a1)) == gis->fixnum_type) {
               arg_values[a2] = &FIXNUM_VALUE(STACK_I(a1));
@@ -2771,7 +2910,7 @@ eval_restart:
             } else if (type_of(STACK_I(a1)) == gis->pointer_type) {
               arg_values[a2] = &OBJECT_POINTER(STACK_I(a1));
             } else if (!TYPE_BUILTIN(type_of(STACK_I(a1)))) { /* IMPORTANT TODO: validate that it is the same type from the ffun signature */
-              arg_values[a2] = &OBJECT_POINTER(STACK_I(a1));
+              arg_values[a2] = OBJECT_POINTER(STACK_I(a1));
             } else {
               printf("Argument not supported for foreign functions.");
               print(STACK_I(a1));
@@ -2804,26 +2943,8 @@ eval_restart:
           PRINT_STACK_TRACE_AND_QUIT();
         }
 
-        symbol_set_value(gis->impl_f_sym, f);
+        prepare_function_call(a0, temp_f, temp_i, f);
 
-        /* transfer arguments from data stack to call stack */
-        for (a1 = a0; a1 > 0; --a1) {
-          dynamic_array_push(gis->call_stack, STACK_I(a1));
-        }
-
-        /* remove all arguments and the function from the data stack at once */
-        DYNAMIC_ARRAY_LENGTH(gis->data_stack) -= a0 + 1;
-
-        /* initialize any temps with NIL -- could be improved by just adding to
-         * the call stack's length */
-        for (a1 = 0; a1 < FUNCTION_STACK_SIZE(f) - FUNCTION_NARGS(f); ++a1) {
-          dynamic_array_push(gis->call_stack, NIL);
-        }
-
-        /* save the instruction index, and function */
-        UFIXNUM_VALUE(i) += 1; /* resume at the next instruction */
-        dynamic_array_push(gis->call_stack, temp_i);
-        dynamic_array_push(gis->call_stack, temp_f);
         if (FUNCTION_IS_BUILTIN(f)) {
           symbol_set_value(
               gis->impl_i_sym,
@@ -2832,9 +2953,6 @@ eval_restart:
           eval_builtin(f);
           goto return_function_label; /* return */
         } else {
-          symbol_set_value(gis->impl_i_sym,
-                           ufixnum(0)); /* start the bytecode interpreter at the
-                                           first instruction */
           goto eval_restart;            /* restart the evaluation loop */
         }
       case op_return_function: /* return-function ( x -- ) */
@@ -2845,18 +2963,13 @@ eval_restart:
           PRINT_STACK_TRACE_AND_QUIT();
         }
 #endif
-        ufix0 = FUNCTION_STACK_SIZE(f) + 2; /* store the frame size */
-        /* this indicates that we returned to the top level -- used when calling
-         * macros directly from c */
-        if (DYNAMIC_ARRAY_VALUES(
-                gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 1] ==
-                NIL &&
-            DYNAMIC_ARRAY_VALUES(
-                gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 2] ==
-                NIL) {
-          printf("DEAD?\n");
-          break; /* TODO: This might be dead code? */
+          ufix0 = FUNCTION_STACK_SIZE(f) + 2;
+        /* this indicates that we returned to the top level -- used when calling functions during compile time (starts with macros) */
+        if (DYNAMIC_ARRAY_LENGTH(gis->call_stack) == FUNCTION_STACK_SIZE(f) + 2) {
+          DYNAMIC_ARRAY_LENGTH(gis->call_stack) -= ufix0;
+          break;
         } else {
+          ufix0 = FUNCTION_STACK_SIZE(f) + 2; /* store the frame size */
           symbol_set_value(
               gis->impl_f_sym,
               DYNAMIC_ARRAY_VALUES(

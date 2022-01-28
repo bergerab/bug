@@ -2,181 +2,221 @@
 (impl:change-directory "lib/")
 
 "================= sdl2 library ====================="
-(impl:struct 'sdl-rect
-	'((x int)
-		(y int)
-		(w int)
-		(h int)))
+(struct sdl-rect
+	((x int)
+	 (y int)
+	 (w int)
+	 (h int)))
 
-(impl:struct 'sdl-keysym
-	'((scancode uint8)
-		(sym int)
-		(mod int)
-		(unicode uint16)))
+(struct sdl-keysym
+	((scancode uint32)
+	 (sym uint32)
+	 (mod uint16)
+	 (unused uint32)))
 
-(impl:struct 'sdl-keyboard-event
-	'((type uint8)
-		(state uint8)
-		(keysym sdl-keysym)))
+(struct sdl-keyboard-event
+	((type uint32)
+	 (timestamp uint32)
+	 (window-id uint32)
+	 (state uint8)
+	 (repeat uint8)
+	 (timestamp uint32)
+	 (keysym sdl-keysym)))
+"sdl-keysym has to be directly on the struct -- need to make everything that needs a pointer do (* sdl-keysym)"
 
-(set 'sdl2 (impl:dynamic-library "SDL2.dll"))
+(function get-key (event)
+	(let ((keysym (getf event keysym)))
+		(getf keysym scancode)))
+
+(setq sdl2 (dynamic-library "SDL2.dll"))
 
 (set-symbol-function 'init
-  (impl:foreign-function
+  (foreign-function
   	sdl2 'SDL_Init
   	'int '(int)))
 
 (set-symbol-function 'create-window
-  (impl:foreign-function
+  (foreign-function
   	sdl2 'SDL_CreateWindow
-    'pointer '(string int int int int int)))
+    '(pointer void) '(string int int int int int)))
 
 (set-symbol-function 'create-renderer
-  (impl:foreign-function
+  (foreign-function
   	sdl2 'SDL_CreateRenderer
-    'pointer '(pointer int int)))
+    '(pointer void) '((pointer void) int int)))
 
 (set-symbol-function 'get-error
-  (impl:foreign-function
+  (foreign-function
   	sdl2 'SDL_GetError
     'string '()))
 
 (set-symbol-function 'rw-from-file
-  (impl:foreign-function
+  (foreign-function
   	sdl2 'SDL_RWFromFile
-    'pointer '(string string)))
+    '(pointer void) '(string string)))
 
 (set-symbol-function 'load-bmp-rw
-  (impl:foreign-function
+  (foreign-function
   	sdl2 'SDL_LoadBMP_RW
-    'pointer '(pointer int)))
+    '(pointer void) '((pointer void) int)))
 
 (set-symbol-function 'create-texture-from-surface
-  (impl:foreign-function
+  (foreign-function
   	sdl2 'SDL_CreateTextureFromSurface
-    'pointer '(pointer pointer)))
+    '(pointer void) '((pointer void) (pointer void))))
 
 (set-symbol-function 'render-clear
-  (impl:foreign-function
+  (foreign-function
   	sdl2 'SDL_RenderClear
-    'pointer '(pointer)))
+    '(pointer void) '((pointer void))))
 
 (set-symbol-function 'render-copy
-  (impl:foreign-function
+  (foreign-function
   	sdl2 'SDL_RenderCopy
-    'pointer '(pointer pointer sdl-rect sdl-rect)))
+    '(pointer void) '((pointer void) (pointer void) (pointer sdl-rect) (pointer sdl-rect))))
 
 (set-symbol-function 'render-present
-  (impl:foreign-function
+  (foreign-function
   	sdl2 'SDL_RenderPresent
-    'pointer '(pointer)))
+    '(pointer void) '((pointer void))))
+
+(set-symbol-function 'poll-keyboard-event
+  (foreign-function
+  	sdl2 'SDL_PollEvent
+    'int '((pointer sdl-keyboard-event))))
 
 (set-symbol-function 'delay
-  (impl:foreign-function
+  (foreign-function
   	sdl2 'SDL_Delay
     'int '(int)))
 "========================================================"
 
 "================= sdl2-tff library ====================="
-(impl:struct 'sdl-color
-	'((r uint8)
-		(g uint8)
-		(b uint8)
-		(a uint8)))
+(struct sdl-color
+	((r uint8)
+	 (g uint8)
+	 (b uint8)
+	 (a uint8)))
 
-(set 'sdl2-ttf (impl:dynamic-library "SDL2_ttf.dll"))
+(setq sdl2-ttf (dynamic-library "SDL2_ttf.dll"))
 
 (set-symbol-function 'ttf-init
-  (impl:foreign-function
+  (foreign-function
   	sdl2-ttf 'TTF_Init
     'int '()))
 
 (set-symbol-function 'open-font
-  (impl:foreign-function
+  (foreign-function
   	sdl2-ttf 'TTF_OpenFont
-    'pointer '(pointer int)))
+    '(pointer void) '((pointer void) int)))
 
 " TODO: sdl-color needs to be passed by value this is how it is in the ttf-sdl2 library "
 (set-symbol-function 'render-text-solid
-  (impl:foreign-function
+  (foreign-function
   	sdl2-ttf 'TTF_RenderText_Solid
-    'pointer '(pointer pointer (impl:pass-by-value sdl-color))))
+    '(pointer void) '((pointer void) (pointer void) (pointer sdl-color))))
 
 "helper functions"
 
-(impl:function load-bmp (path)
+(function load-bmp (path)
 	(let ((bmp-file (rw-from-file path "rb")))
 		(load-bmp-rw bmp-file 1)))
 
-(impl:function load-bmp-tex (ren path)
+(function load-bmp-tex (ren path)
 	(create-texture-from-surface ren (load-bmp path)))
 "========================================================"
 (impl:change-directory "..") "back to the root"
 
-(impl:function make-text (x y message)
+(function make-text (x y message)
 	(let ((surface (render-text-solid *font* message *font-color*)))
 		(let ((texture (create-texture-from-surface *renderer* surface)))
 			(list :text x y texture message))))
 
-(impl:function get-text-x (text)
+(function get-text-x (text)
 	(cadr text))
 
-(impl:function get-text-y (text)
+(function get-text-y (text)
 	(caddr text))
 
-(impl:function get-text-texture (text)
+(function get-text-texture (text)
 	(cadddr text))
 
-(impl:function get-text-message (text)
+(function get-text-message (text)
 	(caddddr text))
 
-(impl:function render-text (x y message)
+(function render-text (x y message)
 	(render (make-text x y message)))
 
-(set '*default-rect* (impl:alloc-struct 'sdl-rect))
-(impl:set-struct-field *default-rect* 'x 0)
-(impl:set-struct-field *default-rect* 'y 0)
-(impl:set-struct-field *default-rect* 'w 0)
-(impl:set-struct-field *default-rect* 'h 0)
+(setq *default-rect* (make sdl-rect))
+(setf *default-rect* x 0)
+(setf *default-rect* y 0)
+(setf *default-rect* w 0)
+(setf *default-rect* h 0)
 
-(set '_render_rect (impl:alloc-struct 'sdl-rect))
-(impl:function render (object)
-	(if (= (car object) :text)
-		(progn 
-			(impl:set-struct-field _render_rect 'x (get-text-x object))
-			(impl:set-struct-field _render_rect 'y (get-text-y object))
-			(impl:set-struct-field _render_rect 'w (* *font-size* 5))
-			(impl:set-struct-field _render_rect 'h *font-size*)
-			(render-copy *renderer* (get-text-texture object) nil _render_rect))
-		nil))
+(setq _render_rect (make sdl-rect))
+(function render (object)
+	(when (= (car object) :text)
+			(setf _render_rect x (get-text-x object))
+			(setf _render_rect y (get-text-y object))
+			(setf _render_rect w (* *font-size* 5))
+			(setf _render_rect h *font-size*)
+			(render-copy *renderer* (get-text-texture object) nil _render_rect)))
 
-(impl:function render-loop (x)
+(setq *keyboard-event* (make sdl-keyboard-event))
+
+(setq sdl-firstevent 0)
+(setq sdl-quit 256)
+(setq sdl-app-windowevent 512)
+(setq sdl-app-syswmevent 513)
+(setq sdl-keydown 768)
+(setq sdl-keyup 769)
+(setq sdl-textediting 770)
+(setq sdl-textinput 771)
+"TODO: add all events from here: https://github.com/zielmicha/SDL2/blob/master/include/SDL_events.h"
+
+(function check-events ()
+	(if (> (poll-keyboard-event *keyboard-event*) 0)
+		(let ((type (getf *keyboard-event* type)))
+			(if (= type sdl-keydown)
+				(print "keydown" (get-key *keyboard-event*))
+				(if (= type sdl-keyup)
+					(print "keyup" (get-key *keyboard-event*))
+				  (if (= type sdl-quit)
+				  	(print "quit")
+				  	nil)))
+				(check-events))
+					nil))
+
+(setq content "dink")
+
+(function main-loop (x)
+	(check-events)
 	(render-clear *renderer*)
-	(render-text 0 0 "hello awoiefj awoiefj awoei jfawoei fjawoefi jaweoif jaweofi ")
+	(render-text 0 0 content)
 	(render-present *renderer*)
-	(print "loop")
 	(if (get-error)
-		(print (get-error)))
+		(print (get-error))
+		nil)
 	(delay 100)
-	(render-loop (+ x 1)))
+	(main-loop (+ x 1)))
 
-(impl:function sdl-test ()
+(function sdl-test ()
 	(init 3)
 
-	(set '*window* (create-window "Hello World!" 100 100 620 387 4))
-	(set '*renderer* (create-renderer *window* 0 2))
+	(setq *window* (create-window "Hello World!" 100 100 620 387 4))
+	(setq *renderer* (create-renderer *window* 0 2))
 
 	(if (nil? (ttf-init))
 		(print "SDL_TTF failed to initialize.")
 		nil)
 
-	(set '*font-size* 64)
-	(set '*font* (open-font "fonts/iosevka.ttf" *font-size*))
-	(set '*font-color* (impl:alloc-struct 'sdl-color))
-	(impl:set-struct-field *font-color* 'r 0)
-	(impl:set-struct-field *font-color* 'g 255)
-	(impl:set-struct-field *font-color* 'b 0)
-	(impl:set-struct-field *font-color* 'a 0)
+	(setq *font-size* 64)
+	(setq *font* (open-font "fonts/iosevka.ttf" *font-size*))
+	(setq *font-color* (make 'sdl-color))
+	(setf *font-color* r 0)
+	(setf *font-color* g 255)
+	(setf *font-color* b 0)
+	(setf *font-color* a 0)
 
 	(if (nil? *font*)
 		(print "Failed to load font.")
@@ -185,4 +225,4 @@
 	(if (get-error)
 		(print (get-error)))
 
-	(render-loop 0))
+	(main-loop 0))
