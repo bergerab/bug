@@ -357,6 +357,7 @@ struct gis {
   struct object *marshal_str;
   struct object *mul_str;
   struct object *nil_str;
+  struct object *object_str;
   struct object *or_str;
   struct object *open_file_str;
   struct object *package_str; 
@@ -498,6 +499,7 @@ struct gis {
   struct object *type_cons_sym;
   struct object *type_int_sym;
   struct object *type_nil_sym;
+  struct object *type_object_sym;
   struct object *type_package_sym; /** contains the type, and the current package */
   struct object *type_pointer_sym;
   struct object *type_record_sym;
@@ -540,6 +542,7 @@ struct gis {
   struct object *symbol_type;
   struct object *type_type;
   struct object *nil_type;
+  struct object *object_type; 
   struct object *package_type;
   struct object *pointer_type; 
   struct object *record_type; 

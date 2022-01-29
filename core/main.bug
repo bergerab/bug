@@ -222,7 +222,8 @@ Load BUGED
 		(let ((f (compile-entire-file file)))
 			(call f))))
 
-(load "../experiments/mydll/mydll.bug")
+(impl:change-directory "../lib/sdl2")
+(load "main.bug")
 
-(impl:change-directory "../buged/")
+(impl:change-directory "../html")
 (load "main.bug")

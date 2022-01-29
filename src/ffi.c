@@ -53,6 +53,7 @@ ffi_type *ffi_type_designator_to_ffi_type(struct object *o, char within_another_
     else if (o == gis->uint16_type) return &ffi_type_uint16;
     else if (o == gis->uint32_type) return &ffi_type_uint32;
     else if (o == gis->void_type) return &ffi_type_void;
+    else if (o == gis->object_type) return &ffi_type_pointer;
     else if (o == gis->pointer_type) {
       printf("Pointer takes one argument.\n");
       PRINT_STACK_TRACE_AND_QUIT();

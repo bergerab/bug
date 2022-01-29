@@ -363,6 +363,8 @@ struct object *struct_field(struct object *instance, struct object *sdes) {
     return fixnum(*(uint32_t *)ptr);
   } else if (field_type == gis->pointer_type) {
     return pointer((void *)ptr);
+  } else if (field_type == gis->object_type) {
+    return *(struct object **)ptr;
   } else if (!TYPE_BUILTIN(field_type)) {
     temp = pointer(*(void **)ptr);
     set_struct_type(field_type, temp);
@@ -423,6 +425,11 @@ struct object *alloc_struct_inner(struct object *type, char init_defaults) {
         memcpy(&((char *)instance)[TYPE_STRUCT_OFFSETS(type)[i]], &default_uint8_val, sizeof(uint8_t));
         /*((char*)instance)[offsets[a3]] = FIXNUM_VALUE(CONS_CAR(cursor2));*/
         /* why didn't this work?  */
+      } else if (field_type == gis->object_type) {
+        struct_value = NIL;
+        /* arithemtic can't be done on void* (size of elements is unknown) so
+         * cast to a char* (because we know a4 is # of bytes) */
+        memcpy(&((char *)instance)[TYPE_STRUCT_OFFSETS(type)[i]], &struct_value, sizeof(void *));
       } else if (!TYPE_BUILTIN(field_type)) {
         struct_value = alloc_struct_inner(field_type, init_defaults);
         memcpy(&((char *)instance)[TYPE_STRUCT_OFFSETS(type)[i]], &struct_value, sizeof(void *));
@@ -476,9 +483,15 @@ void set_struct_field(struct object *instance, struct object *sdes, struct objec
 
   /*
   * TODO: handle different types here:
-  * make impl:struct convert the ((x int) (y int)) to the appropriate type objects.
   */
+ if (field_type == gis->fixnum_type) {
   memcpy(&((char *)OBJECT_POINTER(instance))[TYPE_STRUCT_OFFSETS(type)[i]], &FIXNUM_VALUE(value), sizeof(int));
+ } else if (field_type == gis->object_type) {
+  memcpy(&((char *)OBJECT_POINTER(instance))[TYPE_STRUCT_OFFSETS(type)[i]], &value, sizeof(struct object *));
+ } else {
+   printf("Unsupported set-struct-field type");
+   print(field_type);
+ }
 }
 
 struct object *function(struct object *constants, struct object *code, ufixnum_t stack_size) {
@@ -1016,6 +1029,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->marshal_str, "marshal");
   GIS_STR(gis->mul_str, "*");
   GIS_STR(gis->nil_str, "nil");
+  GIS_STR(gis->object_str, "object");
   GIS_STR(gis->open_file_str, "open-file");
   GIS_STR(gis->or_str, "or");
   GIS_STR(gis->package_str, "package");
@@ -1175,6 +1189,7 @@ void gis_init(char load_core) {
   GIS_SYM(gis->lisp_sub_sym, gis->sub_str, gis->lisp_package);
   GIS_SYM(gis->lisp_unquote_splicing_sym, gis->unquote_splicing_str, gis->lisp_package);
   GIS_SYM(gis->lisp_unquote_sym, gis->unquote_str, gis->lisp_package);
+  GIS_SYM(gis->type_object_sym, gis->object_str, gis->type_package);
   GIS_SYM(gis->type_char_sym, gis->char_str, gis->type_package);
   GIS_SYM(gis->type_dynamic_array_sym, gis->dynamic_array_str, gis->type_package);
   GIS_SYM(gis->type_dynamic_byte_array_sym, gis->dynamic_byte_array_str, gis->type_package);
@@ -1187,6 +1202,7 @@ void gis_init(char load_core) {
   GIS_SYM(gis->type_function_sym, gis->function_str, gis->type_package);
   GIS_SYM(gis->type_cons_sym, gis->cons_str, gis->type_package);
   GIS_SYM(gis->type_int_sym, gis->int_str, gis->type_package);
+  GIS_SYM(gis->type_object_sym, gis->object_str, gis->type_package);
   /* WARNING: Do NOT initialize type_nil_sym again. It has been bootstrapped already -- re-initializing will cause segfaults. */
   /* keep this warning in the code in alphabetical order wherever type_nil_sym would have been. */
   GIS_SYM(gis->type_package_sym, gis->package_str, gis->type_package);
@@ -1269,6 +1285,7 @@ void gis_init(char load_core) {
   GIS_UNINSTANTIATABLE_TYPE(gis->uint16_type, gis->type_uint16_sym);
   GIS_UNINSTANTIATABLE_TYPE(gis->uint32_type, gis->type_uint32_sym);
   GIS_UNINSTANTIATABLE_TYPE(gis->uint_type, gis->type_uint_sym);
+  GIS_UNINSTANTIATABLE_TYPE(gis->object_type, gis->type_object_sym);
 
   IF_DEBUG() printf("Types have been initialized...\n");
 
@@ -1333,7 +1350,7 @@ void gis_init(char load_core) {
   /* Load core.bug */
   if (load_core) {
     IF_DEBUG() printf("============ Loading core... ==============\n");
-    eval(compile_entire_file(open_file(string("../src/core.bug"), string("rb")), 0), NIL);
+    eval(compile_entire_file(open_file(string("../core/main.bug"), string("rb")), 0), NIL);
     IF_DEBUG() printf("============ Core loaded... ===============\n");
   }
 }
