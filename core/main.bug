@@ -219,6 +219,12 @@
 		(call f (car xs))
 		(do-for-each f (cdr xs))))
 
+(function in (y xs)
+	(when xs
+		(if (= y (car xs))
+			t
+			(in y (cdr xs)))))
+
 (struct rect
 	((x int) (y int) (w int) (h int)))
 
@@ -253,12 +259,6 @@
   
   (make a)
   (getf (make a) y))
-
-"TODO change WD to root"
-
-"
-Load BUGED
-"
 
 "this shouldn't be done runtime -- when bug compiler is written in bug that will be easier to do"
 (function load (path)

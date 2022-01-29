@@ -29,18 +29,20 @@
 (function render-html (el)
   (if (string? el)
     el
-  (let ((attrs (attrsp el)))
+  (let ((tag-name (car el))
+        (attrs (attrsp el)))
     (string-concat-all (list 
-      "<" (symbol-name (car el)) (if attrs " " "")
+      "<" (symbol-name tag-name) (if attrs " " "")
       (string-concat-all 
         (collect item (attrsp el) (render-attr item)))
         ">"
       (string-concat-all
         (collect child (get-children el) (render-html child)))
-      "</" (symbol-name (car el)) ">")))))
+      (if (in (car el) *self-closing-tag-names*) ""
+        (string-concat-all (list "</" (symbol-name tag-name) ">"))))))))
 
 (setq *self-closing-tag-names* 
-  '(meta input))
+  '(area base br col embed hr img input link meta param source track wbr))
 
 (function html5-template (title description head content)
   `(html ((lang "en"))
@@ -61,8 +63,3 @@
   (let ((file (open-file path "w+")))
     (impl:write-file file (render-html html))
     (close-file file)))
-
-(write-html "index2.html"
-  (html5-template "Buglog" "A blog for bug"
-    nil
-    `((div "hello world!"))))
