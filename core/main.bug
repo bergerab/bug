@@ -36,6 +36,9 @@
 	"Is x a cons cell?"
     (= (type-of x) (symbol-type 'cons)))
 
+(impl:define-function string? (x)
+    (= (type-of x) (symbol-type 'string)))
+
 (impl:define-function mapcar (f xs)
 	"Applies f to each item in the list xs and returns a new list containing the yielded values."
 	(if xs
@@ -165,6 +168,15 @@
 					(let (,@(mapcar-with-carry (symbol-function 'with-fields-format-field) fields 'i-need-to-implement-gensym-real-bad))
     				,@body)))))
 
+(macro collect args
+	`(mapcar (function (,(car args)) ,@(cddr args)) ,(cadr args)))
+
+(macro for-each args
+	`(do-for-each (function (,(car args)) ,@(cddr args)) ,(cadr args)))
+
+(function reduce (f xs acc)
+	(if xs (reduce f (cdr xs) (call f acc (car xs))) acc))
+
 "TODO: make macroexpand builtin"
 
 "===================== misc =========================="
@@ -174,6 +186,38 @@
     (+ (fib (- x 2)) 
        (fib (- x 1)))))
 "====================================================="
+
+(function do-filter (f xs)
+	(when xs
+		(if (call f (car xs))
+			(cons (car xs) (do-filter f (cdr xs)))
+			(do-filter f (cdr xs)))))
+
+(macro filter args
+	`(do-filter (function (,(car args)) ,@(cddr args)) ,(cadr args)))
+
+(function do-any (f xs)
+	(when xs
+		(if (call f (car xs))
+			t
+			(do-any f (cdr xs)))))
+
+(function do-all (f xs)
+	(if xs
+		(when (call f (car xs))
+			(do-all f (cdr xs)))
+		t))
+
+(macro all args
+	`(do-all (function (,(car args)) ,@(cddr args)) ,(cadr args)))
+
+(macro any args
+	`(do-any (function (,(car args)) ,@(cddr args)) ,(cadr args)))
+
+(function do-for-each (f xs)
+	(when xs
+		(call f (car xs))
+		(do-for-each f (cdr xs))))
 
 (struct rect
 	((x int) (y int) (w int) (h int)))

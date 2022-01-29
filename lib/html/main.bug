@@ -2,3 +2,67 @@
   ((name object)
    (args object)))
 
+(function list-of-lists? (xs)
+  (when (list? xs)
+    (all x xs 
+      (list? x))))
+
+(function attrsp (x)
+  (let ((attrs (cadr x)))
+    (when (and attrs (list-of-lists? attrs))
+      attrs)))
+
+(function get-children (el)
+  (if (attrsp el)
+    (cddr el)
+    (cdr el)))
+
+(function string-quote (x)
+  (string-concat-all (list "\"" x  "\"")))
+
+(function render-attr (attr)
+  (string-concat-all (list (symbol-name (car attr)) "=" (string-quote (cadr attr)))))
+
+(function string-concat-all (args)
+  (reduce (symbol-function 'string-concat) args ""))
+
+(function render-html (el)
+  (if (string? el)
+    el
+  (let ((attrs (attrsp el)))
+    (string-concat-all (list 
+      "<" (symbol-name (car el)) (if attrs " " "")
+      (string-concat-all 
+        (collect item (attrsp el) (render-attr item)))
+        ">"
+      (string-concat-all
+        (collect child (get-children el) (render-html child)))
+      "</" (symbol-name (car el)) ">")))))
+
+(setq *self-closing-tag-names* 
+  '(meta input))
+
+(function html5-template (title description head content)
+  `(html ((lang "en"))
+    (head
+      (meta ((charset "utf-8")))
+      (meta ((name "viewport") (content "width=device-width, initial-scale=1")))
+      (title ,title)
+      (meta ((description ,description)))
+      (meta ((property "og:title") (content ,title)))
+      (meta ((property "og:description") (content ,description)))
+
+      (link ((rel "icon") (href "/favicon.ico"))))
+      ,@head
+      (body
+        ,@content)))
+
+(function write-html (path html)
+  (let ((file (open-file path "w+")))
+    (impl:write-file file (render-html html))
+    (close-file file)))
+
+(write-html "index2.html"
+  (html5-template "Buglog" "A blog for bug"
+    nil
+    `((div "hello world!"))))

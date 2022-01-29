@@ -381,10 +381,12 @@ struct gis {
   struct object *stack_str;
   struct object *string_str;
   struct object *strings_str;
+  struct object *string_concat_str;
   struct object *struct_str;
   struct object *sub_str;
   struct object *symbol_function_str;
   struct object *symbol_str;
+  struct object *symbol_name_str;
   struct object *symbol_type_str;
   struct object *symbol_value_str;
   struct object *t_str;
@@ -481,7 +483,9 @@ struct gis {
   struct object *lisp_quote_sym;
   struct object *lisp_set_sym;
   struct object *lisp_set_symbol_function_sym;
+  struct object *lisp_string_concat_sym;
   struct object *lisp_symbol_function_sym;
+  struct object *lisp_symbol_name_sym;
   struct object *lisp_symbol_value_sym;
   struct object *lisp_sub_sym;
   struct object *lisp_unquote_splicing_sym;
@@ -578,6 +582,7 @@ struct gis {
   struct object *read_bytecode_file_builtin;
   struct object *read_file_builtin;
   struct object *run_bytecode_builtin; /* this is currently called "eval" in the C code -- but run-bytecode is less confusing for LISP */
+  struct object *string_concat_builtin;
   struct object *struct_field_builtin;
   struct object *macro_builtin;
   struct object *marshal_builtin;
@@ -585,6 +590,7 @@ struct gis {
   struct object *package_symbols_builtin;
   struct object *set_struct_field_builtin;
   struct object *define_struct_builtin;
+  struct object *symbol_name_builtin;
   struct object *symbol_type_builtin;
   struct object *type_of_builtin;
   struct object *unmarshal_builtin;

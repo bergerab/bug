@@ -484,7 +484,7 @@ void set_struct_field(struct object *instance, struct object *sdes, struct objec
   /*
   * TODO: handle different types here:
   */
- if (field_type == gis->fixnum_type) {
+ if (field_type == gis->fixnum_type || field_type == gis->int_type) {
   memcpy(&((char *)OBJECT_POINTER(instance))[TYPE_STRUCT_OFFSETS(type)[i]], &FIXNUM_VALUE(value), sizeof(int));
  } else if (field_type == gis->object_type) {
   memcpy(&((char *)OBJECT_POINTER(instance))[TYPE_STRUCT_OFFSETS(type)[i]], &value, sizeof(struct object *));
@@ -636,7 +636,7 @@ struct object *open_file(struct object *path, struct object *mode) {
 
 void close_file(struct object *file) {
   OT("close_file", 0, file, type_file);
-  if (!fclose(FILE_FP(file))) {
+  if (fclose(FILE_FP(file)) != 0) {
     printf("failed to close file\n");
     PRINT_STACK_TRACE_AND_QUIT();
   }
@@ -1052,10 +1052,12 @@ void gis_init(char load_core) {
   GIS_STR(gis->set_struct_field_str, "set-struct-field");
   GIS_STR(gis->stack_str, "stack");
   GIS_STR(gis->string_str, "string");
+  GIS_STR(gis->string_concat_str, "string-concat");
   GIS_STR(gis->strings_str, "strings");
   GIS_STR(gis->struct_str, "struct");
   GIS_STR(gis->sub_str, "-");
   GIS_STR(gis->symbol_function_str, "symbol-function");
+  GIS_STR(gis->symbol_name_str, "symbol-name");
   GIS_STR(gis->symbol_str, "symbol");
   GIS_STR(gis->symbol_type_str, "symbol-type");
   GIS_STR(gis->symbol_value_str, "symbol-value");
@@ -1184,6 +1186,8 @@ void gis_init(char load_core) {
   GIS_SYM(gis->lisp_quote_sym, gis->quote_str, gis->lisp_package);
   GIS_SYM(gis->lisp_set_sym, gis->set_str, gis->lisp_package);
   GIS_SYM(gis->lisp_set_symbol_function_sym, gis->set_symbol_function_str, gis->lisp_package);
+  GIS_SYM(gis->lisp_string_concat_sym, gis->string_concat_str, gis->lisp_package);
+  GIS_SYM(gis->lisp_symbol_name_sym, gis->symbol_name_str, gis->lisp_package);
   GIS_SYM(gis->lisp_symbol_function_sym, gis->symbol_function_str, gis->lisp_package);
   GIS_SYM(gis->lisp_symbol_value_sym, gis->symbol_value_str, gis->lisp_package);
   GIS_SYM(gis->lisp_sub_sym, gis->sub_str, gis->lisp_package);
@@ -1233,6 +1237,7 @@ void gis_init(char load_core) {
   PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_set_struct_field_sym, PACKAGE_SYMBOLS(gis->lisp_package));
   PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_struct_field_sym, PACKAGE_SYMBOLS(gis->lisp_package));
   PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_type_of_sym, PACKAGE_SYMBOLS(gis->lisp_package));
+  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_and_sym, PACKAGE_SYMBOLS(gis->lisp_package));
 
   symbol_set_value(gis->type_t_sym, gis->type_t_sym); /* t has itself as its value */
 
@@ -1316,7 +1321,9 @@ void gis_init(char load_core) {
   GIS_BUILTIN(gis->read_file_builtin, gis->impl_read_file_sym, 1);
   GIS_BUILTIN(gis->run_bytecode_builtin, gis->impl_run_bytecode_sym, 2);
   GIS_BUILTIN(gis->define_struct_builtin, gis->impl_define_struct_sym, 2);
+  GIS_BUILTIN(gis->symbol_name_builtin, gis->lisp_symbol_name_sym, 1);
   GIS_BUILTIN(gis->symbol_type_builtin, gis->impl_symbol_type_sym, 1);
+  GIS_BUILTIN(gis->string_concat_builtin, gis->lisp_string_concat_sym, 2);
   GIS_BUILTIN(gis->struct_field_builtin, gis->impl_struct_field_sym, 2);
   GIS_BUILTIN(gis->set_struct_field_builtin, gis->impl_set_struct_field_sym, 3);
   GIS_BUILTIN(gis->unmarshal_builtin, gis->impl_unmarshal_sym, 2);
@@ -2438,6 +2445,9 @@ void eval_builtin(struct object *f) {
   } else if (f == gis->set_struct_field_builtin) {
     set_struct_field(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2));
     push(NIL);
+  } else if (f == gis->symbol_name_builtin) {
+    OT("symbol-name", 0, GET_LOCAL(0), type_symbol);
+    push(SYMBOL_NAME(GET_LOCAL(0)));
   } else if (f == gis->dynamic_library_builtin) {
     push(dlib(GET_LOCAL(0)));
   } else if (f == gis->byte_stream_builtin) {
@@ -2473,6 +2483,8 @@ void eval_builtin(struct object *f) {
   } else if (f == gis->write_file_builtin) {
     write_file(GET_LOCAL(0), GET_LOCAL(1));
     push(NIL);
+  } else if (f == gis->string_concat_builtin) {
+    push(string_concat(GET_LOCAL(0), GET_LOCAL(1)));
   } else if (f == gis->foreign_function_builtin) {
     push(foreign_function(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2), GET_LOCAL(3)));
   } else if (f == gis->package_symbols_builtin) {
