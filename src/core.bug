@@ -165,19 +165,7 @@
 					(let (,@(mapcar-with-carry (symbol-function 'with-fields-format-field) fields 'i-need-to-implement-gensym-real-bad))
     				,@body)))))
 
-"
-(with-fields rect (x y)
-	(+ x y))
-(let ((x (getf rect x))
-      (y (getf rect y)))
- (+ x y))
-"
-
-
 "TODO: make macroexpand builtin"
-
-"===================== html =========================="
-"====================================================="
 
 "===================== misc =========================="
 (function fib (x)

@@ -1326,6 +1326,10 @@ void gis_init(char load_core) {
   symbol_set_value(gis->impl_f_sym, NIL); /* the function being executed */
   symbol_set_value(gis->impl_i_sym, ufixnum(0)); /* the instruction index */
 
+  /* i've found this to be an easy solution to solving an issue with looking up locals. I put the function at the top of the call-stack (makes it easy to pop off items) but it makes it harder to handle set_locals get_locals */
+  dynamic_array_push(gis->call_stack, NIL);
+  dynamic_array_push(gis->call_stack, NIL);
+
   /* Load core.bug */
   if (load_core) {
     IF_DEBUG() printf("============ Loading core... ==============\n");
@@ -2865,7 +2869,6 @@ struct object *call_function(struct object *f, struct object *args) {
       case op_store_to_stack: /* store-to-stack ( -- ) */
         SC("store-to-stack", 1);
         READ_OP_ARG();
-        /* minus two to skip the f and i */
         SET_LOCAL(a0, pop());
         break;
       /* two hard coded index versions for the most common cases (functions that
@@ -2971,8 +2974,7 @@ struct object *call_function(struct object *f, struct object *args) {
 #endif
           ufix0 = FUNCTION_STACK_SIZE(f) + 2;
         /* this indicates that we returned to the top level -- used when calling functions during compile time (starts with macros) */
-        if (DYNAMIC_ARRAY_LENGTH(gis->call_stack) == ufix0 &&
-            DYNAMIC_ARRAY_VALUES(gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 1] == NIL) {
+        if (DYNAMIC_ARRAY_VALUES(gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 1] == NIL) {
           DYNAMIC_ARRAY_LENGTH(gis->call_stack) -= ufix0;
           symbol_set_value(gis->impl_f_sym, NIL);
           symbol_set_value(gis->impl_i_sym, ufixnum(0)); /* TODO: reuse fixnums so one is not created between call_function calls */
