@@ -146,6 +146,27 @@
 (macro struct (name fields)
 	`(impl:define-struct ',name ',fields))
 
+
+(function mapcar-with-carry (f xs carry)
+	"mapcar with a value that is carried to the function -- a total hack should be removed when bug compiler is done (using closures or builtin looping constructs)"
+	(when xs
+		(cons (call f (car xs) carry) 
+				  (mapcar-with-carry f (cdr xs) carry))))
+(function with-fields-format-field (field instance)
+	`(,field (getf ,instance ,field)))
+
+"
+(macro with-fields args
+	(let ((fields (cadr args))
+	      (instance (car args))
+				(body (cddr args)))
+(print (mapcar-with-carry (symbol-function 'with-fields-format-field) fields instance))
+    (print-return 
+			`(let ((i-need-to-implement-gensym-real-bad ,instance)) 
+					(let (,@(mapcar-with-carry (symbol-function 'with-fields-format-field) fields 'i-need-to-implement-gensym-real-bad))
+    				,@body)))))
+						"
+
 "
 (with-fields rect (x y)
 	(+ x y))
@@ -153,8 +174,6 @@
       (y (getf rect y)))
  (+ x y))
 "
-(macro with-fields (instance fields)
-	nil)
 
 "TODO: make macroexpand builtin"
 
@@ -169,10 +188,10 @@
        (fib (- x 1)))))
 "====================================================="
 
-(function struct-test ()
-	(struct rect
-		((x int) (y int) (w int) (h int)))
+(struct rect
+	((x int) (y int) (w int) (h int)))
 
+(function struct-test ()
 	(setq rect (make rect))
 	(setf rect x 10)
 	(setf rect y 20)
@@ -185,7 +204,7 @@
 	(print (getf rect y))
 	(print (getf rect w))
 	(print (getf rect h))
-	(getf rect w 23)
+	(setf rect w 3)
 	(print (getf rect w)))
 
 (function advanced-struct-test ()

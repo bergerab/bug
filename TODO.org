@@ -19,3 +19,6 @@
   - e.g.:
       (impl:struct-field-at-index rect 0) gets the "x" component of a rectangle
 - add used package symbols into symbols list instead of having used package field
+
+- implement closures/nested lexical variables
+  - currently you cannot reference variables from nested functions

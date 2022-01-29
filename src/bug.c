@@ -636,31 +636,32 @@ void close_file(struct object *file) {
  *===============================*/
 int print_stack_did_recurse = 0;
 void print_stack() {
-  ufixnum_t i, j, len;
+  fixnum_t i, j, len;
   struct object *f;
   ++print_stack_did_recurse;
   len = DYNAMIC_ARRAY_LENGTH(gis->call_stack);
-  i = 0;
+  i = len - 1;
   if (print_stack_did_recurse > 1) { /* prevent infinite recursion if the source of the error was a function called within this function */
     exit(1);
   }
-  while (i < len) {
+  while (i > 0) { /* TOOD this prints the stack in a revered order */
     f = dynamic_array_get_ufixnum_t(gis->call_stack, i);
     if (type_of(f) != gis->function_type) {
       printf("Error while printing call stack. Expected a function but found: ");
       print(f);
+      print(gis->call_stack);
       exit(1);
     } else if (FUNCTION_NAME(f) != NIL) {
       dynamic_byte_array_force_cstr(SYMBOL_NAME(FUNCTION_NAME(f)));
       printf("(%s ", STRING_CONTENTS(SYMBOL_NAME(FUNCTION_NAME(f))));
     } else {
-      printf("(<anonymous-function> ");
+      printf("(<anonymous-function>");
     }
-    i += 1; /* got to instruction index */
-    i += 1; /* skip instruction index for now -- should translate this to line number later */
+    i -= 1; /* got to instruction index */
+    i -= 1; /* skip instruction index for now -- should translate this to line number later */
     for (j = 0; j < FUNCTION_NARGS(f); ++j) {
       /* print(dynamic_array_get_ufixnum_t(gis->call_stack, i)); */
-      i += 1;
+      i -= 1;
     }
     printf(")\n");
   }
@@ -1766,6 +1767,23 @@ struct object *eval(struct object *bc, struct object* args) {
   return eval_at_instruction(bc, 0, args);
 }
 
+/*
+ * Bytecode Interpreter
+ */
+void push(struct object *object) {
+  dynamic_array_push(gis->data_stack, object);
+}
+
+struct object *pop() {
+  return dynamic_array_pop(gis->data_stack);
+}
+
+struct object *peek() {
+  return DYNAMIC_ARRAY_VALUES(
+      gis->data_stack)[DYNAMIC_ARRAY_LENGTH(gis->data_stack) - 1];
+}
+
+
 struct object *compile_entire_file(struct object *input_file, char should_return) {
   struct object *temp, *f;
   temp = NIL;
@@ -1921,8 +1939,8 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
     printf("A object of type file cannot be compiled.");
     PRINT_STACK_TRACE_AND_QUIT();
   } else if (t == gis->function_type) {
-    printf("A object of type function cannot be compiled.");
-    PRINT_STACK_TRACE_AND_QUIT();
+    gen_load_constant(f, C_ARG0());
+    /* printf("A object of type function cannot be compiled."); PRINT_STACK_TRACE_AND_QUIT(); */
   } else if (t == gis->cons_type) {
     /* TODO: in SBCL you can say (symbol-function '+) and it gives you a
      * function. that would be cool to be able to do here. */
@@ -1954,8 +1972,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
                        from before evaluating the let */
           while (cursor != NIL) {
             kvp = CONS_CAR(cursor);
-            /* TODO: validate that there's actually a key and value in the kvp
-             */
+            /* TODO: validate that there's actually a key and value in the kvp */
             k = CONS_CAR(kvp);
             v = CONS_CAR(CONS_CDR(kvp));
             stack_index = FUNCTION_STACK_SIZE(f);
@@ -2333,6 +2350,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
               type_of(SYMBOL_FUNCTION(car)) == gis->function_type &&
               FUNCTION_IS_MACRO(SYMBOL_FUNCTION(car))) {
             t = call_function(SYMBOL_FUNCTION(car), CONS_CDR(value));
+            pop(); /* discard the result so it doesn't leak into the data-stack */
             compile(t, f, st, fst);
           } else {
             COMPILE_DO_EACH({});
@@ -2354,22 +2372,6 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
   }
 
   return f;
-}
-
-/*
- * Bytecode Interpreter
- */
-void push(struct object *object) {
-  dynamic_array_push(gis->data_stack, object);
-}
-
-struct object *pop() {
-  return dynamic_array_pop(gis->data_stack);
-}
-
-struct object *peek() {
-  return DYNAMIC_ARRAY_VALUES(
-      gis->data_stack)[DYNAMIC_ARRAY_LENGTH(gis->data_stack) - 1];
 }
 
 void dup() {
@@ -2557,6 +2559,10 @@ struct object *call_function(struct object *f, struct object *args) {
       dynamic_array_push(gis->call_stack, CONS_CAR(cursor));
       cursor = CONS_CDR(cursor);
       ++nargs;
+    }
+    if (nargs != FUNCTION_NARGS(f)) {
+      printf("Function was given %d, but takes %d.", (int)nargs, (int)FUNCTION_NARGS(f));
+      PRINT_STACK_TRACE_AND_QUIT();
     }
   }
 
@@ -2965,8 +2971,11 @@ struct object *call_function(struct object *f, struct object *args) {
 #endif
           ufix0 = FUNCTION_STACK_SIZE(f) + 2;
         /* this indicates that we returned to the top level -- used when calling functions during compile time (starts with macros) */
-        if (DYNAMIC_ARRAY_LENGTH(gis->call_stack) == FUNCTION_STACK_SIZE(f) + 2) {
+        if (DYNAMIC_ARRAY_LENGTH(gis->call_stack) == ufix0 &&
+            DYNAMIC_ARRAY_VALUES(gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 1] == NIL) {
           DYNAMIC_ARRAY_LENGTH(gis->call_stack) -= ufix0;
+          symbol_set_value(gis->impl_f_sym, NIL);
+          symbol_set_value(gis->impl_i_sym, ufixnum(0)); /* TODO: reuse fixnums so one is not created between call_function calls */
           break;
         } else {
           ufix0 = FUNCTION_STACK_SIZE(f) + 2; /* store the frame size */
