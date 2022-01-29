@@ -2864,7 +2864,7 @@ struct object *call_function(struct object *f, struct object *args) {
         break;
       case op_store_to_stack: /* store-to-stack ( -- ) */
         SC("store-to-stack", 1);
-        READ_CONST_ARG();
+        READ_OP_ARG();
         /* minus two to skip the f and i */
         SET_LOCAL(a0, pop());
         break;

@@ -155,7 +155,6 @@
 (function with-fields-format-field (field instance)
 	`(,field (getf ,instance ,field)))
 
-"
 (macro with-fields args
 	(let ((fields (cadr args))
 	      (instance (car args))
@@ -165,7 +164,6 @@
 			`(let ((i-need-to-implement-gensym-real-bad ,instance)) 
 					(let (,@(mapcar-with-carry (symbol-function 'with-fields-format-field) fields 'i-need-to-implement-gensym-real-bad))
     				,@body)))))
-						"
 
 "
 (with-fields rect (x y)
@@ -174,6 +172,7 @@
       (y (getf rect y)))
  (+ x y))
 "
+
 
 "TODO: make macroexpand builtin"
 
