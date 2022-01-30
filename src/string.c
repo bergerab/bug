@@ -13,6 +13,20 @@ void string_reverse(struct object *o) {
   }
 }
 
+struct object *string_concat_external(struct object *s0, struct object *s1) {
+  struct object *s2; 
+
+  if (OBJECT_TYPE(s0) != type_string)
+    s0 = to_string(s0);
+  if (OBJECT_TYPE(s1) != type_string)
+    s1 = to_string(s1);
+
+  s2 = dynamic_byte_array_concat(s0, s1);
+  OBJECT_TYPE(s2) = type_string;
+  return s2;
+}
+
+
 struct object *string_concat(struct object *s0, struct object *s1) {
   struct object *s2; 
 

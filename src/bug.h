@@ -302,9 +302,10 @@ struct gis {
 
   /* Strings (in alphabetical order) */
   struct object *a_str;
-  struct object *and_str;
   struct object *add_str;
   struct object *alloc_struct_str;
+  struct object *and_str;
+  struct object *apply_str;
   struct object *b_str;
   struct object *byte_stream_str;
   struct object *byte_stream_peek_str;
@@ -391,6 +392,7 @@ struct gis {
   struct object *symbol_value_str;
   struct object *t_str;
   struct object *temp_str;
+  struct object *to_string_str;
   struct object *type_of_str;
   struct object *type_str;
   struct object *ufixnum_str;
@@ -449,6 +451,7 @@ struct gis {
   struct object *impl_pop_sym;
   struct object *impl_push_sym;
   struct object *impl_strings_sym;
+  struct object *impl_string_concat_sym;
   struct object *impl_set_struct_field_sym;
   struct object *impl_symbol_type_sym;
   struct object *impl_type_of_sym;
@@ -462,6 +465,7 @@ struct gis {
   struct object *keyword_internal_sym;
   struct object *keyword_value_sym;
   struct object *lisp_add_sym;
+  struct object *lisp_apply_sym; /* TODO adding this causes the program to crash when not in GDB */
   struct object *lisp_car_sym;
   struct object *lisp_cdr_sym;
   struct object *lisp_cons_sym;
@@ -483,11 +487,11 @@ struct gis {
   struct object *lisp_quote_sym;
   struct object *lisp_set_sym;
   struct object *lisp_set_symbol_function_sym;
-  struct object *lisp_string_concat_sym;
   struct object *lisp_symbol_function_sym;
   struct object *lisp_symbol_name_sym;
   struct object *lisp_symbol_value_sym;
   struct object *lisp_sub_sym;
+  struct object *lisp_to_string_sym;
   struct object *lisp_unquote_splicing_sym;
   struct object *lisp_unquote_sym;
   struct object *type_char_sym;
@@ -584,6 +588,7 @@ struct gis {
   struct object *run_bytecode_builtin; /* this is currently called "eval" in the C code -- but run-bytecode is less confusing for LISP */
   struct object *string_concat_builtin;
   struct object *struct_field_builtin;
+  struct object *to_string_builtin;
   struct object *macro_builtin;
   struct object *marshal_builtin;
   struct object *open_file_builtin;

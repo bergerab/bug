@@ -1,0 +1,26 @@
+(function string-escape (x)
+  "TODO"
+  x)
+
+(function render-json (json)
+  "(3 2 1) => [3 2 1]
+   ((a 3)) => { \"a\": 3 }"
+   (if (list-of-lists? json)
+    (string-concat
+     "{"
+     (string-join 
+       (collect field json
+         (string-concat
+           (string-quote (to-string (car field)))
+           ": "
+           (render-json (cadr field))))
+       ", ")
+    "}")
+    (if (list? json)
+      (string-concat
+        "["
+        (string-join (collect item json (render-json item)) ", ")
+        "]")
+      (if (string? json) 
+        (string-quote (string-escape json))
+        (to-string json)))))

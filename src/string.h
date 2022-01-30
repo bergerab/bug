@@ -15,6 +15,7 @@ struct object *do_to_string(struct object *o, char repr);
 
 void string_reverse(struct object *o);
 struct object *string_concat(struct object *s0, struct object *s1);
+struct object *string_concat_external(struct object *s0, struct object *s1);
 struct object *string_clone(struct object *str0);
 
 struct object *string_designator(struct object *sd);

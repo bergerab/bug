@@ -1065,6 +1065,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->temp_str, "temp");
   GIS_STR(gis->type_of_str, "type-of");
   GIS_STR(gis->type_str, "type");
+  GIS_STR(gis->to_string_str, "to-string"); 
   GIS_STR(gis->use_package_str, "use-package"); 
   GIS_STR(gis->user_str, "user");
   GIS_STR(gis->unmarshal_str, "unmarshal");
@@ -1154,6 +1155,7 @@ void gis_init(char load_core) {
   GIS_SYM(gis->impl_read_file_sym, gis->read_file_str, gis->impl_package);
   GIS_SYM(gis->impl_run_bytecode_sym, gis->run_bytecode_str, gis->impl_package);
   GIS_SYM(gis->impl_strings_sym, gis->strings_str, gis->impl_package);
+  GIS_SYM(gis->impl_string_concat_sym, gis->string_concat_str, gis->impl_package);
   GIS_SYM(gis->impl_set_struct_field_sym, gis->set_struct_field_str, gis->impl_package);
   GIS_SYM(gis->impl_symbol_type_sym, gis->symbol_type_str, gis->impl_package);
   GIS_SYM(gis->impl_type_of_sym, gis->type_of_str, gis->impl_package);
@@ -1186,11 +1188,11 @@ void gis_init(char load_core) {
   GIS_SYM(gis->lisp_quote_sym, gis->quote_str, gis->lisp_package);
   GIS_SYM(gis->lisp_set_sym, gis->set_str, gis->lisp_package);
   GIS_SYM(gis->lisp_set_symbol_function_sym, gis->set_symbol_function_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_string_concat_sym, gis->string_concat_str, gis->lisp_package);
   GIS_SYM(gis->lisp_symbol_name_sym, gis->symbol_name_str, gis->lisp_package);
   GIS_SYM(gis->lisp_symbol_function_sym, gis->symbol_function_str, gis->lisp_package);
   GIS_SYM(gis->lisp_symbol_value_sym, gis->symbol_value_str, gis->lisp_package);
   GIS_SYM(gis->lisp_sub_sym, gis->sub_str, gis->lisp_package);
+  GIS_SYM(gis->lisp_to_string_sym, gis->to_string_str, gis->lisp_package);
   GIS_SYM(gis->lisp_unquote_splicing_sym, gis->unquote_splicing_str, gis->lisp_package);
   GIS_SYM(gis->lisp_unquote_sym, gis->unquote_str, gis->lisp_package);
   GIS_SYM(gis->type_object_sym, gis->object_str, gis->type_package);
@@ -1323,9 +1325,10 @@ void gis_init(char load_core) {
   GIS_BUILTIN(gis->define_struct_builtin, gis->impl_define_struct_sym, 2);
   GIS_BUILTIN(gis->symbol_name_builtin, gis->lisp_symbol_name_sym, 1);
   GIS_BUILTIN(gis->symbol_type_builtin, gis->impl_symbol_type_sym, 1);
-  GIS_BUILTIN(gis->string_concat_builtin, gis->lisp_string_concat_sym, 2);
+  GIS_BUILTIN(gis->string_concat_builtin, gis->impl_string_concat_sym, 2);
   GIS_BUILTIN(gis->struct_field_builtin, gis->impl_struct_field_sym, 2);
   GIS_BUILTIN(gis->set_struct_field_builtin, gis->impl_set_struct_field_sym, 3);
+  GIS_BUILTIN(gis->to_string_builtin, gis->lisp_to_string_sym, 1);
   GIS_BUILTIN(gis->unmarshal_builtin, gis->impl_unmarshal_sym, 2);
   GIS_BUILTIN(gis->use_package_builtin, gis->impl_use_package_sym, 1) /* takes name of package */
   GIS_BUILTIN(gis->write_bytecode_file_builtin, gis->impl_write_bytecode_file_sym, 2);
@@ -2377,6 +2380,13 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
           if (SYMBOL_FUNCTION_IS_SET(car) &&
               type_of(SYMBOL_FUNCTION(car)) == gis->function_type &&
               FUNCTION_IS_MACRO(SYMBOL_FUNCTION(car))) {
+            /* set f/i to make sure run(...) quits right after macro is done
+               there was a subtle bug that caused run(...) to think a macro was
+               a regular function, and could be returned from. Instead of just quitting the
+               run(...) loop.
+               */
+            symbol_set_value(gis->impl_f_sym, NIL);
+            symbol_set_value(gis->impl_i_sym, NIL);
             t = call_function(SYMBOL_FUNCTION(car), CONS_CDR(value));
             pop(); /* discard the result so it doesn't leak into the data-stack */
             compile(t, f, st, fst);
@@ -2433,6 +2443,8 @@ void eval_builtin(struct object *f) {
     push(symbol_get_type(GET_LOCAL(0)));
   } else if (f == gis->type_of_builtin) {
     push(type_of(GET_LOCAL(0)));
+  } else if (f == gis->to_string_builtin) {
+    push(to_string(GET_LOCAL(0)));
   } else if (f == gis->define_struct_builtin) {
     push(type(GET_LOCAL(0), GET_LOCAL(1), 1, 0));
   } else if (f == gis->change_directory_builtin) {
@@ -2484,7 +2496,7 @@ void eval_builtin(struct object *f) {
     write_file(GET_LOCAL(0), GET_LOCAL(1));
     push(NIL);
   } else if (f == gis->string_concat_builtin) {
-    push(string_concat(GET_LOCAL(0), GET_LOCAL(1)));
+    push(string_concat_external(GET_LOCAL(0), GET_LOCAL(1)));
   } else if (f == gis->foreign_function_builtin) {
     push(foreign_function(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2), GET_LOCAL(3)));
   } else if (f == gis->package_symbols_builtin) {

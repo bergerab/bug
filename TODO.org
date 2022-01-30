@@ -20,5 +20,5 @@
       (impl:struct-field-at-index rect 0) gets the "x" component of a rectangle
 - add used package symbols into symbols list instead of having used package field
 
-- implement closures/nested lexical variables
-  - currently you cannot reference variables from nested functions
+- implement closures to support higher order functions
+  - right now functions are higher order, but it contains horrible bugs anytime you attempt to reference a free variable (both downward and upward funargs)

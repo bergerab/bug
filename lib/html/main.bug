@@ -1,50 +1,63 @@
-(struct html-element
-  ((name object)
-   (args object)))
-
-(function list-of-lists? (xs)
-  (when (list? xs)
-    (all x xs 
-      (list? x))))
+(setq *self-closing-tag-names* 
+  '(area base br col embed hr img input link meta param source track wbr))
+(setq *use-indentation* t)
+(setq *indentation-depth* 2)
 
 (function attrsp (x)
+  "Gets the attributes part of the element list.
+    example: (div ((class \"test\"))) => ((class \"test\"))"
   (let ((attrs (cadr x)))
     (when (and attrs (list-of-lists? attrs))
       attrs)))
 
 (function get-children (el)
+  "Gets all the children of the element list.
+    example: (div ((class \"test\")) (span \"hi\") \"content\") =>
+             ((span \"hi\") \"content\")"
   (if (attrsp el)
     (cddr el)
     (cdr el)))
 
-(function string-quote (x)
-  (string-concat-all (list "\"" x  "\"")))
-
 (function render-attr (attr)
-  (string-concat-all (list (symbol-name (car attr)) "=" (string-quote (cadr attr)))))
-
-(function string-concat-all (args)
-  (reduce (symbol-function 'string-concat) args ""))
+  "Renders a single attribute.
+    example: (id \"test\") => id=\"test\" "
+  (string-concat (to-string (car attr)) "=" (string-quote (cadr attr))))
 
 (function render-html (el)
+  (do-render-html el 0))
+
+(function do-render-html-recurse (child depth) 
+  (do-render-html child depth))
+
+(function do-render-html (el depth)
+  "Converts a element list into a string."
   (if (string? el)
     el
-  (let ((tag-name (car el))
-        (attrs (attrsp el)))
-    (string-concat-all (list 
-      "<" (symbol-name tag-name) (if attrs " " "")
-      (string-concat-all 
-        (collect item (attrsp el) (render-attr item)))
-        ">"
-      (string-concat-all
-        (collect child (get-children el) (render-html child)))
-      (if (in (car el) *self-closing-tag-names*) ""
-        (string-concat-all (list "</" (symbol-name tag-name) ">"))))))))
+    (let ((tag-name (car el))
+          (attrs (attrsp el))
+          (newline (string-concat "\n" (string-times "\t" 0))))
 
-(setq *self-closing-tag-names* 
-  '(area base br col embed hr img input link meta param source track wbr))
+      (string-concat
+        "<" (to-string tag-name) (if attrs " " "")
+
+        (string-join (collect item (attrsp el) (render-attr item)) " ")
+          ">"
+
+        (if *use-indentation*
+            (string-join (mapcar-with-carry (function (child d) (do-render-html child d)) (get-children el) (+ depth *indentation-depth*)) "\n")
+            (apply 'string-concat rendered-children))
+
+        (if (in (car el) *self-closing-tag-names*) ""
+          (string-concat "</" (to-string tag-name) ">"))))))
+
+(function write-html (path html)
+  "Converts a element list into a string and writes the result to a file."
+  (let ((file (open-file path "w+")))
+    (impl:write-file file (render-html html))
+    (close-file file)))
 
 (function html5-template (title description head content)
+  "Generates an empty HTML5 page as a element list."
   `(html ((lang "en"))
     (head
       (meta ((charset "utf-8")))
@@ -58,8 +71,3 @@
       ,@head
       (body
         ,@content)))
-
-(function write-html (path html)
-  (let ((file (open-file path "w+")))
-    (impl:write-file file (render-html html))
-    (close-file file)))
