@@ -28,6 +28,8 @@ enum ops {
   op_not,
   op_gt,
   op_gte,
+  op_bin_and,
+  op_bin_or,
   op_lt,
   op_lti,
   op_lte,

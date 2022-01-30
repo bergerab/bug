@@ -36,9 +36,6 @@
 	"Is x a cons cell?"
     (= (type-of x) (symbol-type 'cons)))
 
-(impl:define-function string? (x)
-    (= (type-of x) (symbol-type 'string)))
-
 (impl:define-function mapcar (f xs)
 	"Applies f to each item in the list xs and returns a new list containing the yielded values."
 	(if xs
@@ -222,6 +219,9 @@
 			t
 			(in y (cdr xs)))))
 
+(macro is (type-name object)
+    `(= (type-of ,object) (symbol-type ',type-name)))
+
 (function string-join (xs str)
 	(if (cadr xs) 
 		(string-concat (string-concat (car xs) str) (string-join (cdr xs) str))
@@ -231,7 +231,9 @@
 
 (function string-concat args
 	(if args
+		(if (cdr args)
 		(reduce (function (a b) (impl:string-concat a b)) (cdr args) (car args))
+		(car args))
 		""))
 
 (function do-times (f n)
@@ -252,7 +254,7 @@
 		(cons x (repeat x (- n 1)))))
 
 (function string-times (str n)
-	(string-concat-all (repeat str n)))
+	(apply 'string-concat (repeat str n)))
 
 (struct rect
 	((x int) (y int) (w int) (h int)))
@@ -295,12 +297,8 @@
       (list? x))))
 
 (function string-quote (x)
-  (string-concat-all (list "\"" x  "\"")))
+  (string-concat "\"" x  "\""))
 
-(function string-concat-all (args)
-  (reduce (symbol-function 'string-concat) args ""))
-
-"this shouldn't be done runtime -- when bug compiler is written in bug that will be easier to do"
 (function load (path)
 	(let ((file (open-file path "rb")))
 		(let ((f (compile-entire-file file)))
@@ -313,4 +311,7 @@
 (load "main.bug")
 
 (impl:change-directory "../json")
+(load "main.bug")
+
+(impl:change-directory "../disassembler")
 (load "main.bug")

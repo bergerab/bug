@@ -299,11 +299,16 @@ struct gis {
   struct object *data_stack; /** same as the value in data_stack_symbol */
   struct object *call_stack; /** same as the value in call_stack_symbol */
   struct object *types;
+  char loaded_core;
+
+  struct object *standard_out;
+  struct object *standard_in;
 
   /* Strings (in alphabetical order) */
   struct object *a_str;
   struct object *add_str;
   struct object *alloc_struct_str;
+  struct object *ampersand_str;
   struct object *and_str;
   struct object *apply_str;
   struct object *b_str;
@@ -319,6 +324,7 @@ struct gis {
   struct object *close_file_str;
   struct object *compile_str;
   struct object *compile_entire_file_str;
+  struct object *continue_str;
   struct object *cons_str;
   struct object *data_stack_str;
   struct object *define_function_str;
@@ -326,7 +332,20 @@ struct gis {
   struct object *div_str;
   struct object *drop_str;
   struct object *dynamic_array_str;
+  struct object *dynamic_array_get_str;
+  struct object *dynamic_array_set_str;
+  struct object *dynamic_array_length_str;
+  struct object *dynamic_array_push_str;
+  struct object *dynamic_array_pop_str;
+  struct object *dynamic_array_concat_str;
   struct object *dynamic_byte_array_str;
+  struct object *dynamic_byte_array_concat_str;
+  struct object *dynamic_byte_array_get_str;
+  struct object *dynamic_byte_array_insert_str;
+  struct object *dynamic_byte_array_length_str;
+  struct object *dynamic_byte_array_set_str;
+  struct object *dynamic_byte_array_push_str;
+  struct object *dynamic_byte_array_pop_str;
   struct object *dynamic_library_str;
   struct object *enumerator_str;
   struct object *equals_str;
@@ -339,6 +358,7 @@ struct gis {
   struct object *flonum_str;
   struct object *foreign_function_str;
   struct object *function_str;
+  struct object *function_code_str;
   struct object *struct_field_str;
   struct object *gt_str;
   struct object *gte_str;
@@ -409,6 +429,7 @@ struct gis {
   struct object *var_str;
   struct object *void_str;
   struct object *vec2_str;
+  struct object *vertical_bar_str;
   struct object *write_bytecode_file_str;
   struct object *write_file_str;
   struct object *x_str;
@@ -430,13 +451,28 @@ struct gis {
   struct object *impl_close_file_sym;
   struct object *impl_compile_sym;
   struct object *impl_compile_entire_file_sym;
+  struct object *impl_continue_sym;
   struct object *impl_data_stack_sym; /** the data stack (a cons list) */
   struct object *impl_define_function_sym;
   struct object *impl_define_struct_sym;
   struct object *impl_drop_sym;
+  struct object *impl_dynamic_array_get_sym;
+  struct object *impl_dynamic_array_set_sym;
+  struct object *impl_dynamic_array_length_sym;
+  struct object *impl_dynamic_array_push_sym;
+  struct object *impl_dynamic_array_pop_sym;
+  struct object *impl_dynamic_array_concat_sym;
+  struct object *impl_dynamic_byte_array_concat_sym;
+  struct object *impl_dynamic_byte_array_get_sym;
+  struct object *impl_dynamic_byte_array_insert_sym;
+  struct object *impl_dynamic_byte_array_length_sym;
+  struct object *impl_dynamic_byte_array_set_sym;
+  struct object *impl_dynamic_byte_array_push_sym;
+  struct object *impl_dynamic_byte_array_pop_sym;
   struct object *impl_f_sym; /** the currently executing function */
   struct object *impl_find_package_sym;
   struct object *impl_function_sym;
+  struct object *impl_function_code_sym;
   struct object *impl_read_sym;
   struct object *impl_read_bytecode_file_sym;
   struct object *impl_read_file_sym;
@@ -466,6 +502,8 @@ struct gis {
   struct object *keyword_value_sym;
   struct object *lisp_add_sym;
   struct object *lisp_apply_sym; /* TODO adding this causes the program to crash when not in GDB */
+  struct object *lisp_bin_and_sym;
+  struct object *lisp_bin_or_sym;
   struct object *lisp_car_sym;
   struct object *lisp_cdr_sym;
   struct object *lisp_cons_sym;
@@ -580,9 +618,23 @@ struct gis {
   struct object *close_file_builtin;
   struct object *compile_builtin;
   struct object *compile_entire_file_builtin;
+  struct object *dynamic_array_get_builtin;
+  struct object *dynamic_array_set_builtin;
+  struct object *dynamic_array_length_builtin;
+  struct object *dynamic_array_push_builtin;
+  struct object *dynamic_array_pop_builtin;
+  struct object *dynamic_array_concat_builtin;
+  struct object *dynamic_byte_array_concat_builtin;
+  struct object *dynamic_byte_array_get_builtin;
+  struct object *dynamic_byte_array_insert_builtin;
+  struct object *dynamic_byte_array_length_builtin;
+  struct object *dynamic_byte_array_set_builtin;
+  struct object *dynamic_byte_array_push_builtin;
+  struct object *dynamic_byte_array_pop_builtin;
   struct object *dynamic_library_builtin;
   struct object *find_package_builtin;
   struct object *foreign_function_builtin;
+  struct object *function_code_builtin;
   struct object *read_builtin;
   struct object *read_bytecode_file_builtin;
   struct object *read_file_builtin;

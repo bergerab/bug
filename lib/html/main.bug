@@ -2,6 +2,7 @@
   '(area base br col embed hr img input link meta param source track wbr))
 (setq *use-indentation* t)
 (setq *indentation-depth* 2)
+(setq *indent-string* " ")
 
 (function attrsp (x)
   "Gets the attributes part of the element list.
@@ -18,6 +19,20 @@
     (cddr el)
     (cdr el)))
 
+(function repro-main (el)
+  (repro el 0))
+(function repro (el d)
+  "Converts a element list into a string."
+  (print "is string?: " (is string el) " value: " el)
+  (if (is string el)
+    el
+    (let ((a 3) (b 1) (c 5) (d 6))
+    (let ((g 3) (b 1) (c 5) (d 6))
+    (string-concat
+    (if (when nil t) 
+      (when t "oigejr")
+      (when t "awfe")))))))
+
 (function render-attr (attr)
   "Renders a single attribute.
     example: (id \"test\") => id=\"test\" "
@@ -29,28 +44,31 @@
 (function do-render-html-recurse (child depth) 
   (do-render-html child depth))
 
+"TODO: there is a data stack leak going on somewhere "
 (function do-render-html (el depth)
   "Converts a element list into a string."
-  (if (string? el)
+  (print "is string?: " (is string el) " value: " el)
+  (if (is string el)
     el
     (let ((tag-name (car el))
           (attrs (attrsp el))
           (not-top-level (and *use-indentation* (> depth 0)))
-          (newline (string-concat "\n" (string-times "\t" depth)))
-          (rendered-children (mapcar-with-carry (function (child d) (do-render-html child d)) (get-children el) (+ depth *indentation-depth*))))
+          (indent (string-times *indent-string* depth))
+          (rendered-children (mapcar-with-carry 'do-render-html-recurse (get-children el) (+ depth *indentation-depth*))))
+      (let ((place-on-new-line (and *use-indentation* rendered-children)))
+        (string-concat
+          indent
+          "<" (to-string tag-name) (if attrs " " "")
 
-      (string-concat
-        "<" (to-string tag-name) (if attrs " " "")
+          (string-join (collect item (attrsp el) (render-attr item)) " ")
 
-        (string-join (collect item (attrsp el) (render-attr item)) " ")
-
-        (if *use-indentation* ">\n" ">")
-        (if *use-indentation*
-            (apply 'string-concat (collect child rendered-children (string-concat child "\n")))
+          (if place-on-new-line (string-concat ">\n" indent) ">")
+          (if *use-indentation*
+            (apply 'string-concat (collect x rendered-children (string-concat x "\n")))
             (apply 'string-concat rendered-children))
 
-        (if (in (car el) *self-closing-tag-names*) ""
-          (string-concat "</" (to-string tag-name) ">"))))))
+          (if (in (car el) *self-closing-tag-names*) ""
+            (string-concat (if place-on-new-line indent "") "</" (to-string tag-name) ">")))))))
 
 (function write-html (path html)
   "Converts a element list into a string and writes the result to a file."
