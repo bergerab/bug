@@ -35,16 +35,18 @@
     el
     (let ((tag-name (car el))
           (attrs (attrsp el))
-          (newline (string-concat "\n" (string-times "\t" 0))))
+          (not-top-level (and *use-indentation* (> depth 0)))
+          (newline (string-concat "\n" (string-times "\t" depth)))
+          (rendered-children (mapcar-with-carry (function (child d) (do-render-html child d)) (get-children el) (+ depth *indentation-depth*))))
 
       (string-concat
         "<" (to-string tag-name) (if attrs " " "")
 
         (string-join (collect item (attrsp el) (render-attr item)) " ")
-          ">"
 
+        (if *use-indentation* ">\n" ">")
         (if *use-indentation*
-            (string-join (mapcar-with-carry (function (child d) (do-render-html child d)) (get-children el) (+ depth *indentation-depth*)) "\n")
+            (apply 'string-concat (collect child rendered-children (string-concat child "\n")))
             (apply 'string-concat rendered-children))
 
         (if (in (car el) *self-closing-tag-names*) ""

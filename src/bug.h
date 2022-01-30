@@ -572,6 +572,7 @@ struct gis {
 
   /* Builtins */
   struct object *alloc_struct_builtin;
+  struct object *apply_builtin;
   struct object *byte_stream_builtin;
   struct object *byte_stream_peek_builtin;
   struct object *byte_stream_read_builtin;

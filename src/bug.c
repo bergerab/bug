@@ -974,9 +974,10 @@ void gis_init(char load_core) {
 /* Creates a string on the GIS. */
 #define GIS_STR(str, cstr) str = string(cstr);
   GIS_STR(gis->a_str, "a");
-  GIS_STR(gis->and_str, "and");
   GIS_STR(gis->add_str, "+");
   GIS_STR(gis->alloc_struct_str, "alloc-struct");
+  GIS_STR(gis->and_str, "and");
+  GIS_STR(gis->apply_str, "apply");
   GIS_STR(gis->b_str, "b");
   GIS_STR(gis->byte_stream_str, "byte-stream");
   GIS_STR(gis->byte_stream_peek_str, "byte-stream-peek");
@@ -1169,6 +1170,7 @@ void gis_init(char load_core) {
   GIS_SYM(gis->keyword_internal_sym, gis->internal_str, gis->keyword_package);
   GIS_SYM(gis->keyword_value_sym, gis->value_str, gis->keyword_package);
   GIS_SYM(gis->lisp_add_sym, gis->add_str, gis->lisp_package);
+  GIS_SYM(gis->lisp_apply_sym, gis->apply_str, gis->lisp_package);
   GIS_SYM(gis->lisp_car_sym, gis->car_str, gis->lisp_package);
   GIS_SYM(gis->lisp_cdr_sym, gis->cdr_str, gis->lisp_package);
   GIS_SYM(gis->lisp_div_sym, gis->div_str, gis->lisp_package);
@@ -1304,6 +1306,7 @@ void gis_init(char load_core) {
 
   /* all builtin functions go here */
   GIS_BUILTIN(gis->alloc_struct_builtin, gis->impl_alloc_struct_sym, 1);
+  GIS_BUILTIN(gis->apply_builtin, gis->lisp_apply_sym, 2);
   GIS_BUILTIN(gis->byte_stream_builtin, gis->impl_byte_stream_sym, 1);
   GIS_BUILTIN(gis->byte_stream_peek_builtin, gis->impl_byte_stream_peek_sym, 2);
   GIS_BUILTIN(gis->byte_stream_read_builtin, gis->impl_byte_stream_read_sym, 2);
@@ -2388,7 +2391,6 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
             symbol_set_value(gis->impl_f_sym, NIL);
             symbol_set_value(gis->impl_i_sym, NIL);
             t = call_function(SYMBOL_FUNCTION(car), CONS_CDR(value));
-            pop(); /* discard the result so it doesn't leak into the data-stack */
             compile(t, f, st, fst);
           } else {
             COMPILE_DO_EACH({});
@@ -2435,6 +2437,7 @@ void dup() {
 
 /** evaluates a builtin function */
 void eval_builtin(struct object *f) {
+  struct object *t0, *t1;
   if (f == gis->use_package_builtin) {
     /* TODO */
   } else if (f == gis->find_package_builtin) {
@@ -2452,6 +2455,20 @@ void eval_builtin(struct object *f) {
     push(NIL);
   } else if (f == gis->alloc_struct_builtin) {
     push(alloc_struct(GET_LOCAL(0), 1));
+  } else if (f == gis->apply_builtin) {
+    OT_LIST("apply", 1, GET_LOCAL(1));
+    t0 = GET_LOCAL(0);
+    if (type_of(t0) == gis->symbol_type) {
+      t0 = symbol_get_function(t0);
+    }
+    if (type_of(t0) != gis->function_type) {
+      printf("Apply must be given a function or symbol that has a function.\n");
+      PRINT_STACK_TRACE_AND_QUIT();
+    }
+    t1 = GET_LOCAL(1); /* we must store the local now -- as we will be setting f/i to NIL */
+    symbol_set_value(gis->impl_f_sym, NIL);
+    symbol_set_value(gis->impl_i_sym, NIL);
+    push(call_function(t0, t1));
   } else if (f == gis->struct_field_builtin) {
     push(struct_field(GET_LOCAL(0), GET_LOCAL(1)));
   } else if (f == gis->set_struct_field_builtin) {
@@ -2593,7 +2610,6 @@ struct object *call_function(struct object *f, struct object *args) {
   struct object *cursor;
   ufixnum_t i, nargs;
 
-  /* transfer arguments from data stack to call stack */
   if (FUNCTION_ACCEPTS_ALL(f)) {
     nargs = 1;
     dynamic_array_push(gis->call_stack, args);
@@ -2639,7 +2655,8 @@ struct object *call_function(struct object *f, struct object *args) {
   /* start the bytecode interpreter at the first instruction */
   symbol_set_value(gis->impl_i_sym, ufixnum(0));
   symbol_set_value(gis->impl_f_sym, f);
-  return run(gis);
+  run(gis);
+  return pop(); /* discard the result so it doesn't leak into the data-stack */
 }
 
 /* returns the top of the stack for convience */
@@ -3026,10 +3043,14 @@ struct object *call_function(struct object *f, struct object *args) {
               gis->impl_f_sym,
               DYNAMIC_ARRAY_VALUES(
                   gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 1]);
-          symbol_set_value(
-              gis->impl_i_sym,
-              DYNAMIC_ARRAY_VALUES(
-                  gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 2]);
+
+          /* if we are returning from a builtin (a builtin called some other function -- this
+             happens with APPLY) return twice. */
+            symbol_set_value(
+                gis->impl_i_sym,
+                DYNAMIC_ARRAY_VALUES(
+                    gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) -
+                                     2]);
           /* pop off all stack arguments, then pop bc, then pop instruction
            * index */
           DYNAMIC_ARRAY_LENGTH(gis->call_stack) -= ufix0;
