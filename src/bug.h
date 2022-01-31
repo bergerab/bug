@@ -618,12 +618,14 @@ struct gis {
   struct object *close_file_builtin;
   struct object *compile_builtin;
   struct object *compile_entire_file_builtin;
+  struct object *dynamic_array_builtin;
   struct object *dynamic_array_get_builtin;
   struct object *dynamic_array_set_builtin;
   struct object *dynamic_array_length_builtin;
   struct object *dynamic_array_push_builtin;
   struct object *dynamic_array_pop_builtin;
   struct object *dynamic_array_concat_builtin;
+  struct object *dynamic_byte_array_builtin;
   struct object *dynamic_byte_array_concat_builtin;
   struct object *dynamic_byte_array_get_builtin;
   struct object *dynamic_byte_array_insert_builtin;
@@ -699,6 +701,7 @@ void symbol_set_function(struct object *sym, struct object *f);
 void symbol_set_value(struct object *sym, struct object *value);
 
 void print(struct object *o);
+void print_no_newline(struct object *o);
 
 struct object *object(enum object_type t);
 struct object *fixnum(fixnum_t fixnum);

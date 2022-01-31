@@ -1,9 +1,27 @@
 (setq *op-number* 0)
-(setq *ops* (impl:dynamic-array 10))
+(setq *ops* (dynamic-array 10))
+
+(struct op
+  ((name object)
+   (id object)))
+
+(function init-op (name id)
+  (let ((op (make op)))
+    (setf op name (to-string name))
+    (setf op id id)
+    op))
+
+(function format-op (op)
+  (string-concat
+    "<op name=" (string-quote (getf op name))
+            " id=" (getf op id)
+            ">"))
 
 (function op (name)
-  (impl:dynamic-array-push (list (to-string name) *op-number*))
-  (setq *op-number* (+ 1 *op-number*)))
+  (let ((op (init-op name *op-number*)))
+    (dynamic-array-push *ops* op)
+    (setq *op-number* (+ 1 *op-number*))
+    op))
 
 (op 'drop)
 (op 'dup)
