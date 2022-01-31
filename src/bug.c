@@ -333,6 +333,7 @@ struct object *struct_field(struct object *instance, struct object *sdes) {
 
   if (TYPE_STRUCT_NFIELDS(type) == 0) {
     printf("Type is not a structure.\n");
+    print(type);
     PRINT_STACK_TRACE_AND_QUIT();
   }
 
@@ -2251,7 +2252,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
                 "range.");
             PRINT_STACK_TRACE_AND_QUIT();
           }
-          dynamic_byte_array_set(C_CODE, t0 - 1, jump_offset << 8);
+          dynamic_byte_array_set(C_CODE, t0 - 1, (jump_offset & 0xFF00) >> 8);
           dynamic_byte_array_set(C_CODE, t0, jump_offset & 0xFF);
 
           /* compile the "else" part of the if */
@@ -2270,7 +2271,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
                 "range.");
             PRINT_STACK_TRACE_AND_QUIT();
           }
-          dynamic_byte_array_set(C_CODE, t1 - 1, jump_offset << 8);
+          dynamic_byte_array_set(C_CODE, t1 - 1, (jump_offset & 0xFF00) >> 8);
           dynamic_byte_array_set(C_CODE, t1, jump_offset & 0xFF);
 
         } else if (car == gis->lisp_print_sym) {
@@ -2682,7 +2683,7 @@ void eval_builtin(struct object *f) {
     a0 = ((t0 & 0x7F) << (7 * op_arg_byte_count++)) | a0;              \
   }
 
-#define READ_OP_JUMP_ARG()                    \
+#define READ_OP_JUMP_ARG()                                     \
   sa0 = code->bytes[++UFIXNUM_VALUE(i)] << 8; \
   sa0 = code->bytes[++UFIXNUM_VALUE(i)] | sa0;
 
@@ -2811,7 +2812,7 @@ struct object *call_function(struct object *f, struct object *args) {
     unsigned char t0, op;  /* temporary for reading bytecode arguments */
     unsigned long a0, a1;  /* the arguments for bytecode parameters */
     unsigned long a2;
-    long sa0;               /* argument for jumps */
+    unsigned long sa0;               /* argument for jumps */
     struct object *v0, *v1; /* temps for values popped off the stack */
     struct object *c0; /* temps for constants (used for bytecode arguments) */
     struct object *temp_i, *temp_f, *f;
@@ -3146,7 +3147,7 @@ struct object *call_function(struct object *f, struct object *args) {
               arg_values[a2] = &FIXNUM_VALUE(STACK_I(a1));
             } else if (type_of(STACK_I(a1)) == gis->string_type) {
               dynamic_byte_array_force_cstr(STACK_I(a1));
-              arg_values[a2] = &STRING_CONTENTS(STACK_I(a1));
+              arg_values[a2] = &DYNAMIC_BYTE_ARRAY_BYTES(STACK_I(a1));
             } else if (type_of(STACK_I(a1)) == gis->pointer_type) {
               arg_values[a2] = &OBJECT_POINTER(STACK_I(a1));
             } else if (!TYPE_BUILTIN(type_of(STACK_I(a1)))) { /* IMPORTANT TODO: validate that it is the same type from the ffun signature */

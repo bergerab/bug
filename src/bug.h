@@ -88,7 +88,7 @@ typedef double flonum_t;
 #define FUNCTION_IS_MACRO(o) o->w1.value.function->is_macro
 
 #define STRING_LENGTH(o) DYNAMIC_BYTE_ARRAY_LENGTH(o)
-#define STRING_CONTENTS(o) DYNAMIC_BYTE_ARRAY_BYTES(o)
+#define STRING_CONTENTS(o) ((char*)DYNAMIC_BYTE_ARRAY_BYTES(o))
 
 #define FILE_FP(o) o->w1.value.file->fp
 #define FILE_MODE(o) o->w1.value.file->mode
@@ -203,7 +203,7 @@ struct dynamic_array {
 struct dynamic_byte_array {
   ufixnum_t length; /** the number of items in the byte-array (a fixnum) */
   ufixnum_t capacity;
-  char *bytes; /** the contents of the byte-array */
+  unsigned char *bytes; /** the contents of the byte-array */
 };
 
 struct symbol {

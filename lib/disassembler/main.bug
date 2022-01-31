@@ -3,25 +3,71 @@
 
 (struct op
   ((name object)
-   (id object)))
+   (code object)
+   (nargs object)))
 
-(function init-op (name id)
+(function init-op (name code nargs)
   (let ((op (make op)))
     (setf op name (to-string name))
-    (setf op id id)
+    (setf op code code)
+    (setf op nargs nargs)
     op))
 
 (function format-op (op)
   (string-concat
     "<op name=" (string-quote (getf op name))
-            " id=" (getf op id)
+            " code=" (getf op code)
             ">"))
 
 (function op (name)
-  (let ((op (init-op name *op-number*)))
+  (let ((op (init-op name *op-number* 0)))
     (dynamic-array-push *ops* op)
-    (setq *op-number* (+ 1 *op-number*))
+    (incq *op-number*)
     op))
+
+(function get-op (code)
+  (unless (out-of-bounds *ops* code)
+    (dynamic-array-get *ops* code)))
+
+(struct disassembler
+  ((index object)))
+
+"
+(disassemble-source '(1 2 3))
+
+[ nil nil 
+  TOP_LEVEL calling DISASSEMBLE_SOURCE: (+ 1 2) <disassembler 0000000000EF8BB0> 4 <function [(+ 1 2) disassemble-source] [0x0F 0x10 0x2F 0x01]> 
+  DISASSEMBLE_SOURCE calling DISASSEMBLE: <disassembler 0000000000EF8BB0> [0x0F] <op 00000000027A4780> 22 <function disassemble-source> 
+  DISASSEMBLE calling DISASSEMBLE: <disassembler 0000000000EF8BB0> [0x0F] nil 66 <function disassemble> 
+  (2nd) DISASSEMBLE calling DBA_GET(code, 1): [0x0F] 1 19 <function disassemble>
+  ]
+  index out of bounds
+
+[nil nil 
+  top-level -> '(+ 1 2) da
+  disassemble-source -> da dba 
+  disassemble -> da code 
+
+"
+
+(function init-disassembler ()
+  (let ((da (make disassembler)))
+    (setf da index 0)
+    da))
+
+(function disassemble (da code str)
+  (if (< (getf da index) (dynamic-byte-array-length code))
+    (let ((op (get-op (dynamic-byte-array-get code (getf da index)))))
+      (if op
+        (progn 
+          (incf da index)
+          (string-join (cons (getf op name) (disassemble da code str)) "\n"))
+        (print "ERROR: unsupported op" (getf da index))))
+    str))
+
+(function disassemble-source (source)
+  (let ((da (init-disassembler)))
+    (disassemble da (impl:function-code (impl:compile source nil nil nil)) "")))
 
 (op 'drop)
 (op 'dup)

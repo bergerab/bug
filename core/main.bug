@@ -135,6 +135,18 @@
 (macro getf (instance field)
 	`(struct-field ,instance ',field))
 
+(macro incf (instance field)
+	`(setf ,instance ,field (+ 1 (getf ,instance ,field))))
+
+(macro decf (instance field)
+	`(setf ,instance ,field (+ 1 (getf ,instance ,field))))
+
+(macro incq (sym)
+	`(setq ,sym (+ 1 ,sym)))
+
+(macro decq (sym)
+	`(setq ,sym (- ,sym 1)))
+
 (macro function args
 	`(impl:define-function ,@args))
 
@@ -295,6 +307,10 @@
   (when (list? xs)
     (all x xs 
       (list? x))))
+
+(function out-of-bounds (xs x)
+	(or (< x 0)
+		  (>= x (dynamic-array-length xs))))
 
 (function string-quote (x)
   (string-concat "\"" x  "\""))

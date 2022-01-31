@@ -47,7 +47,6 @@
 "TODO: there is a data stack leak going on somewhere "
 (function do-render-html (el depth)
   "Converts a element list into a string."
-  (print "is string?: " (is string el) " value: " el)
   (if (is string el)
     el
     (let ((tag-name (car el))
