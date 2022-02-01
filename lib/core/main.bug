@@ -244,8 +244,8 @@
 (function string-concat args
 	(if args
 		(if (cdr args)
-		(reduce (function (a b) (impl:string-concat a b)) (cdr args) (car args))
-		(car args))
+			(reduce (function (a b) (impl:string-concat a b)) (cdr args) (car args))
+			(car args))
 		""))
 
 (function do-times (f n)
@@ -323,6 +323,22 @@
 				(progn	
 					,@(cdr case))
 				(cond ,@(cdr cases))))))
+
+(function do-let*-kvp (kvps body)
+	(if kvps
+		(if (cadr kvps)
+			(gen-let*-kvp (car kvps) (list (do-let*-kvp (cdr kvps) body)))
+			(gen-let*-kvp (car kvps) (do-let*-kvp (cdr kvps) body)))
+		body))
+
+(function gen-let*-kvp (kvp next)
+	`(let ((,(car kvp) ,(cadr kvp)))
+		,@next))
+
+(macro let* args
+	(let ((kvps (car args))
+			  (body (cdr args)))
+		(do-let*-kvp kvps body)))
 
 (function load (path)
 	(let ((file (open-file path "rb")))

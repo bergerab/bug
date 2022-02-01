@@ -36,12 +36,12 @@
   "Converts a element list into a string."
   (let ((indent (string-times *indent-string* depth)))
     (if (list? el)
-      (let ((tag-name (car el))
-            (attrs (attrsp el)))
-        (let ((skip-render-tag? (= tag-name *splice-symbol*)))
-          (let ((next-depth (if skip-render-tag? depth (+ depth *indentation-depth*))))
-            (let ((rendered-children (mapcar-with-carry 'do-render-html-recurse (get-children el) next-depth)))
-              (let ((place-on-new-line (and *use-indentation* rendered-children)))
+      (let* ((tag-name (car el))
+             (attrs (attrsp el))
+             (skip-render-tag? (= tag-name *splice-symbol*))
+             (next-depth (if skip-render-tag? depth (+ depth *indentation-depth*)))
+             (rendered-children (mapcar-with-carry 'do-render-html-recurse (get-children el) next-depth))
+             (place-on-new-line (and *use-indentation* rendered-children)))
                 (string-concat
                   (if skip-render-tag? "" indent)
 
@@ -63,7 +63,7 @@
                   (if skip-render-tag?
                     ""
                     (if (in (car el) *self-closing-tag-names*) ""
-                      (string-concat (if place-on-new-line indent "") "</" (to-string tag-name) ">")))))))))
+                      (string-concat (if place-on-new-line indent "") "</" (to-string tag-name) ">")))))
       (string-concat indent (to-string el)))))
 
 (function write-html (path html)
@@ -85,7 +85,7 @@
         (meta ((property "og:title") (content ,title)))
         (meta ((property "og:description") (content ,description)))
 
-        (link ((rel "icon") (href "/favicon.ico"))))
-        ,@head
+        (link ((rel "icon") (href "/favicon.ico")))
+        ,head)
         (body
-          ,@content))))
+          ,content))))
