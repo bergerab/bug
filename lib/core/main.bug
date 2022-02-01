@@ -165,10 +165,9 @@
 		(cons (call f (car xs) carry) 
 				  (mapcar-with-carry f (cdr xs) carry))))
 
-(function with-fields-format-field (field instance)
-	`(,field (getf ,instance ,field)))
 (macro with-fields args
-	"(with-fields (alloc rect) (x y)
+	" Example:
+		(with-fields (alloc rect) (x y)
 			(print \"x = \" x)
 			(print \"y = \" y))"
 	(let ((fields (cadr args))
@@ -179,11 +178,49 @@
 					(let (,@(mapcar-with-carry (symbol-function 'with-fields-format-field) fields sym))
     				,@body))))
 
+(function with-fields-format-field (field instance)
+	`(,field (getf ,instance ,field)))
+
 (macro collect args
 	`(mapcar (function (,(car args)) ,@(cddr args)) ,(cadr args)))
 
+"TODO: 'dba couldn't realloc' if used (list (cadr args)) within the let"
 (macro for-each args
-	`(do-for-each (function (,(car args)) ,@(cddr args)) ,(cadr args)))
+	(let ((item-sym (car args))
+				(body (cddr args))
+				(cursor-sym (gensym)))
+		(print-return 
+			`(let ((,cursor-sym ,(cadr args)))
+				(while ,cursor-sym
+					(let ((,item-sym (car ,cursor-sym)))
+						,@body)
+					(set ,cursor-sym (cdr ,cursor-sym)))
+				nil))))
+
+"
+(let ((gensym-1 '(1 2 3))) 
+	(while gensym-1 
+		(let ((x (car gensym-1))) 
+			(print x)) 
+		(set gensym-1 (cdr gensym-1)))
+	nil)
+	"
+
+"
+(macro for-each args
+	(let ((item-sym (car args))
+				(list (cadr args))
+				(body (cddr args))
+				(cursor-sym (gensym)))
+		(print-return 
+			`(progn
+				(let ((,cursor-sym ,list))
+					(while ,cursor-sym
+						(let ((,item-sym (car ,cursor-sym)))
+							,@body)
+						(set ,cursor-sym (cdr ,cursor-sym))))
+				nil))))
+				"
 
 (function reduce (f xs acc)
 	(if xs (reduce f (cdr xs) (call f acc (car xs))) acc))
@@ -224,11 +261,6 @@
 
 (macro any args
 	`(do-any (function (,(car args)) ,@(cddr args)) ,(cadr args)))
-
-(function do-for-each (f xs)
-	(when xs
-		(call f (car xs))
-		(do-for-each f (cdr xs))))
 
 (function in (y xs)
 	(when xs

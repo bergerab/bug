@@ -2227,9 +2227,9 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
         } else if (car == gis->lisp_set_sym) {
           /* in CL, SET doesn't work for lexical variables. setq can do this
            * though */
-          /* if this is lexical, set the variable on the stack
-             otherwise, set the symbol value slot */
           C_EXE2(op_set_symbol_value);
+        } else if (car == gis->lisp_set_local_sym) { /* TODO: */
+          C_EXE2();
         } else if (car == gis->lisp_set_symbol_function_sym) {
           C_EXE2(op_set_symbol_function);
         } else if (car == gis->lisp_while_sym) {
