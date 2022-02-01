@@ -77,9 +77,9 @@
 "========================================================"
 
 (function test-mydll ()
-	(let ((r0 (make mydll-rect))
-			  (r1 (make mydll-rect))
-				(q0 (make mydll-quad)))
+	(let ((r0 (alloc mydll-rect))
+			  (r1 (alloc mydll-rect))
+				(q0 (alloc mydll-quad)))
 		(setf r0 x 4)
 		(setf r0 y 5)
 		(setf r0 w 6)

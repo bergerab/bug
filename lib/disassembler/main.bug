@@ -7,7 +7,7 @@
    (nargs object)))
 
 (function init-op (name code nargs)
-  (let ((op (make op)))
+  (let ((op (alloc op)))
     (setf op name (to-string name))
     (setf op code code)
     (setf op nargs nargs)
@@ -50,7 +50,7 @@
 "
 
 (function init-disassembler ()
-  (let ((da (make disassembler)))
+  (let ((da (alloc disassembler)))
     (setf da index 0)
     da))
 

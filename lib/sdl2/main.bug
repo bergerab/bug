@@ -147,13 +147,13 @@
 (function render-text (x y message)
 	(render (make-text x y message)))
 
-(setq *default-rect* (make sdl-rect))
+(setq *default-rect* (alloc sdl-rect))
 (setf *default-rect* x 0)
 (setf *default-rect* y 0)
 (setf *default-rect* w 0)
 (setf *default-rect* h 0)
 
-(setq _render_rect (make sdl-rect))
+(setq _render_rect (alloc sdl-rect))
 (function render (object)
 	(when (= (car object) :text)
 			(setf _render_rect x (get-text-x object))
@@ -162,7 +162,7 @@
 			(setf _render_rect h *font-size*)
 			(render-copy *renderer* (get-text-texture object) nil _render_rect)))
 
-(setq *keyboard-event* (make sdl-keyboard-event))
+(setq *keyboard-event* (alloc sdl-keyboard-event))
 
 (setq sdl-firstevent 0)
 (setq sdl-quit 256)
@@ -212,7 +212,7 @@
 
 	(setq *font-size* 64)
 	(setq *font* (open-font "fonts/iosevka.ttf" *font-size*))
-	(setq *font-color* (make 'sdl-color))
+	(setq *font-color* (alloc 'sdl-color))
 	(setf *font-color* r 0)
 	(setf *font-color* g 255)
 	(setf *font-color* b 0)

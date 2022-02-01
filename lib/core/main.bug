@@ -126,7 +126,7 @@
 (macro setq (sym val)
 	`(set ',sym ,val))
 
-(macro make (type)
+(macro alloc (type)
 	`(alloc-struct ',type))
 
 (macro setf (instance field value)
@@ -272,7 +272,7 @@
 	((x int) (y int) (w int) (h int)))
 
 (function struct-test ()
-	(setq rect (make rect))
+	(setq rect (alloc rect))
 	(setf rect x 10)
 	(setf rect y 20)
 	(setf rect w 200)
@@ -300,8 +300,8 @@
    ((x int) 
     (y (pointer b))))
   
-  (make a)
-  (getf (make a) y))
+  (alloc a)
+  (getf (alloc a) y))
 
 (function list-of-lists? (xs)
   (when (list? xs)
