@@ -27,7 +27,7 @@
   {}
 #endif
 
-#define FUNCTION_TRACE 1
+#define FUNCTION_TRACE 0
 
 void type_check(char *name, unsigned int argument, struct object *o,
                 struct object *t);

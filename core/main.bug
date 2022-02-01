@@ -1,7 +1,6 @@
 "Cons helpers that should probably be builtins"
 (impl:define-function cadr (x)
 	"Gets the second item in a list."
-	(print "CADR" x (type-of x) (car x) (cdr x) )
   (car (cdr x)))
 
 (impl:define-function caddr (x)

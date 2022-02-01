@@ -63,7 +63,7 @@
           (print (cons (getf op name) (disassemble da code str)))
           (string-join (cons (getf op name) (disassemble da code str)) "\n"))
         (print "ERROR: unsupported op" (getf da index))))
-    str))
+    (list str)))
 
 (function disassemble-source (source)
   (let ((da (init-disassembler)))

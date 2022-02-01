@@ -3175,7 +3175,7 @@ struct object *call_function(struct object *f, struct object *args) {
           PRINT_STACK_TRACE_AND_QUIT();
         }
 
-#ifdef FUNCTION_TRACE
+#if FUNCTION_TRACE
         if (gis->loaded_core) {
           printf("=== CALL FUNCTION ===\n");
           print(f);
@@ -3184,7 +3184,7 @@ struct object *call_function(struct object *f, struct object *args) {
 
         prepare_function_call(a0, temp_f, temp_i, f);
 
-#ifdef FUNCTION_TRACE
+#if FUNCTION_TRACE
         if (gis->loaded_core) {
           print(gis->call_stack);
           printf("=====================\n");
@@ -3219,7 +3219,7 @@ struct object *call_function(struct object *f, struct object *args) {
           goto quit_run;
         } else {
 
-#ifdef FUNCTION_TRACE
+#if FUNCTION_TRACE
           if (gis->loaded_core) {
             printf("=== RETURN FUNCTION ===\n");
             printf("FROM: ");
@@ -3242,7 +3242,7 @@ struct object *call_function(struct object *f, struct object *args) {
           /* pop off all stack arguments, then pop bc, then pop instruction
            * index */
           DYNAMIC_ARRAY_LENGTH(gis->call_stack) -= ufix0;
-#ifdef FUNCTION_TRACE
+#if FUNCTION_TRACE
           if (gis->loaded_core) {
             printf("TO: ");
             print(symbol_get_value(gis->impl_f_sym));
