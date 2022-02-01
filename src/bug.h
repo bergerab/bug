@@ -301,6 +301,8 @@ struct gis {
   struct object *types;
   char loaded_core;
 
+  ufixnum_t gensym_counter;
+
   struct object *standard_out;
   struct object *standard_in;
 
@@ -363,6 +365,7 @@ struct gis {
   struct object *function_str;
   struct object *function_code_str;
   struct object *struct_field_str;
+  struct object *gensym_str;
   struct object *gt_str;
   struct object *gte_str;
   struct object *i_str;
@@ -515,6 +518,7 @@ struct gis {
   struct object *lisp_div_sym;
   struct object *lisp_equals_sym;
   struct object *lisp_function_sym;
+  struct object *lisp_gensym_sym;
   struct object *lisp_gt_sym;
   struct object *lisp_gte_sym;
   struct object *lisp_if_sym;
@@ -646,6 +650,7 @@ struct gis {
   struct object *find_package_builtin;
   struct object *foreign_function_builtin;
   struct object *function_code_builtin;
+  struct object *gensym_builtin;
   struct object *read_builtin;
   struct object *read_bytecode_file_builtin;
   struct object *read_file_builtin;

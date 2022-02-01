@@ -17,3 +17,18 @@
 - implement closures to support higher order functions
   - right now functions are higher order, but it contains horrible bugs anytime you attempt to reference a free variable (both downward and upward funargs)
 - implement dynamic scoped variables
+- implement labels/break for whiles
+
+- theres a horrible bug where lexical scoping can be skipped
+EXAMPLE:
+(macro incq (sym)
+  (print-return
+	  `(setq ,sym (+ 1 ,sym))))
+
+(macro print-return (x)
+	(let ((sym (gensym)))
+		`(let ((,sym ,x))
+				(print ,sym)
+				,sym)))
+
+In this example, the value from incq's sym is printed within print-return.

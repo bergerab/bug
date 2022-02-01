@@ -1039,6 +1039,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->function_str, "function");
   GIS_STR(gis->function_code_str, "function-code");
   GIS_STR(gis->struct_field_str, "struct-field");
+  GIS_STR(gis->gensym_str, "gensym");
   GIS_STR(gis->gt_str, ">");
   GIS_STR(gis->gte_str, ">=");
   GIS_STR(gis->i_str, "i");
@@ -1222,6 +1223,7 @@ void gis_init(char load_core) {
   GIS_SYM(gis->lisp_cdr_sym, gis->cdr_str, gis->lisp_package);
   GIS_SYM(gis->lisp_div_sym, gis->div_str, gis->lisp_package);
   GIS_SYM(gis->lisp_equals_sym, gis->equals_str, gis->lisp_package);
+  GIS_SYM(gis->lisp_gensym_sym, gis->gensym_str, gis->lisp_package);
   GIS_SYM(gis->lisp_gt_sym, gis->gt_str, gis->lisp_package);
   GIS_SYM(gis->lisp_gte_sym, gis->gte_str, gis->lisp_package);
   GIS_SYM(gis->lisp_if_sym, gis->if_str, gis->lisp_package);
@@ -1396,13 +1398,14 @@ void gis_init(char load_core) {
   GIS_BUILTIN(gis->compile_builtin, gis->impl_compile_sym, 4);
   GIS_BUILTIN(gis->compile_entire_file_builtin, gis->impl_compile_entire_file_sym, 1);
   GIS_BUILTIN(gis->dynamic_library_builtin, gis->type_dynamic_library_sym, 1)  /* takes the path */
+  GIS_BUILTIN(gis->gensym_builtin, gis->lisp_gensym_sym, 0)
   GIS_BUILTIN(gis->find_package_builtin, gis->impl_find_package_sym, 1) /* takes name of package */
   GIS_BUILTIN(gis->foreign_function_builtin, gis->type_foreign_function_sym, 4) /* takes the dlib, the name, and the parameter types */
   GIS_BUILTIN(gis->function_code_builtin, gis->impl_function_code_sym, 1)
   GIS_BUILTIN(gis->marshal_builtin, gis->impl_marshal_sym, 3);
   GIS_BUILTIN(gis->open_file_builtin, gis->impl_open_file_sym, 2);
   GIS_BUILTIN(gis->package_symbols_builtin, gis->impl_package_symbols_sym, 1) /* takes package object */
-  GIS_BUILTIN(gis->type_of_builtin, gis->impl_type_of_sym, 1) /* takes the package object */
+  GIS_BUILTIN(gis->type_of_builtin, gis->impl_type_of_sym, 1)
   GIS_BUILTIN(gis->read_builtin, gis->impl_read_sym, 2);
   GIS_BUILTIN(gis->read_bytecode_file_builtin, gis->impl_read_bytecode_file_sym, 1);
   GIS_BUILTIN(gis->read_file_builtin, gis->impl_read_file_sym, 1);
@@ -1444,6 +1447,8 @@ void gis_init(char load_core) {
 
   gis->standard_out = file_stdout();
   gis->standard_in = file_stdin();
+
+  gis->gensym_counter = 0;
 
   /* Load core.bug */
   gis->loaded_core = 0;
@@ -2646,6 +2651,9 @@ void eval_builtin(struct object *f) {
     push(NIL);
   } else if (f == gis->alloc_struct_builtin) {
     push(alloc_struct(GET_LOCAL(0), 1));
+  } else if (f == gis->gensym_builtin) {
+    push(symbol(string_concat(string("gensym-"), to_string(ufixnum(gis->gensym_counter)))));
+    ++gis->gensym_counter;
   } else if (f == gis->function_code_builtin) {
     OT("function-code", 0, GET_LOCAL(0), type_function);
     push(FUNCTION_CODE(GET_LOCAL(0)));

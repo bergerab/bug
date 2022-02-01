@@ -151,9 +151,10 @@
 	`(impl:define-function ,@args))
 
 (macro print-return (x)
-	`(let ((i-need-to-implement-gensym ,x))
-		(print i-need-to-implement-gensym)
-		i-need-to-implement-gensym))
+	(let ((sym (gensym)))
+		`(let ((,sym ,x))
+				(print ,sym)
+				,sym)))
 
 (macro struct (name fields)
 	`(impl:define-struct ',name ',fields))
@@ -167,11 +168,15 @@
 (function with-fields-format-field (field instance)
 	`(,field (getf ,instance ,field)))
 (macro with-fields args
+	"(with-fields (alloc rect) (x y)
+			(print \"x = \" x)
+			(print \"y = \" y))"
 	(let ((fields (cadr args))
 	      (instance (car args))
-				(body (cddr args)))
-			`(let ((i-need-to-implement-gensym-real-bad ,instance)) 
-					(let (,@(mapcar-with-carry (symbol-function 'with-fields-format-field) fields 'i-need-to-implement-gensym-real-bad))
+				(body (cddr args))
+				(sym (gensym)))
+			`(let ((,sym ,instance)) 
+					(let (,@(mapcar-with-carry (symbol-function 'with-fields-format-field) fields sym))
     				,@body))))
 
 (macro collect args
