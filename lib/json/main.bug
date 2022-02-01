@@ -21,6 +21,6 @@
         "["
         (string-join (collect item json (render-json item)) ", ")
         "]")
-      (if (string? json) 
+      (if (is string json) 
         (string-quote (string-escape json))
         (to-string json)))))

@@ -1,0 +1,15 @@
+(function read (x)
+  (do-read (impl:byte-stream x)))
+
+(function char-code (str)
+  (dynamic-byte-array-get str 0))
+
+(setq *0-char-code* (char-code "0"))
+(setq *9-char-code* (char-code "9"))
+
+(function is-numeric (char)
+  (and (>= char *0-char-code*)
+       (<= char *9-char-code*)))
+
+(function do-read (stream)
+  nil)

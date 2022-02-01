@@ -315,6 +315,15 @@
 (function string-quote (x)
   (string-concat "\"" x  "\""))
 
+(macro cond cases
+	"This is a good example of how to write a recursive macro -- see how a second cond is generated with (cdr cases) spliced."
+	(let ((case (car cases)))
+		(when case
+			`(if ,(car case)
+				(progn	
+					,@(cdr case))
+				(cond ,@(cdr cases))))))
+
 (function load (path)
 	(let ((file (open-file path "rb")))
 		(let ((f (compile-entire-file file)))
@@ -330,4 +339,7 @@
 (load "main.bug")
 
 (impl:change-directory "../disassembler")
+(load "main.bug")
+
+(impl:change-directory "../compiler")
 (load "main.bug")

@@ -3,6 +3,7 @@
 (setq *use-indentation* t)
 (setq *indentation-depth* 2)
 (setq *indent-string* " ")
+(setq *splice-symbol* '@)
 
 (function attrsp (x)
   "Gets the attributes part of the element list.
@@ -18,20 +19,6 @@
   (if (attrsp el)
     (cddr el)
     (cdr el)))
-
-(function repro-main (el)
-  (repro el 0))
-(function repro (el d)
-  "Converts a element list into a string."
-  (print "is string?: " (is string el) " value: " el)
-  (if (is string el)
-    el
-    (let ((a 3) (b 1) (c 5) (d 6))
-    (let ((g 3) (b 1) (c 5) (d 6))
-    (string-concat
-    (if (when nil t) 
-      (when t "oigejr")
-      (when t "awfe")))))))
 
 (function render-attr (attr)
   "Renders a single attribute.
@@ -51,7 +38,7 @@
     (if (list? el)
       (let ((tag-name (car el))
             (attrs (attrsp el)))
-        (let ((skip-render-tag? (= tag-name 'splice)))
+        (let ((skip-render-tag? (= tag-name *splice-symbol*)))
           (let ((next-depth (if skip-render-tag? depth (+ depth *indentation-depth*))))
             (let ((rendered-children (mapcar-with-carry 'do-render-html-recurse (get-children el) next-depth)))
               (let ((place-on-new-line (and *use-indentation* rendered-children)))
@@ -87,7 +74,7 @@
 
 (function html5-template (title description head content)
   "Generates an empty HTML5 page as a element list."
-  `(splice 
+  `(@ 
     "<!doctype html>"
     (html ((lang "en"))
       (head

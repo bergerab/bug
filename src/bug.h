@@ -331,6 +331,8 @@ struct gis {
   struct object *define_function_str;
   struct object *define_struct_str;
   struct object *div_str;
+  struct object *double_left_arrow_str;
+  struct object *double_right_arrow_str;
   struct object *drop_str;
   struct object *dynamic_array_str;
   struct object *dynamic_array_get_str;
@@ -431,6 +433,7 @@ struct gis {
   struct object *void_str;
   struct object *vec2_str;
   struct object *vertical_bar_str;
+  struct object *while_str;
   struct object *write_bytecode_file_str;
   struct object *write_file_str;
   struct object *x_str;
@@ -527,6 +530,8 @@ struct gis {
   struct object *lisp_quote_sym;
   struct object *lisp_set_sym;
   struct object *lisp_set_symbol_function_sym;
+  struct object *lisp_shift_left_sym;
+  struct object *lisp_shift_right_sym;
   struct object *lisp_symbol_function_sym;
   struct object *lisp_symbol_name_sym;
   struct object *lisp_symbol_value_sym;
@@ -534,6 +539,7 @@ struct gis {
   struct object *lisp_to_string_sym;
   struct object *lisp_unquote_splicing_sym;
   struct object *lisp_unquote_sym;
+  struct object *lisp_while_sym;
   struct object *type_char_sym;
   struct object *type_dynamic_array_sym;
   struct object *type_dynamic_byte_array_sym;

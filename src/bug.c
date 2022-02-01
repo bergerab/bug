@@ -1007,6 +1007,8 @@ void gis_init(char load_core) {
   GIS_STR(gis->define_function_str, "define-function");
   GIS_STR(gis->define_struct_str, "define-struct");
   GIS_STR(gis->div_str, "/");
+  GIS_STR(gis->double_left_arrow_str, "<<");
+  GIS_STR(gis->double_right_arrow_str, ">>");
   GIS_STR(gis->drop_str, "drop");
   GIS_STR(gis->dynamic_array_str, "dynamic-array");
   GIS_STR(gis->dynamic_array_get_str, "dynamic-array-get");
@@ -1107,6 +1109,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->void_str, "void");
   GIS_STR(gis->vec2_str, "vec2");
   GIS_STR(gis->vertical_bar_str, "|");
+  GIS_STR(gis->while_str, "while");
   GIS_STR(gis->write_bytecode_file_str, "write-bytecode-file");
   GIS_STR(gis->write_file_str, "write-file");
   GIS_STR(gis->x_str, "x");
@@ -1234,6 +1237,8 @@ void gis_init(char load_core) {
   GIS_SYM(gis->lisp_quote_sym, gis->quote_str, gis->lisp_package);
   GIS_SYM(gis->lisp_set_sym, gis->set_str, gis->lisp_package);
   GIS_SYM(gis->lisp_set_symbol_function_sym, gis->set_symbol_function_str, gis->lisp_package);
+  GIS_SYM(gis->lisp_shift_left_sym, gis->double_left_arrow_str, gis->lisp_package);
+  GIS_SYM(gis->lisp_shift_right_sym, gis->double_right_arrow_str, gis->lisp_package);
   GIS_SYM(gis->lisp_symbol_name_sym, gis->symbol_name_str, gis->lisp_package);
   GIS_SYM(gis->lisp_symbol_function_sym, gis->symbol_function_str, gis->lisp_package);
   GIS_SYM(gis->lisp_symbol_value_sym, gis->symbol_value_str, gis->lisp_package);
@@ -1241,6 +1246,7 @@ void gis_init(char load_core) {
   GIS_SYM(gis->lisp_to_string_sym, gis->to_string_str, gis->lisp_package);
   GIS_SYM(gis->lisp_unquote_splicing_sym, gis->unquote_splicing_str, gis->lisp_package);
   GIS_SYM(gis->lisp_unquote_sym, gis->unquote_str, gis->lisp_package);
+  GIS_SYM(gis->lisp_while_sym, gis->while_str, gis->lisp_package);
   GIS_SYM(gis->type_object_sym, gis->object_str, gis->type_package);
   GIS_SYM(gis->type_char_sym, gis->char_str, gis->type_package);
   GIS_SYM(gis->type_dynamic_array_sym, gis->dynamic_array_str, gis->type_package);
@@ -1443,7 +1449,7 @@ void gis_init(char load_core) {
   gis->loaded_core = 0;
   if (load_core) {
     IF_DEBUG() printf("============ Loading core... ==============\n");
-    eval(compile_entire_file(open_file(string("../core/main.bug"), string("rb")), 0), NIL);
+    eval(compile_entire_file(open_file(string("../lib/core/main.bug"), string("rb")), 0), NIL);
     IF_DEBUG() printf("============ Core loaded... ===============\n");
     gis->loaded_core = 1;
   }
@@ -1936,7 +1942,8 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
   struct object *value, *car, *cursor, *constants, *code, *tst, *t; /* temp symbol table */
   struct object *name, *params, *body, *k, *v, *kvp, *fun; /** for compiling functions */
   struct object *lhs, *rhs;
-  ufixnum_t length, t0, t1, jump_offset, stack_index;
+  ufixnum_t length, t0, t1, stack_index;
+  fixnum_t jump_offset;
 
   if (f == NIL) {
     constants = dynamic_array(10);
@@ -2220,10 +2227,58 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
           C_EXE2(op_set_symbol_value);
         } else if (car == gis->lisp_set_symbol_function_sym) {
           C_EXE2(op_set_symbol_function);
+        } else if (car == gis->lisp_while_sym) {
+          t0 = C_CODE_LEN - 1; /* keep the address of the condition -- the end of the body will jump to this */
+
+          /* compile the condition part if the while */
+          C_COMPILE_ARG0;
+          C_PUSH_CODE(op_jump_forward_when_nil);
+          /* dummy arg of zeros for jump -- will be updated below to go to end
+           * of while statement */
+          C_PUSH_CODE(0);
+          C_PUSH_CODE(0);
+
+          t1 = C_CODE_LEN - 1; /* keep the address of the jump -- to be updated later */
+
+          /* compile the "body" part of the if */
+          if (CONS_CDR(CONS_CDR(value)) == NIL) {
+            printf("\"while\" requires 2 arguments was given 1.");
+            PRINT_STACK_TRACE_AND_QUIT();
+          }
+          cursor = CONS_CDR(CONS_CDR(value));
+          while (cursor != NIL) {
+            C_COMPILE(CONS_CAR(cursor));
+            cursor = CONS_CDR(cursor);
+            if (cursor != NIL) C_PUSH_CODE(op_drop);
+          }
+          C_PUSH_CODE(op_jump_backward);
+
+          /* set the jump address back to the condition */
+          jump_offset = C_CODE_LEN - t0;
+          if (jump_offset > 65535) { /* 16-bit number */
+            printf(
+                "body part of \"while\" special form exceeded maximum jump "
+                "range.");
+            PRINT_STACK_TRACE_AND_QUIT();
+          }
+          C_PUSH_CODE((jump_offset & 0xFF00) >> 8);
+          C_PUSH_CODE(jump_offset & 0xFF);
+
+          /* now we know how far the first jump should have been - update it */
+          jump_offset = C_CODE_LEN - t1;
+          if (jump_offset > 65535) {
+            printf(
+                "condition part of if special form exceeded maximum jump "
+                "range.");
+            PRINT_STACK_TRACE_AND_QUIT();
+          }
+          dynamic_byte_array_set(C_CODE, t1 - 1, (jump_offset & 0xFF00) >> 8);
+          dynamic_byte_array_set(C_CODE, t1, jump_offset & 0xFF);
+
         } else if (car == gis->lisp_if_sym) {
           /* compile the condition part if the if */
           C_COMPILE_ARG0;
-          C_PUSH_CODE(op_jump_when_nil);
+          C_PUSH_CODE(op_jump_forward_when_nil);
           /* dummy arg of zeros for jump -- will be updated below to go to end
            * of if statement */
           C_PUSH_CODE(0);
@@ -2238,7 +2293,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
           }
           C_COMPILE_ARG1;
 
-          C_PUSH_CODE(op_jump);
+          C_PUSH_CODE(op_jump_forward);
           /* dummy arg of zeros for jump -- will be updated below to go to end
            * of if statement */
           C_PUSH_CODE(0);
@@ -2248,7 +2303,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
 
           /* now we know how far the first jump should have been - update it */
           jump_offset = C_CODE_LEN - t0;
-          if (jump_offset > 32767) { /* signed 16-bit number */
+          if (jump_offset > 65535) { /* signed 16-bit number */
             printf(
                 "\"then\" part of if special form exceeded maximum jump "
                 "range.");
@@ -2267,7 +2322,7 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
 
           /* now we know how far the first jump should have been - update it */
           jump_offset = C_CODE_LEN - t1;
-          if (jump_offset > 32767) {
+          if (jump_offset > 65535) {
             printf(
                 "\"else\" part of if special form exceeded maximum jump "
                 "range.");
@@ -2440,6 +2495,10 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
           C_EXE2(op_bin_and);
         } else if (car == gis->lisp_bin_or_sym) {
           C_EXE2(op_bin_or);
+        } else if (car == gis->lisp_shift_left_sym) {
+          C_EXE2(op_shift_left);
+        } else if (car == gis->lisp_shift_right_sym) {
+          C_EXE2(op_shift_right);
         } else if (car == gis->lisp_or_sym) {
           C_EXE2(op_or);
         } else if (car == gis->lisp_gt_sym) {
@@ -2940,6 +2999,18 @@ struct object *call_function(struct object *f, struct object *args) {
           STACK_I(0) =
               fixnum(FIXNUM_VALUE(STACK_I(0)) & FIXNUM_VALUE(v1)); /* TODO: support flonum/ufixnum */
           break;
+        case op_shift_right:
+          SC("shift-right", 2);
+          v1 = pop(); /* y */
+          STACK_I(0) =
+              fixnum(FIXNUM_VALUE(STACK_I(0)) >> FIXNUM_VALUE(v1)); /* TODO: support flonum/ufixnum */
+          break;
+        case op_shift_left:
+          SC("shift-left", 2);
+          v1 = pop(); /* y */
+          STACK_I(0) =
+              fixnum(FIXNUM_VALUE(STACK_I(0)) << FIXNUM_VALUE(v1)); /* TODO: support flonum/ufixnum */
+          break;
         case op_add: /* add ( x y -- x+y ) */
           SC("add", 2);
           v1 = pop(); /* y */
@@ -3242,6 +3313,7 @@ struct object *call_function(struct object *f, struct object *args) {
           /* pop off all stack arguments, then pop bc, then pop instruction
            * index */
           DYNAMIC_ARRAY_LENGTH(gis->call_stack) -= ufix0;
+
 #if FUNCTION_TRACE
           if (gis->loaded_core) {
             printf("TO: ");
@@ -3250,14 +3322,18 @@ struct object *call_function(struct object *f, struct object *args) {
             printf("====================\n");
           }
 #endif
+
           goto eval_restart; /* restart the evaluation loop */
         }
-      case op_jump: /* jump ( -- ) */
-        /* can jump ~32,000 in both directions */
+      case op_jump_forward: /* jump-forward ( -- ) */
         READ_OP_JUMP_ARG();
         UFIXNUM_VALUE(i) += sa0;
         continue; /* continue so the usual increment to i doesn't happen */
-      case op_jump_when_nil: /* jump_when_nil ( cond -- ) */
+      case op_jump_backward: /* jump-forward ( -- ) */
+        READ_OP_JUMP_ARG();
+        UFIXNUM_VALUE(i) -= sa0;
+        continue; /* continue so the usual increment to i doesn't happen */
+      case op_jump_forward_when_nil: /* jump_when_nil ( cond -- ) */
         READ_OP_JUMP_ARG();
         v0 = pop(); /* cond */
         if (v0 == NIL)
@@ -4148,11 +4224,11 @@ void run_tests() {
 
   BEGIN_BC_TEST("(if 1 2 3)");
   T_BYTE(op_const_0);
-  T_BYTE(op_jump_when_nil);
+  T_BYTE(op_jump_forward_when_nil);
   T_BYTE(0);
   T_BYTE(5);
   T_BYTE(op_const_1);
-  T_BYTE(op_jump);
+  T_BYTE(op_jump_forward);
   T_BYTE(0);
   T_BYTE(2);
   T_BYTE(op_const_2);
@@ -4163,11 +4239,11 @@ void run_tests() {
 
   BEGIN_BC_TEST("(if 1 2 3 4)");
   T_BYTE(op_const_0);
-  T_BYTE(op_jump_when_nil);
+  T_BYTE(op_jump_forward_when_nil);
   T_BYTE(0);
   T_BYTE(5);
   T_BYTE(op_const_1);
-  T_BYTE(op_jump);
+  T_BYTE(op_jump_forward);
   T_BYTE(0);
   T_BYTE(4);
   T_BYTE(op_const_2);
