@@ -651,16 +651,16 @@ void close_file(struct object *file) {
 int print_stack_did_recurse = 0;
 void print_stack() {
   fixnum_t i, j, len;
-  struct object *f;
+  struct object *f, *next_f;
   ++print_stack_did_recurse;
   len = DYNAMIC_ARRAY_LENGTH(gis->call_stack);
   i = len - 1;
   if (print_stack_did_recurse > 1) { /* prevent infinite recursion if the source of the error was a function called within this function */
     exit(1);
   }
+  f = symbol_get_value(gis->impl_f_sym);
   printf("Stack Trace\n");
-  while (i > 0) { /* TOOD this prints the stack in a revered order */
-    f = dynamic_array_get_ufixnum_t(gis->call_stack, i);
+  while (i > 0) { /* TODO: this prints the stack in a revered order */
     if (f == NIL) {
       printf("Top level\n");
       break;
@@ -675,23 +675,21 @@ void print_stack() {
       j = 0;
       for (j = 0; j < FUNCTION_NARGS(f); ++j) {
         printf(" ");
-        print_no_newline(dynamic_array_get_ufixnum_t(gis->call_stack, i - 2 - FUNCTION_STACK_SIZE(f) + j + 1));
+        print_no_newline(do_to_string(dynamic_array_get_ufixnum_t(gis->call_stack, i - 2 - FUNCTION_STACK_SIZE(f) + j + 1), 1));
       }
     } else {
       printf("(<anonymous-function>");
     }
+    next_f = dynamic_array_get_ufixnum_t(gis->call_stack, i);
     if (f != NIL) {
       i -= 2; /* skip instruction index for now -- should translate this to line
                  number later */
       i -= FUNCTION_STACK_SIZE(f);
-
       printf(")\n");
     }
+    f = next_f;
   }
   --print_stack_did_recurse;
-  printf("instruction-index = ");
-  print(symbol_get_value(gis->impl_i_sym));
-  printf("\n");
 }
 
 /*===============================*
@@ -1005,6 +1003,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->continue_str, "continue");
   GIS_STR(gis->cons_str, "cons");
   GIS_STR(gis->data_stack_str, "data-stack");
+  GIS_STR(gis->debugger_str, "debugger");
   GIS_STR(gis->define_function_str, "define-function");
   GIS_STR(gis->define_struct_str, "define-struct");
   GIS_STR(gis->div_str, "/");
@@ -1165,6 +1164,7 @@ void gis_init(char load_core) {
   GIS_SYM(gis->impl_compile_sym, gis->compile_str, gis->impl_package);
   GIS_SYM(gis->impl_compile_entire_file_sym, gis->compile_entire_file_str, gis->impl_package);
   GIS_SYM(gis->impl_data_stack_sym, gis->data_stack_str, gis->impl_package); /** the data stack (a cons list) */
+  GIS_SYM(gis->impl_debugger_sym, gis->debugger_str, gis->impl_package);
   GIS_SYM(gis->impl_define_function_sym, gis->define_function_str, gis->impl_package);
   GIS_SYM(gis->impl_define_struct_sym, gis->define_struct_str, gis->impl_package);
   GIS_SYM(gis->impl_drop_sym, gis->drop_str, gis->impl_package);
@@ -1300,6 +1300,7 @@ void gis_init(char load_core) {
   PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_dynamic_byte_array_push_sym, PACKAGE_SYMBOLS(gis->lisp_package));
   PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_dynamic_byte_array_pop_sym, PACKAGE_SYMBOLS(gis->lisp_package));
 
+  symbol_set_value(gis->impl_continue_sym, gis->impl_continue_sym);
   symbol_set_value(gis->type_t_sym, gis->type_t_sym); /* t has itself as its value */
 
   use_package(gis->impl_package, gis->type_package);
@@ -1368,6 +1369,7 @@ void gis_init(char load_core) {
   GIS_BUILTIN(gis->byte_stream_builtin, gis->impl_byte_stream_sym, 1);
   GIS_BUILTIN(gis->byte_stream_peek_builtin, gis->impl_byte_stream_peek_sym, 2);
   GIS_BUILTIN(gis->byte_stream_read_builtin, gis->impl_byte_stream_read_sym, 2);
+  GIS_BUILTIN(gis->debugger_builtin, gis->impl_debugger_sym, 0);
   GIS_BUILTIN(gis->dynamic_array_builtin, gis->type_dynamic_array_sym, 1);
   GIS_BUILTIN(gis->dynamic_array_get_builtin, gis->impl_dynamic_array_get_sym, 2);
   GIS_BUILTIN(gis->dynamic_array_set_builtin, gis->impl_dynamic_array_set_sym, 3);
@@ -2530,6 +2532,9 @@ void eval_builtin(struct object *f) {
     push(find_package(string_designator(GET_LOCAL(0))));
   } else if (f == gis->symbol_type_builtin) {
     push(symbol_get_type(GET_LOCAL(0)));
+  } else if (f == gis->debugger_builtin) {
+    drop_into_repl();
+    push(NIL);
   } else if (f == gis->type_of_builtin) {
     push(type_of(GET_LOCAL(0)));
   } else if (f == gis->dynamic_array_builtin) {
@@ -2851,39 +2856,39 @@ struct object *call_function(struct object *f, struct object *args) {
         case op_cons: /* cons ( car cdr -- (cons car cdr) ) */
           SC("cons", 2);
           v1 = pop(); /* cdr */
-          v0 = pop(); /* car */
-          push(cons(v0, v1));
+          v0 = STACK_I(0); /* car */
+          STACK_I(0) = cons(v0, v1);
           break;
         case op_intern: /* intern ( string -- symbol ) */
           SC("intern", 1);
-          v0 = pop();
+          v0 = STACK_I(0);
           printf("op_intern is not implemented.");
           PRINT_STACK_TRACE_AND_QUIT();
           OT("intern", 0, v0, type_string);
-          push(intern(pop(), NIL));
+          STACK_I(0) = intern(pop(), NIL);
           break;
         case op_car: /* car ( (cons car cdr) -- car ) */
           SC("car", 1);
-          v0 = pop();
+          v0 = STACK_I(0);
           if (v0 == NIL) {
-            push(NIL);
+            STACK_I(0) = NIL;
           } else if (type_of(v0) == gis->cons_type) {
-            push(CONS_CAR(v0));
+            STACK_I(0) = CONS_CAR(v0);
           } else {
-            printf("Can only car a list (was given a %s).",
+            printf("Can only car a list (was given a %s).\n",
                    type_name_of_cstr(v0));
             PRINT_STACK_TRACE_AND_QUIT();
           }
           break;
         case op_cdr: /* cdr ( (cons car cdr) -- cdr ) */
           SC("cdr", 1);
-          v0 = pop();
+          v0 = STACK_I(0);
           if (v0 == NIL) {
-            push(NIL);
+            STACK_I(0) = NIL;
           } else if (type_of(v0) == gis->cons_type) {
-            push(CONS_CDR(v0));
+            STACK_I(0) = CONS_CDR(v0);
           } else {
-            printf("Can only cdr a list (was given a %s).",
+            printf("Can only cdr a list (was given a %s).\n",
                    type_name_of_cstr(v0));
             PRINT_STACK_TRACE_AND_QUIT();
           }
@@ -3114,20 +3119,6 @@ struct object *call_function(struct object *f, struct object *args) {
           f = symbol_get_function(STACK_I(0));
         }
 
-        /*
-                if (gis->loaded_core) {
-                  printf("Stopped at call_function...\n");
-                  print(f);
-                  temp = NIL;
-                  while (temp != gis->impl_continue_sym) {
-                    printf("b> ");
-                    temp = compile(read(gis->standard_in, NIL), NIL, NIL, NIL);
-                    temp = eval(temp, NIL);
-                    print(pop());
-                  }
-                }
-                */
-
         /* if this is a foreign function */
         if (type_of(f) == gis->foreign_function_type) {
           cursor = FFUN_PARAM_TYPES(f);
@@ -3184,7 +3175,21 @@ struct object *call_function(struct object *f, struct object *args) {
           PRINT_STACK_TRACE_AND_QUIT();
         }
 
+#ifdef FUNCTION_TRACE
+        if (gis->loaded_core) {
+          printf("=== CALL FUNCTION ===\n");
+          print(f);
+        }
+#endif
+
         prepare_function_call(a0, temp_f, temp_i, f);
+
+#ifdef FUNCTION_TRACE
+        if (gis->loaded_core) {
+          print(gis->call_stack);
+          printf("=====================\n");
+        }
+#endif
 
         if (FUNCTION_IS_BUILTIN(f)) {
           symbol_set_value(
@@ -3213,6 +3218,15 @@ struct object *call_function(struct object *f, struct object *args) {
           symbol_set_value(gis->impl_i_sym, ufixnum(0)); /* TODO: reuse fixnums so one is not created between call_function calls */
           goto quit_run;
         } else {
+
+#ifdef FUNCTION_TRACE
+          if (gis->loaded_core) {
+            printf("=== RETURN FUNCTION ===\n");
+            printf("FROM: ");
+            print(f);
+          }
+#endif
+
           symbol_set_value(
               gis->impl_f_sym,
               DYNAMIC_ARRAY_VALUES(
@@ -3228,6 +3242,14 @@ struct object *call_function(struct object *f, struct object *args) {
           /* pop off all stack arguments, then pop bc, then pop instruction
            * index */
           DYNAMIC_ARRAY_LENGTH(gis->call_stack) -= ufix0;
+#ifdef FUNCTION_TRACE
+          if (gis->loaded_core) {
+            printf("TO: ");
+            print(symbol_get_value(gis->impl_f_sym));
+            print(gis->call_stack);
+            printf("====================\n");
+          }
+#endif
           goto eval_restart; /* restart the evaluation loop */
         }
       case op_jump: /* jump ( -- ) */
@@ -4168,6 +4190,19 @@ void run_tests() {
   END_BC_TEST();
 
   END_TESTS();
+}
+
+void drop_into_repl() {
+  struct object *temp;
+  printf("Debugger...\n");
+  print(symbol_get_value(gis->impl_f_sym));
+  temp = NIL;
+  while (temp != gis->impl_continue_sym) {
+    printf("b> ");
+    temp = compile(read(gis->standard_in, NIL), NIL, NIL, NIL);
+    temp = call_function(temp, NIL);
+    print(temp);
+  }
 }
 
 /*

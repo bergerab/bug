@@ -27,6 +27,8 @@
   {}
 #endif
 
+#define FUNCTION_TRACE 1
+
 void type_check(char *name, unsigned int argument, struct object *o,
                 struct object *t);
 void type_check_or2(char *name, unsigned int argument, struct object *o,

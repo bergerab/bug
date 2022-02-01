@@ -47,7 +47,6 @@
   top-level -> '(+ 1 2) da
   disassemble-source -> da dba 
   disassemble -> da code 
-
 "
 
 (function init-disassembler ()
@@ -61,6 +60,7 @@
       (if op
         (progn 
           (incf da index)
+          (print (cons (getf op name) (disassemble da code str)))
           (string-join (cons (getf op name) (disassemble da code str)) "\n"))
         (print "ERROR: unsupported op" (getf da index))))
     str))

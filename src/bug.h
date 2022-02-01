@@ -327,6 +327,7 @@ struct gis {
   struct object *continue_str;
   struct object *cons_str;
   struct object *data_stack_str;
+  struct object *debugger_str;
   struct object *define_function_str;
   struct object *define_struct_str;
   struct object *div_str;
@@ -453,6 +454,7 @@ struct gis {
   struct object *impl_compile_entire_file_sym;
   struct object *impl_continue_sym;
   struct object *impl_data_stack_sym; /** the data stack (a cons list) */
+  struct object *impl_debugger_sym;
   struct object *impl_define_function_sym;
   struct object *impl_define_struct_sym;
   struct object *impl_drop_sym;
@@ -618,6 +620,7 @@ struct gis {
   struct object *close_file_builtin;
   struct object *compile_builtin;
   struct object *compile_entire_file_builtin;
+  struct object *debugger_builtin;
   struct object *dynamic_array_builtin;
   struct object *dynamic_array_get_builtin;
   struct object *dynamic_array_set_builtin;
@@ -735,5 +738,7 @@ struct object *write_file(struct object *file, struct object *o);
 struct object *read_file(struct object *file);
 
 struct object *call_function(struct object *f, struct object *args);
+
+void drop_into_repl();
 
 #endif

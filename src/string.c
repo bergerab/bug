@@ -221,8 +221,12 @@ struct object *do_to_string(struct object *o, char repr) {
       }
       if (CONS_CDR(o) == NIL) {
         dynamic_byte_array_push_char(str, ')');
-      } else {
+      } else if (type_of(CONS_CDR(o)) == gis->cons_type) {
         str = string_concat(str, string(" "));
+        str = string_concat(str, do_to_string(CONS_CDR(o), 1));
+        dynamic_byte_array_push_char(str, ')');
+      } else {
+        str = string_concat(str, string(" . "));
         str = string_concat(str, do_to_string(CONS_CDR(o), 1));
         dynamic_byte_array_push_char(str, ')');
       }
