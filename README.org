@@ -19,3 +19,7 @@ This requires that you have "make" installed with MinGW and "gcc".
 You also need to have libffi installed somewhere in your path.
 
 I already had Strawberry Perl installed, so I just took the libffi.a, ffi.h, and ffitarget.h, and put them in the appropriate MinGW directories (/include and /lib) and it worked.
+
+* Types
+Common Lisp has type specifiers which supports complex expressions, and has separate types for its FFI.
+Right now, Bug has one set of types that are used for both. How can I get type expressions and keep this?

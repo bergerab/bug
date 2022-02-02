@@ -1,9 +1,0 @@
-(set 'sdl2 (dynamic-library "../experiments/sdl/SDL2.dll"))
-
-(impl:foreign-function 'init
-  sdl2 'SDL_Init
-  'ffi:int '(ffi:int))
-
-(impl:foreign-function 'create-window
-  sdl2 'SDL_CreateWindow
-  'ffi:int '(ffi:string ffi:int ffi:int ffi:int ffi:int ffi:int))

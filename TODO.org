@@ -34,3 +34,43 @@ EXAMPLE:
 In this example, the value from incq's sym is printed within print-return.
 
 - 'dba couldn't realloc' if used (list (cadr args)) within the let. only happens when using 'list' (see for-each macro)
+
+- structs should be more like this:
+   (struct a
+    ((name a) (type asdf) ())
+    ((name wef) (type owaiejf)))
+
+- ffi should specify c type and lisp type
+  (foreign-function asdf
+    ((name (* char) string) (alloca t)))
+  - this is important for when the lisp types don't match with the c types (like if a string uses wchar instead of char)
+
+- first order of biz should be to get the compiler working in bug -- then delete a bunch of C code
+  - the "init_gis" routine should init default symbols as usual, but should also require a bytecode file of the core.
+    "init_gis" will execute the core bytecode first. (there would be some "bootstrap/main.bug")
+    - once this is completed, all reading/compiling/etc... code should be removed from C. The marshalling code can Strawberry
+      in C.
+  - updating the compiler would go like this:
+    - Step 1: Compile lib/compiler/main.bug (the result will be bytecode in memory)
+        - If the compiler has a syntax error, or other a static semantic error, the compiler will not compile and will error here.
+        - Note: we cannot accept this compiler yet. When asked about self hosted compilers people summarize by saying you compile the new compiler with the old compiler
+                but that doesn't test that the new compiler is correct. Even if we had unit tests and static checks, it still wouldn't be acceptable. At a minimum we need
+                to verify that the new compiler is able to compile itself without error, and that the result it produces runs properly. A simple way to do this is to
+                compile the new compiler with itself, and use that compiler to compile itself again. Then check to see if both results are the same. 
+
+                It may seem like Step 3 is not necessary because we can assume the original compiler produces correct and runnable bytecode.
+                That will produce a fine update once. The new compiler will run fine. But it doesn't verify that the code the new compiler produces runs fine.
+                What if you compare the results of Step 1 with Step 2. If they are the same, then it should work? Using the old compiler to compile the new compiler,
+                then using the new compiler to compile the new compiler. What if there was a change in the new compiler where "if" compiled to different bytecodes in some cases (maybe some optimization)?
+                Then comparing the old compiler and new compiler's outputs would not have any value.
+    - Step 2: Run the result of step 1 to compile lib/compiler/main.bug again.
+        - If the new compiler has a bug where it crashes during compilation (runtime/logic error), the compilation will fail.
+    - Step 3: Run the result of step 2 to compile lib/compiler/main.bug again.
+        - If the compiler produced 
+        - Note: We already know that our existing compiler produces valid bytecode (this is tested to be true in the beginning, and verified thru this step for all later versions). 
+                We aren't sure that our new compiler produces runnable bytecode. That's the purpose of this step. We would be dead in the water if we accepted the compiler from Step 2,
+                if the compiler compiled successfully, but generated invalid bytecode (our new compiler that we switched to would not be able to produce runnable code).
+    - Step 4: compare the result of Step 2 and Step 3. If they are the same, write the bytecode from either step as the "bootstrap/compiler.bug". That will be the new compiler.
+              Otherwise, error. 
+  - these steps test that the compiler #1 can be compiled (it is written in the language properly), #2 it can compile at least itself, #3 the result of the compilation can be run (the compiler produces proper bytecode).
+  - The results of Step 2 and Step 3 should be equal otherwise there was a bug.
