@@ -32,3 +32,5 @@ EXAMPLE:
 				,sym)))
 
 In this example, the value from incq's sym is printed within print-return.
+
+- 'dba couldn't realloc' if used (list (cadr args)) within the let. only happens when using 'list' (see for-each macro)

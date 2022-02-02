@@ -403,6 +403,7 @@ struct gis {
   struct object *record_str;
   struct object *run_bytecode_str;
   struct object *set_str;
+  struct object *set_local_str;
   struct object *set_symbol_function_str;
   struct object *set_struct_field_str;
   struct object *stack_str;
@@ -533,6 +534,7 @@ struct gis {
   struct object *lisp_quasiquote_sym;
   struct object *lisp_quote_sym;
   struct object *lisp_set_sym;
+  struct object *lisp_set_local_sym;
   struct object *lisp_set_symbol_function_sym;
   struct object *lisp_shift_left_sym;
   struct object *lisp_shift_right_sym;

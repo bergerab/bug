@@ -1077,6 +1077,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->record_str, "record");
   GIS_STR(gis->run_bytecode_str, "run-bytecode");
   GIS_STR(gis->set_str, "set");
+  GIS_STR(gis->set_local_str, "set-local");
   GIS_STR(gis->set_symbol_function_str, "set-symbol-function");
   GIS_STR(gis->set_struct_field_str, "set-struct-field");
   GIS_STR(gis->stack_str, "stack");
@@ -1238,6 +1239,7 @@ void gis_init(char load_core) {
   GIS_SYM(gis->lisp_quasiquote_sym, gis->quasiquote_str, gis->lisp_package);
   GIS_SYM(gis->lisp_quote_sym, gis->quote_str, gis->lisp_package);
   GIS_SYM(gis->lisp_set_sym, gis->set_str, gis->lisp_package);
+  GIS_SYM(gis->lisp_set_local_sym, gis->set_local_str, gis->lisp_package);
   GIS_SYM(gis->lisp_set_symbol_function_sym, gis->set_symbol_function_str, gis->lisp_package);
   GIS_SYM(gis->lisp_shift_left_sym, gis->double_left_arrow_str, gis->lisp_package);
   GIS_SYM(gis->lisp_shift_right_sym, gis->double_right_arrow_str, gis->lisp_package);
@@ -1946,7 +1948,7 @@ struct object *compile_entire_file(struct object *input_file, char should_return
 struct object *compile(struct object *ast, struct object *f, struct object *st, struct object *fst) {
   struct object *value, *car, *cursor, *constants, *code, *tst, *t; /* temp symbol table */
   struct object *name, *params, *body, *k, *v, *kvp, *fun; /** for compiling functions */
-  struct object *lhs, *rhs;
+  struct object *lhs, *rhs, *temp;
   ufixnum_t length, t0, t1, stack_index;
   fixnum_t jump_offset;
 
@@ -2069,8 +2071,6 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
     gen_load_constant(f, C_ARG0());
     /* printf("A object of type function cannot be compiled."); PRINT_STACK_TRACE_AND_QUIT(); */
   } else if (t == gis->cons_type) {
-    /* TODO: in SBCL you can say (symbol-function '+) and it gives you a
-     * function. that would be cool to be able to do here. */
     car = CONS_CAR(value);
     if (type_of(car) == gis->symbol_type) {
       if (alist_get_value(st, car) !=
@@ -2229,7 +2229,16 @@ struct object *compile(struct object *ast, struct object *f, struct object *st, 
            * though */
           C_EXE2(op_set_symbol_value);
         } else if (car == gis->lisp_set_local_sym) { /* TODO: */
-          C_EXE2();
+          temp = alist_get_value(st, C_ARG0());
+          if (temp == NIL) {
+            printf("Local variable not found.\n");
+            print(C_ARG0());
+            PRINT_STACK_TRACE_AND_QUIT();
+          }
+          C_COMPILE_ARG1;
+          C_PUSH_CODE(op_store_to_stack);
+          C_PUSH_CODE(UFIXNUM_VALUE(temp)); /* store to index 0 on the stack */
+          C_PUSH_CODE(op_load_nil);
         } else if (car == gis->lisp_set_symbol_function_sym) {
           C_EXE2(op_set_symbol_function);
         } else if (car == gis->lisp_while_sym) {

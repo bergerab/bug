@@ -147,6 +147,12 @@
 (macro decq (sym)
 	`(setq ,sym (- ,sym 1)))
 
+(macro incl (sym)
+	`(set-local ,sym (+ 1 ,sym)))
+
+(macro decl (sym)
+	`(set-local ,sym (+ 1 ,sym)))
+
 (macro function args
 	`(impl:define-function ,@args))
 
@@ -181,46 +187,42 @@
 (function with-fields-format-field (field instance)
 	`(,field (getf ,instance ,field)))
 
-(macro collect args
-	`(mapcar (function (,(car args)) ,@(cddr args)) ,(cadr args)))
+(function reverse (list)
+	(let ((cursor list)
+				(output nil))
+		(while cursor
+			(set-local output (cons (car cursor) output))
+			(set-local cursor (cdr cursor)))
+		output))
 
-"TODO: 'dba couldn't realloc' if used (list (cadr args)) within the let"
+(macro collect args
+	"inefficient (makes the list twice)"
+	(let ((item-sym (car args))
+				(body (cddr args))
+				(xs (cadr args))
+				(cursor-sym (gensym))
+				(collection-sym (gensym))
+				(result-sym (gensym)))
+			`(let ((,cursor-sym ,(cadr args))
+						 (,collection-sym nil))
+				(while ,cursor-sym
+					(let* ((,item-sym (car ,cursor-sym))
+							  (,result-sym ,@body))
+						(set-local ,cursor-sym (cdr ,cursor-sym))
+						(set-local ,collection-sym (cons ,result-sym ,collection-sym))))
+				(reverse ,collection-sym))))
+
 (macro for-each args
 	(let ((item-sym (car args))
 				(body (cddr args))
+				(xs (cadr args))
 				(cursor-sym (gensym)))
-		(print-return 
 			`(let ((,cursor-sym ,(cadr args)))
 				(while ,cursor-sym
 					(let ((,item-sym (car ,cursor-sym)))
 						,@body)
-					(set ,cursor-sym (cdr ,cursor-sym)))
-				nil))))
-
-"
-(let ((gensym-1 '(1 2 3))) 
-	(while gensym-1 
-		(let ((x (car gensym-1))) 
-			(print x)) 
-		(set gensym-1 (cdr gensym-1)))
-	nil)
-	"
-
-"
-(macro for-each args
-	(let ((item-sym (car args))
-				(list (cadr args))
-				(body (cddr args))
-				(cursor-sym (gensym)))
-		(print-return 
-			`(progn
-				(let ((,cursor-sym ,list))
-					(while ,cursor-sym
-						(let ((,item-sym (car ,cursor-sym)))
-							,@body)
-						(set ,cursor-sym (cdr ,cursor-sym))))
-				nil))))
-				"
+					(set-local ,cursor-sym (cdr ,cursor-sym)))
+				nil)))
 
 (function reduce (f xs acc)
 	(if xs (reduce f (cdr xs) (call f acc (car xs))) acc))
@@ -376,6 +378,21 @@
 	(let ((kvps (car args))
 			  (body (cdr args)))
 		(do-let*-kvp kvps body)))
+
+(function typecase-gen-case (val-sym type type-sym)
+	(cond 
+		((= type nil) `(= ,val-sym nil))
+		 (t `(= ,type-sym (symbol-type ',type)))))
+
+(macro typecase args
+	(let* ((id (car args))
+				 (type-sym (gensym))
+				 (val-sym (gensym))
+			   (cases (collect case (cdr args)
+									 (cons (typecase-gen-case val-sym (car case) type-sym) (cdr case)))))
+		`(let* ((,val-sym ,id)
+						(,type-sym (type-of ,val-sym)))
+			(cond ,@cases))))
 
 (function load (path)
 	(let ((file (open-file path "rb")))
