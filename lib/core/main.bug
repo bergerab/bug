@@ -236,7 +236,7 @@
 					(let* ((,item-sym nil))
 						(while (and ,cursor-sym ,continue-sym)
 							(set-local ,item-sym (car ,cursor-sym))
-							(let ((,result-sym ,@body))
+							(let ((,result-sym (progn ,@body)))
 								(when ,result-sym
 									(set-local ,continue-sym nil))
 								(set-local ,cursor-sym (cdr ,cursor-sym))))
@@ -258,7 +258,7 @@
 					(let* ((,item-sym nil))
 						(while (and (< ,index-sym ,length-sym) ,continue-sym)
 							(set-local ,item-sym (dynamic-array-get ,list-sym ,index-sym))
-							(let ((,result-sym ,@body))
+							(let ((,result-sym (progn ,@body)))
 								(when ,result-sym
 									(set-local ,continue-sym nil))
 								(inc-local ,index-sym)))
@@ -322,7 +322,15 @@
 (macro is (type-name object)
     `(= (type-of ,object) (symbol-type ',type-name)))
 
+(function count (list)
+	(do-count list 0))
+(function do-count (list n)
+	(if list
+		(do-count (cdr list) (+ n 1))
+	 n))
+
 (function string-join (xs str)
+	"TODO: (if (cadr xs) ...) usage seems wrong and weird - it is for checking if there are at least 2 items left in the list, it should be (if (cdr xs) ..) for that."
 	(if (cadr xs) 
 		(string-concat (string-concat (car xs) str) (string-join (cdr xs) str))
 		(if (car xs)

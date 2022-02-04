@@ -38,29 +38,131 @@
 (function push-byte (compiler byte)
   (dynamic-byte-array-push (get-field compiler code) byte))
 
+(function push-integer (compiler x)
+  )
+
 (function add-constant (compiler value)
   (let* ((i 0)
         (existing-value 
           (dynamic-array-find constant (get-field compiler constants)
-            (= constant value)
-            (inc-local i)))
+            (inc-local i)
+            (= constant value)))
         (existing-value-index (when existing-value (- i 1))))
       (if existing-value
           existing-value-index
         (dynamic-array-push (get-field compiler constants) value)
         (- (dynamic-array-length (get-field compiler constants)) 1))))
 
+(function compile-best-const-op (compiler i)
+  (cond 
+    ((= i 0) (push-byte compiler *op-const-0*))
+    ((= i 1) (push-byte compiler *op-const-1*))
+    ((= i 2) (push-byte compiler *op-const-2*))
+    ((= i 3) (push-byte compiler *op-const-3*))
+    (t 
+      (push-byte compiler *op-const*)
+      (impl:marshal-integer i (get-field compiler code) nil))))
+
 (function compile-constant (compiler value)
-  (push-byte compiler *op-const*)
-  (impl:marshal-integer (add-constant compiler value) (get-field compiler code)  nil))
+  (let ((i (add-constant compiler value)))
+    (compile-best-const-op compiler i)))
 
 (function compiler-compile (compiler expr)
   (typecase expr
     (fixnum (compile-constant compiler expr))
+    (ufixnum (compile-constant compiler expr))
+    (flonum (compile-constant compiler expr))
     (string (compile-constant compiler expr))
+    (symbol (compile-symbol compiler expr))
+    (cons
+      (compiler-compile-sexpr compiler expr))
     (otherwise
       (print "I don't know what to do")))
   compiler)
+
+(function compile-symbol (compiler expr)
+  (if expr
+     (progn
+        "TODO check if this is a local variable"
+       (compile-constant compiler expr)
+       (push-byte compiler *op-symbol-value*))
+    (push-byte compiler *op-load-nil*)))
+
+(function compiler-compile-sexpr (compiler sexpr)
+  (let ((symbol (car sexpr))
+        (args (cdr sexpr)))
+    (cond
+      ((= symbol '+) (compiler-compile-arithmetic compiler '+ *op-add* args))
+      ((= symbol '-) (compiler-compile-arithmetic compiler '- *op-sub* args))
+      ((= symbol '*) (compiler-compile-arithmetic compiler '* *op-mul* args))
+      ((= symbol '/) (compiler-compile-arithmetic compiler '/ *op-div* args))
+
+      ((= symbol 'cons) (compiler-compile-two-arg-op compiler 'car *op-cons* args))
+      ((= symbol 'car) (compiler-compile-one-arg-op compiler 'car *op-car* args))
+      ((= symbol 'cdr) (compiler-compile-one-arg-op compiler 'car *op-cdr* args))
+
+      ((= symbol 'progn) 
+        (require-more-than-zero compiler 'progn args) 
+        (compile-args-as-progn compiler args))
+
+      (t
+        (print "ERROR unknown symbol " symbol)
+        (push-byte compiler *op-load-nil*))
+
+      )))
+
+(function compile-args-as-progn (compiler args)
+  (when args
+    (compiler-compile compiler (car args))
+    (when (cdr args)
+      (push-byte compiler *op-drop*))
+    (compile-args-as-progn compiler (cdr args))))
+
+(function require-nargs (compiler symbol n args)
+  (unless (= (count args) n)
+    (print "ERROR " symbol " takes " n " arguments but was given " (count args))
+    "Push a dummy value:"
+    (push-byte compiler *op-load-nil*)))
+
+(function require-more-than-zero (compiler symbol args)
+  (unless args  
+    (print "ERROR " symbol " takes at least one argument but was given none.")
+    "Push a dummy value:"
+    (push-byte compiler *op-load-nil*)))
+
+(function compiler-compile-one-arg-op (compiler symbol op args)
+  (require-nargs compiler symbol 1 args)
+  (compiler-compile compiler (car args))
+  (push-byte compiler op))
+
+(function compiler-compile-two-arg-op (compiler symbol op args)
+  (require-nargs compiler symbol 2 args)
+  (compiler-compile compiler (car args))
+  (compiler-compile compiler (cadr args))
+  (push-byte compiler op))
+
+(function compiler-compile-arithmetic (compiler symbol op args)
+  (require-more-than-zero compiler symbol args)
+  (if (cdr args)
+    (progn
+        (compiler-compile compiler (car args))
+        (compiler-compile compiler (cadr args))
+        (push-byte compiler op)
+        (for-each value (cddr args)
+          (compiler-compile compiler value)
+          (push-byte compiler op)))
+   (compiler-compile compiler (car args))))
+
+(function compiler-compile-arithmetic-do (compiler symbol op args)
+  (when args
+    (if (cdr args)
+      (progn
+        (compiler-compile compiler (car args))
+        (compiler-compile compiler (cadr args))
+        (push-byte compiler op)
+        (compiler-compile-arithmetic-do compiler symbol op (cddr args)))
+     (compiler-compile compiler (car args))
+     (push-byte compiler op))))
 
 (function compiler-make-function (compiler)
   "Makes a function from the code the compiler has generated.
