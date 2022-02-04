@@ -10,10 +10,31 @@ But it is only ever used once recursively (for dispatch chars).
 (struct readtable
   ((entries object)))
 
+(setq *at-char-code* (char-code "@"))
+(setq *rparen-char-code* (char-code ")"))
+(setq *lparen-char-code* (char-code "("))
+(setq *comma-char-code* (char-code ","))
+(setq *single-quote-char-code* (char-code "'"))
+(setq *0-char-code* (char-code "0"))
+(setq *9-char-code* (char-code "9"))
+(setq *space-char-code* (char-code " "))
+(setq *tab-char-code* (char-code "\t"))
+(setq *newline-char-code* (char-code "\n"))
+(setq *return-char-code* (char-code "\r"))
+(setq *tick-char-code* (char-code "`"))
+(setq *double-quote-char-code* (char-code "\""))
+(setq *semicolon-char-code* (char-code ";"))
+(setq *backslash-char-code* (char-code "\\"))
+(setq *n-char-code* (char-code "n"))
+(setq *r-char-code* (char-code "r"))
+(setq *t-char-code* (char-code "t"))
+
 (setq *default-readtable* (make-readtable))
 (setq *readtable* *default-readtable*)
 
 (setq *end-of-input* '*end-of-input*)
+(setq *file-name* nil)
+(setq *file* nil)
 
 (function make-readtable-entry (char func entries)
   (let ((entry (alloc readtable-entry)))
@@ -70,34 +91,34 @@ But it is only ever used once recursively (for dispatch chars).
       (set-macro-character disp-char nil)
       (set-field (get-macro-character-entry disp-char) entries (list (make-readtable-entry sub-char f nil))))))
 
-(set-macro-character (char-code "`")
+(set-macro-character *tick-char-code*
   (function (stream char)
     (list 'quasiquote (read stream))))
 
-(set-macro-character (char-code ",")
+(set-macro-character *comma-char-code*
   (function (stream char)
     (list 'unquote (read stream))))
 
-(set-macro-character (char-code "'")
+(set-macro-character *single-quote-char-code*
   (function (stream char)
     (list 'quote (read stream))))
 
-(set-macro-character (char-code "\"")
+(set-macro-character *double-quote-char-code*
   (function (stream char) 
     "TODO: read string"
     (let ((lookahead nil)
           (buffer (dynamic-byte-array 100)))
       (while (progn 
                 (set-local lookahead (read-peek stream))
-                (not (or (= lookahead (char-code "\""))
+                (not (or (= lookahead *double-quote-char-code*)
                          (= lookahead *end-of-input*))))
         (cond 
-          ((= lookahead (char-code "\\"))
+          ((= lookahead *backslash-char-code*)
             (progn 
               (read-char stream)
               (dynamic-byte-array-push buffer (handle-string-escape stream))))
           (t (dynamic-byte-array-push buffer (read-char stream)))))
-      (when (= lookahead (char-code "\""))
+      (when (= lookahead *double-quote-char-code*)
         (read-char stream))
       (dynamic-byte-array-as-string buffer))))
 
@@ -106,59 +127,52 @@ But it is only ever used once recursively (for dispatch chars).
     (cond 
       ((= char *end-of-input*) 
         (print "ERROR end of input during string escape"))
-      ((= char (char-code "n"))
-        (char-code "\n"))
-      ((= char (char-code "r"))
-        (char-code "\r"))
-      ((= char (char-code "\""))
-        (char-code "\""))
-      ((= char (char-code "t"))
-        (char-code "\t"))
-      ((= char (char-code "\\"))
-        (char-code "\\"))
+      ((= char *n-char-code*)
+        *newline-char-code*)
+      ((= char *r-char-code*)
+        *return-char-code*)
+      ((= char *double-quote-char-code*)
+        *double-quote-char-code*)
+      ((= char *t-char-code*)
+        *tab-char-code*)
+      ((= char *backslash-char-code*)
+        *backslash-char-code*)
       (t (print "ERROR unknown escape code " char)))))
 
-(set-macro-character (char-code ";")
+(set-macro-character *semicolon-char-code* 
   (function (stream char) 
     (let ((char nil))
       (while (progn 
                 (set-local char (read-char stream))
-                (not (or (= char (char-code "\n"))
+                (not (or (= char *newline-char-code*)
                          (= char *end-of-input*))))
         nil)
       (read stream))))
 
-(set-macro-character (char-code "(")
+(set-macro-character *lparen-char-code*
   (function (stream char)
     (let ((lookahead nil)
           (xs nil))
       (while (progn 
                 (set-local lookahead (read-peek stream))
-                (not (or (= lookahead (char-code ")"))
+                (not (or (= lookahead *rparen-char-code*)
                          (= lookahead *end-of-input*))))
         (set-local xs (cons (read stream) xs))
         (skip-whitespace stream))
-      (when (= lookahead (char-code ")"))
+      (when (= lookahead *rparen-char-code*)
         (read-char stream)) 
       (reverse xs))))
 
-(set-macro-character (char-code ")")
+(set-macro-character *rparen-char-code*
   (function (stream char)
     (print "UNEXPECTED RPAREN!")))
 
-(set-dispatch-macro-character (char-code ",") (char-code "@")
+(set-dispatch-macro-character *comma-char-code* *at-char-code*
   (function (stream char)
     (list 'unquote-splicing (read stream))))
 
 (function char-code (str)
   (dynamic-byte-array-get str 0))
-
-(setq *0-char-code* (char-code "0"))
-(setq *9-char-code* (char-code "9"))
-(setq *space-char-code* (char-code " "))
-(setq *tab-char-code* (char-code "\t"))
-(setq *newline-char-code* (char-code "\n"))
-(setq *return-char-code* (char-code "\r"))
 
 (function skip-whitespace (stream)
   (while (whitespace? (read-peek stream))
@@ -238,6 +252,7 @@ But it is only ever used once recursively (for dispatch chars).
         (read-symbol stream)))))
 
 (function read-entire-file (stream)
+  (setq *file* stream)
   (let ((expr nil))
     (while (not (stream-ended? stream))
       (set-local expr (cons (read stream) expr)))
