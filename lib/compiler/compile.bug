@@ -1,0 +1,68 @@
+(function compile (expr)
+  "TODO: return value should be a function -- need some way of making a function from code and constants make a op_make_function?"
+  (compiler-make-function (compiler-compile (make-compiler) expr)))
+
+(struct symbol-table
+  ((entries object)))
+
+(struct symbol-table-entry
+  ((symbol object)
+   (local-index object)))
+
+"a compiler for a single function"
+(struct compiler
+  ((code object)
+   (constants object)
+   (stack-size object)
+   (symbol-table object)))
+
+(function make-symbol-table ()
+  (let ((st (alloc symbol-table)))
+    (set-field st entries nil)
+    st))
+
+(function make-symbol-table-entry (symbol local-index)
+  (let ((e (alloc symbol-table-entry)))
+    (set-field e symbol symbol)
+    (set-field e local-index local-index)
+    e))
+
+(function make-compiler ()
+  (let ((compiler (alloc compiler)))
+    (set-field compiler code (dynamic-byte-array 100))
+    (set-field compiler constants (dynamic-array 20))
+    (set-field compiler stack-size 0)
+    (set-field compiler symbol-table (make-symbol-table))
+    compiler))
+
+(function push-byte (compiler byte)
+  (dynamic-byte-array-push (get-field compiler code) byte))
+
+(function add-constant (compiler value)
+  (let* ((i 0)
+        (existing-value 
+          (dynamic-array-find constant (get-field compiler constants)
+            (= constant value)
+            (inc-local i)))
+        (existing-value-index (when existing-value (- i 1))))
+      (if existing-value
+          existing-value-index
+        (dynamic-array-push (get-field compiler constants) value)
+        (- (dynamic-array-length (get-field compiler constants)) 1))))
+
+(function compile-constant (compiler value)
+  (push-byte compiler *op-const*)
+  (impl:marshal-integer (add-constant compiler value) (get-field compiler code)  nil))
+
+(function compiler-compile (compiler expr)
+  (typecase expr
+    (fixnum (compile-constant compiler expr))
+    (string (compile-constant compiler expr))
+    (otherwise
+      (print "I don't know what to do")))
+  compiler)
+
+(function compiler-make-function (compiler)
+  "Makes a function from the code the compiler has generated.
+   (impl:make-function name docstring stack-size nargs accepts-all is-macro code constants)"
+  (impl:make-function nil nil (get-field compiler stack-size) 0 nil nil (get-field compiler code) (get-field compiler constants)))

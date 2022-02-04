@@ -505,6 +505,7 @@ struct object *function(struct object *constants, struct object *code, ufixnum_t
   FUNCTION_CONSTANTS(o) = constants;
   FUNCTION_STACK_SIZE(o) = stack_size;
   FUNCTION_NAME(o) = NIL;
+  FUNCTION_DOCSTRING(o) = NIL;
   FUNCTION_NARGS(o) = 0;
   FUNCTION_IS_BUILTIN(o) = 0;
   FUNCTION_IS_MACRO(o) = 0;
@@ -1059,9 +1060,11 @@ void gis_init(char load_core) {
   GIS_STR(gis->lt_str, "<");
   GIS_STR(gis->lte_str, "<=");
   GIS_STR(gis->macro_str, "macro");
+  GIS_STR(gis->make_function_str, "make-function");
   GIS_STR(gis->make_symbol_str, "make-symbol");
   GIS_STR(gis->make_package_str, "make-package");
   GIS_STR(gis->marshal_str, "marshal");
+  GIS_STR(gis->marshal_integer_str, "marshal-integer");
   GIS_STR(gis->mul_str, "*");
   GIS_STR(gis->nil_str, "nil");
   GIS_STR(gis->object_str, "object");
@@ -1201,7 +1204,9 @@ void gis_init(char load_core) {
   GIS_SYM(gis->impl_struct_field_sym, gis->struct_field_str, gis->impl_package);
   GIS_SYM(gis->impl_i_sym, gis->i_str, gis->impl_package); /** the index of the next instruction in bc to execute */
   GIS_SYM(gis->impl_macro_sym, gis->macro_str, gis->impl_package);
+  GIS_SYM(gis->impl_make_function_sym, gis->make_function_str, gis->impl_package);
   GIS_SYM(gis->impl_marshal_sym, gis->marshal_str, gis->impl_package);
+  GIS_SYM(gis->impl_marshal_integer_sym, gis->marshal_integer_str, gis->impl_package);
   GIS_SYM(gis->impl_open_file_sym, gis->open_file_str, gis->impl_package); 
   GIS_SYM(gis->impl_packages_sym, gis->packages_str, gis->impl_package); /** all packages */
   GIS_SYM(gis->impl_pop_sym, gis->pop_str, gis->impl_package);
@@ -1429,9 +1434,11 @@ void gis_init(char load_core) {
   GIS_BUILTIN(gis->foreign_function_builtin, gis->type_foreign_function_sym, 4) /* takes the dlib, the name, and the parameter types */
   GIS_BUILTIN(gis->function_code_builtin, gis->impl_function_code_sym, 1)
   GIS_BUILTIN(gis->intern_builtin, gis->lisp_intern_sym, 2);
+  GIS_BUILTIN(gis->make_function_builtin, gis->impl_make_function_sym, 8);
   GIS_BUILTIN(gis->make_symbol_builtin, gis->lisp_make_symbol_sym, 1);
   GIS_BUILTIN(gis->make_package_builtin, gis->lisp_make_package_sym, 3);
   GIS_BUILTIN(gis->marshal_builtin, gis->impl_marshal_sym, 3);
+  GIS_BUILTIN(gis->marshal_integer_builtin, gis->impl_marshal_integer_sym, 3);
   GIS_BUILTIN(gis->open_file_builtin, gis->impl_open_file_sym, 2);
   GIS_BUILTIN(gis->package_symbols_builtin, gis->lisp_package_symbols_sym, 1);
   GIS_BUILTIN(gis->package_name_builtin, gis->lisp_package_name_sym, 1);
@@ -2767,6 +2774,8 @@ void eval_builtin(struct object *f) {
     push(eval(GET_LOCAL(0), GET_LOCAL(1)));
   } else if (f == gis->marshal_builtin) {
     push(marshal(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2)));
+  } else if (f == gis->marshal_integer_builtin) {
+    push(marshal_ufixnum(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2) == NIL ? 0 : 1));
   } else if (f == gis->unmarshal_builtin) {
     push(unmarshal(GET_LOCAL(0), GET_LOCAL(1)));
   } else if (f == gis->write_bytecode_file_builtin) {
@@ -2795,6 +2804,23 @@ void eval_builtin(struct object *f) {
   } else if (f == gis->package_symbols_builtin) {
     OT("package-symbols", 0, GET_LOCAL(0), type_package);
     push(PACKAGE_SYMBOLS(GET_LOCAL(0)));
+  } else if (f == gis->make_function_builtin) {
+    OT("make-function", 0, GET_LOCAL(0), type_symbol); /* name */
+    OT2("make-function", 1, GET_LOCAL(1), type_string, type_symbol); /* docstring - string or nil*/
+    OT("make-function", 2, GET_LOCAL(2), type_fixnum); /* stack size */
+    OT("make-function", 3, GET_LOCAL(3), type_fixnum); /* nargs */
+    /* local 4 - accepts all */
+    /* local 5 - is macro */
+    OT("make-function", 6, GET_LOCAL(6), type_dynamic_byte_array); /* code */
+    OT("make-function", 7, GET_LOCAL(7), type_dynamic_array); /* constants */
+
+    t0 = function(GET_LOCAL(7), GET_LOCAL(6), FIXNUM_VALUE(GET_LOCAL(2)));
+    FUNCTION_NAME(t0) = GET_LOCAL(0);
+    FUNCTION_DOCSTRING(t0) = GET_LOCAL(1);
+    FUNCTION_NARGS(t0) = FIXNUM_VALUE(GET_LOCAL(3));
+    FUNCTION_IS_MACRO(t0) = GET_LOCAL(5) == NIL ? 0 : 1;
+    FUNCTION_ACCEPTS_ALL(t0) = GET_LOCAL(4) == NIL ? 0 : 1;
+    push(t0);
   } else if (f == gis->find_symbol_builtin) {
     OT("find-symbol", 0, GET_LOCAL(0), type_string);
     OT("find-symbol", 0, GET_LOCAL(1), type_package);

@@ -242,6 +242,28 @@
 								(set-local ,cursor-sym (cdr ,cursor-sym))))
 					  (if ,continue-sym nil ,item-sym)))))
 
+(macro dynamic-array-find args
+	(let ((item-sym (car args))
+				(body (cddr args))
+				(xs (cadr args))
+				(index-sym (gensym))
+				(list-sym (gensym))
+				(length-sym (gensym))
+				(continue-sym (gensym))
+				(result-sym (gensym)))
+			`(let* ((,index-sym 0)
+							(,list-sym ,xs)
+						 	(,length-sym (dynamic-array-length ,list-sym))
+						 	(,continue-sym t))
+					(let* ((,item-sym nil))
+						(while (and (< ,index-sym ,length-sym) ,continue-sym)
+							(set-local ,item-sym (dynamic-array-get ,list-sym ,index-sym))
+							(let ((,result-sym ,@body))
+								(when ,result-sym
+									(set-local ,continue-sym nil))
+								(inc-local ,index-sym)))
+					  (if ,continue-sym nil ,item-sym)))))
+
 (function reduce (f xs acc)
 	(if xs (reduce f (cdr xs) (call f acc (car xs))) acc))
 
@@ -253,7 +275,6 @@
 			(set-local value (* value x))
 			(dec-local n_))
 		value))
-
 
 "TODO: make macroexpand builtin"
 
@@ -423,6 +444,7 @@
 (function typecase-gen-case (val-sym type type-sym)
 	(cond 
 		((= type nil) `(= ,val-sym nil))
+		((= type 'otherwise) t)
 		 (t `(= ,type-sym (symbol-type ',type)))))
 
 (macro typecase args

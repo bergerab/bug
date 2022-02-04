@@ -207,7 +207,7 @@ struct object *marshal_fixnum(struct object *n, struct object *ba) {
 }
 
 struct object *marshal_ufixnum(struct object *n, struct object *ba, char include_header) {
-  OT("marshal_ufixnum", 0, n, type_ufixnum);
+  OT2("marshal_ufixnum", 0, n, type_ufixnum, type_fixnum);
   return marshal_ufixnum_t(UFIXNUM_VALUE(n), ba, include_header);
 }
 

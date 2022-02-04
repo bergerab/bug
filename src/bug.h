@@ -83,6 +83,7 @@ typedef double flonum_t;
 #define FUNCTION_STACK_SIZE(o) o->w1.value.function->stack_size
 #define FUNCTION_NARGS(o) o->w1.value.function->nargs
 #define FUNCTION_NAME(o) o->w1.value.function->name
+#define FUNCTION_DOCSTRING(o) o->w1.value.function->docstring
 #define FUNCTION_IS_BUILTIN(o) o->w1.value.function->is_builtin
 #define FUNCTION_ACCEPTS_ALL(o) o->w1.value.function->accepts_all
 #define FUNCTION_IS_MACRO(o) o->w1.value.function->is_macro
@@ -255,6 +256,7 @@ struct type {
 struct function {
   struct object *name; /** a symbol - optional */
   struct object *code; /** the code (a byte-array) */
+  struct object *docstring; /** the docstring */
   struct object *constants; /** an array of constants used within the code (an array) */
   ufixnum_t stack_size; /** how many items to reserve on the stack - includes arguments */
   ufixnum_t nargs; /** how many arguments does this require? */
@@ -385,9 +387,11 @@ struct gis {
   struct object *lt_str;
   struct object *lte_str;
   struct object *macro_str;
+  struct object *make_function_str;
   struct object *make_symbol_str;
   struct object *make_package_str;
   struct object *marshal_str;
+  struct object *marshal_integer_str;
   struct object *mul_str;
   struct object *nil_str;
   struct object *object_str;
@@ -498,7 +502,9 @@ struct gis {
   struct object *impl_struct_field_sym;
   struct object *impl_i_sym; /** the index of the next instruction in bc to execute */
   struct object *impl_macro_sym;
+  struct object *impl_make_function_sym;
   struct object *impl_marshal_sym;
+  struct object *impl_marshal_integer_sym;
   struct object *impl_open_file_sym;
   struct object *impl_packages_sym; /** all packages */
   struct object *impl_pop_sym;
@@ -684,7 +690,9 @@ struct gis {
   struct object *macro_builtin;
   struct object *make_symbol_builtin;
   struct object *make_package_builtin;
+  struct object *make_function_builtin;
   struct object *marshal_builtin;
+  struct object *marshal_integer_builtin;
   struct object *open_file_builtin;
   struct object *package_symbols_builtin;
   struct object *package_name_builtin;
