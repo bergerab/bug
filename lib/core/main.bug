@@ -129,17 +129,17 @@
 (macro alloc (type)
 	`(alloc-struct ',type))
 
-(macro setf (instance field value)
+(macro set-field (instance field value)
 	`(set-struct-field ,instance ',field , value))
 
-(macro getf (instance field)
+(macro get-field (instance field)
 	`(struct-field ,instance ',field))
 
-(macro incf (instance field)
-	`(setf ,instance ,field (+ 1 (getf ,instance ,field))))
+(macro inc-field (instance field)
+	`(set-field ,instance ,field (+ 1 (get-field ,instance ,field))))
 
-(macro decf (instance field)
-	`(setf ,instance ,field (+ 1 (getf ,instance ,field))))
+(macro dec-field (instance field)
+	`(set-field ,instance ,field (+ 1 (get-field ,instance ,field))))
 
 (macro incq (sym)
 	`(setq ,sym (+ 1 ,sym)))
@@ -185,7 +185,7 @@
     				,@body))))
 
 (function with-fields-format-field (field instance)
-	`(,field (getf ,instance ,field)))
+	`(,field (get-field ,instance ,field)))
 
 (function reverse (list)
 	(let ((cursor list)
@@ -223,6 +223,24 @@
 						,@body)
 					(set-local ,cursor-sym (cdr ,cursor-sym)))
 				nil)))
+
+(macro find args
+	(let ((item-sym (car args))
+				(body (cddr args))
+				(xs (cadr args))
+				(cursor-sym (gensym))
+				(continue-sym (gensym))
+				(result-sym (gensym)))
+			`(let ((,cursor-sym ,xs)
+						 (,continue-sym t))
+					(let* ((,item-sym nil))
+						(while (and ,cursor-sym ,continue-sym)
+							(set-local ,item-sym (car ,cursor-sym))
+							(let ((,result-sym ,@body))
+								(when ,result-sym
+									(set-local ,continue-sym nil))
+								(set-local ,cursor-sym (cdr ,cursor-sym))))
+					  (if ,continue-sym nil ,item-sym)))))
 
 (function reduce (f xs acc)
 	(if xs (reduce f (cdr xs) (call f acc (car xs))) acc))
@@ -307,24 +325,37 @@
 (function string-times (str n)
 	(apply 'string-concat (repeat str n)))
 
+(macro not (x)
+	`(if ,x nil t))
+
+(struct kvp
+  ((key object)
+   (value object)))
+
+(function make-kvp (key value)
+	(let ((kvp (alloc kvp)))
+		(set-field kvp key key)
+		(set-field kvp value value)
+		kvp))
+
 (struct rect
 	((x int) (y int) (w int) (h int)))
 
 (function struct-test ()
 	(setq rect (alloc rect))
-	(setf rect x 10)
-	(setf rect y 20)
-	(setf rect w 200)
-	(setf rect h 100)
+	(set-field rect x 10)
+	(set-field rect y 20)
+	(set-field rect w 200)
+	(set-field rect h 100)
 
 	(print rect)
 
-	(print (getf rect x))
-	(print (getf rect y))
-	(print (getf rect w))
-	(print (getf rect h))
-	(setf rect w 3)
-	(print (getf rect w)))
+	(print (get-field rect x))
+	(print (get-field rect y))
+	(print (get-field rect w))
+	(print (get-field rect h))
+	(set-field rect w 3)
+	(print (get-field rect w)))
 
 (function advanced-struct-test ()
   (struct b
@@ -340,7 +371,7 @@
     (y (pointer b))))
   
   (alloc a)
-  (getf (alloc a) y))
+  (get-field (alloc a) y))
 
 (function list-of-lists? (xs)
   (when (list? xs)

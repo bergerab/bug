@@ -25,8 +25,8 @@
 "sdl-keysym has to be directly on the struct -- need to make everything that needs a pointer do (* sdl-keysym)"
 
 (function get-key (event)
-	(let ((keysym (getf event keysym)))
-		(getf keysym scancode)))
+	(let ((keysym (get-field event keysym)))
+		(get-field keysym scancode)))
 
 (setq sdl2 (dynamic-library "SDL2.dll"))
 
@@ -148,18 +148,18 @@
 	(render (make-text x y message)))
 
 (setq *default-rect* (alloc sdl-rect))
-(setf *default-rect* x 0)
-(setf *default-rect* y 0)
-(setf *default-rect* w 0)
-(setf *default-rect* h 0)
+(set-field *default-rect* x 0)
+(set-field *default-rect* y 0)
+(set-field *default-rect* w 0)
+(set-field *default-rect* h 0)
 
 (setq _render_rect (alloc sdl-rect))
 (function render (object)
 	(when (= (car object) :text)
-			(setf _render_rect x (get-text-x object))
-			(setf _render_rect y (get-text-y object))
-			(setf _render_rect w (* *font-size* 5))
-			(setf _render_rect h *font-size*)
+			(set-field _render_rect x (get-text-x object))
+			(set-field _render_rect y (get-text-y object))
+			(set-field _render_rect w (* *font-size* 5))
+			(set-field _render_rect h *font-size*)
 			(render-copy *renderer* (get-text-texture object) nil _render_rect)))
 
 (setq *keyboard-event* (alloc sdl-keyboard-event))
@@ -176,7 +176,7 @@
 
 (function check-events ()
 	(if (> (poll-keyboard-event *keyboard-event*) 0)
-		(let ((type (getf *keyboard-event* type)))
+		(let ((type (get-field *keyboard-event* type)))
 			(if (= type sdl-keydown)
 				(print "keydown" (get-key *keyboard-event*))
 				(if (= type sdl-keyup)
@@ -213,10 +213,10 @@
 	(setq *font-size* 64)
 	(setq *font* (open-font "fonts/iosevka.ttf" *font-size*))
 	(setq *font-color* (alloc 'sdl-color))
-	(setf *font-color* r 0)
-	(setf *font-color* g 255)
-	(setf *font-color* b 0)
-	(setf *font-color* a 0)
+	(set-field *font-color* r 0)
+	(set-field *font-color* g 255)
+	(set-field *font-color* b 0)
+	(set-field *font-color* a 0)
 
 	(if (nil? *font*)
 		(print "Failed to load font.")

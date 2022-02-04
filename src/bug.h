@@ -129,7 +129,7 @@ typedef double flonum_t;
 /* don't allow more than 255 arguments (an arbitrary number). This is to avoid having to malloc when making the arg_types/arg_values arrays -- they can be made on the stack. */
 #define MAX_FFI_NARGS 255
 
-#define GIS_PACKAGE symbol_get_value(gis->type_package_sym)
+#define GIS_PACKAGE symbol_get_value(gis->lisp_package_sym)
 
 #include "ops.h"
 
@@ -317,6 +317,7 @@ struct gis {
   struct object *byte_stream_str;
   struct object *byte_stream_peek_str;
   struct object *byte_stream_read_str;
+  struct object *byte_stream_has_str;
   struct object *call_stack_str;
   struct object *call_str;
   struct object *car_str;
@@ -343,6 +344,7 @@ struct gis {
   struct object *dynamic_array_push_str;
   struct object *dynamic_array_pop_str;
   struct object *dynamic_array_concat_str;
+  struct object *dynamic_byte_array_as_string_str;
   struct object *dynamic_byte_array_str;
   struct object *dynamic_byte_array_concat_str;
   struct object *dynamic_byte_array_get_str;
@@ -359,6 +361,7 @@ struct gis {
   struct object *f_str;
   struct object *file_str;
   struct object *find_package_str; 
+  struct object *find_symbol_str;
   struct object *fixnum_str;
   struct object *flonum_str;
   struct object *foreign_function_str;
@@ -374,6 +377,7 @@ struct gis {
   struct object *inherited_str;
   struct object *internal_str;
   struct object *int_str;
+  struct object *intern_str;
   struct object *keyword_str;
   struct object *list_str;
   struct object *let_str;
@@ -381,6 +385,8 @@ struct gis {
   struct object *lt_str;
   struct object *lte_str;
   struct object *macro_str;
+  struct object *make_symbol_str;
+  struct object *make_package_str;
   struct object *marshal_str;
   struct object *mul_str;
   struct object *nil_str;
@@ -388,6 +394,7 @@ struct gis {
   struct object *or_str;
   struct object *open_file_str;
   struct object *package_str; 
+  struct object *package_name_str;
   struct object *package_symbols_str; 
   struct object *packages_str; 
   struct object *pointer_str;
@@ -407,6 +414,7 @@ struct gis {
   struct object *set_symbol_function_str;
   struct object *set_struct_field_str;
   struct object *stack_str;
+  struct object *star_package_star_str;
   struct object *string_str;
   struct object *strings_str;
   struct object *string_concat_str;
@@ -453,6 +461,7 @@ struct gis {
   struct object *impl_byte_stream_sym;
   struct object *impl_byte_stream_peek_sym;
   struct object *impl_byte_stream_read_sym;
+  struct object *impl_byte_stream_has_sym;
   struct object *impl_call_sym;
   struct object *impl_call_stack_sym; /** stack for saving stack pointers and values for function calls (a cons list) */
   struct object *impl_change_directory_sym;
@@ -472,6 +481,7 @@ struct gis {
   struct object *impl_dynamic_array_pop_sym;
   struct object *impl_dynamic_array_concat_sym;
   struct object *impl_dynamic_byte_array_concat_sym;
+  struct object *impl_dynamic_byte_array_as_string_sym;
   struct object *impl_dynamic_byte_array_get_sym;
   struct object *impl_dynamic_byte_array_insert_sym;
   struct object *impl_dynamic_byte_array_length_sym;
@@ -479,7 +489,6 @@ struct gis {
   struct object *impl_dynamic_byte_array_push_sym;
   struct object *impl_dynamic_byte_array_pop_sym;
   struct object *impl_f_sym; /** the currently executing function */
-  struct object *impl_find_package_sym;
   struct object *impl_function_sym;
   struct object *impl_function_code_sym;
   struct object *impl_read_sym;
@@ -491,7 +500,6 @@ struct gis {
   struct object *impl_macro_sym;
   struct object *impl_marshal_sym;
   struct object *impl_open_file_sym;
-  struct object *impl_package_symbols_sym; 
   struct object *impl_packages_sym; /** all packages */
   struct object *impl_pop_sym;
   struct object *impl_push_sym;
@@ -509,6 +517,7 @@ struct gis {
   struct object *keyword_inherited_sym;
   struct object *keyword_internal_sym;
   struct object *keyword_value_sym;
+
   struct object *lisp_add_sym;
   struct object *lisp_apply_sym; /* TODO adding this causes the program to crash when not in GDB */
   struct object *lisp_bin_and_sym;
@@ -519,16 +528,24 @@ struct gis {
   struct object *lisp_div_sym;
   struct object *lisp_equals_sym;
   struct object *lisp_function_sym;
+  struct object *lisp_find_package_sym;
+  struct object *lisp_find_symbol_sym;
   struct object *lisp_gensym_sym;
   struct object *lisp_gt_sym;
   struct object *lisp_gte_sym;
   struct object *lisp_if_sym;
+  struct object *lisp_intern_sym;
   struct object *lisp_let_sym;
   struct object *lisp_list_sym;
   struct object *lisp_lt_sym;
   struct object *lisp_lte_sym;
+  struct object *lisp_make_package_sym;
+  struct object *lisp_make_symbol_sym;
   struct object *lisp_mul_sym;
   struct object *lisp_or_sym;
+  struct object *lisp_package_sym;
+  struct object *lisp_package_name_sym;
+  struct object *lisp_package_symbols_sym;
   struct object *lisp_progn_sym;
   struct object *lisp_print_sym;
   struct object *lisp_quasiquote_sym;
@@ -628,6 +645,7 @@ struct gis {
   struct object *byte_stream_builtin;
   struct object *byte_stream_peek_builtin;
   struct object *byte_stream_read_builtin;
+  struct object *byte_stream_has_builtin;
   struct object *change_directory_builtin;
   struct object *close_file_builtin;
   struct object *compile_builtin;
@@ -640,6 +658,7 @@ struct gis {
   struct object *dynamic_array_push_builtin;
   struct object *dynamic_array_pop_builtin;
   struct object *dynamic_array_concat_builtin;
+  struct object *dynamic_byte_array_as_string_builtin;
   struct object *dynamic_byte_array_builtin;
   struct object *dynamic_byte_array_concat_builtin;
   struct object *dynamic_byte_array_get_builtin;
@@ -650,8 +669,10 @@ struct gis {
   struct object *dynamic_byte_array_pop_builtin;
   struct object *dynamic_library_builtin;
   struct object *find_package_builtin;
+  struct object *find_symbol_builtin;
   struct object *foreign_function_builtin;
   struct object *function_code_builtin;
+  struct object *intern_builtin;
   struct object *gensym_builtin;
   struct object *read_builtin;
   struct object *read_bytecode_file_builtin;
@@ -661,9 +682,12 @@ struct gis {
   struct object *struct_field_builtin;
   struct object *to_string_builtin;
   struct object *macro_builtin;
+  struct object *make_symbol_builtin;
+  struct object *make_package_builtin;
   struct object *marshal_builtin;
   struct object *open_file_builtin;
   struct object *package_symbols_builtin;
+  struct object *package_name_builtin;
   struct object *set_struct_field_builtin;
   struct object *define_struct_builtin;
   struct object *symbol_name_builtin;

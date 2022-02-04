@@ -74,3 +74,7 @@ In this example, the value from incq's sym is printed within print-return.
               Otherwise, error. 
   - these steps test that the compiler #1 can be compiled (it is written in the language properly), #2 it can compile at least itself, #3 the result of the compilation can be run (the compiler produces proper bytecode).
   - The results of Step 2 and Step 3 should be equal otherwise there was a bug.
+
+- Update types to allow for type specifiers
+
+- make a define system where any object type can be defined and named. this would be useful for many cases, like functions.

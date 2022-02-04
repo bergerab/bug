@@ -8,15 +8,15 @@
 
 (function init-op (name code nargs)
   (let ((op (alloc op)))
-    (setf op name (to-string name))
-    (setf op code code)
-    (setf op nargs nargs)
+    (set-field op name (to-string name))
+    (set-field op code code)
+    (set-field op nargs nargs)
     op))
 
 (function format-op (op)
   (string-concat
-    "<op name=" (string-quote (getf op name))
-            " code=" (getf op code)
+    "<op name=" (string-quote (get-field op name))
+            " code=" (get-field op code)
             ">"))
 
 (function op (name)
@@ -51,18 +51,18 @@
 
 (function init-disassembler ()
   (let ((da (alloc disassembler)))
-    (setf da index 0)
+    (set-field da index 0)
     da))
 
 (function disassemble (da code str)
-  (if (< (getf da index) (dynamic-byte-array-length code))
-    (let ((op (get-op (dynamic-byte-array-get code (getf da index)))))
+  (if (< (get-field da index) (dynamic-byte-array-length code))
+    (let ((op (get-op (dynamic-byte-array-get code (get-field da index)))))
       (if op
         (progn 
-          (incf da index)
-          (print (cons (getf op name) (disassemble da code str)))
-          (string-join (cons (getf op name) (disassemble da code str)) "\n"))
-        (print "ERROR: unsupported op" (getf da index))))
+          (inc-field da index)
+          (print (cons (get-field op name) (disassemble da code str)))
+          (string-join (cons (get-field op name) (disassemble da code str)) "\n"))
+        (print "ERROR: unsupported op" (get-field da index))))
     (list str)))
 
 (function disassemble-source (source)
