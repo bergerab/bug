@@ -36,6 +36,9 @@ But it is only ever used once recursively (for dispatch chars).
 (setq *n-char-code* (char-code "n"))
 (setq *r-char-code* (char-code "r"))
 (setq *t-char-code* (char-code "t"))
+(setq *colon-char-code* (char-code ":"))
+
+(setq *keyword-package* (find-package "keyword"))
 
 (setq *default-readtable* (make-readtable))
 (setq *readtable* *default-readtable*)
@@ -231,24 +234,79 @@ But it is only ever used once recursively (for dispatch chars).
   (f (read-peek stream)))
 
 (function read-symbol (stream)
-  (let ((buffer (dynamic-byte-array 100))
+  (let ((buffer (dynamic-byte-array 50))
          (contains-number nil)
-         (char nil))
+         (contains-single-colon nil)
+         (contains-double-colon nil)
+         (char nil)
+         (previous-char nil))
     (skip-whitespace stream)
     (while (not (or 
                   (stream-has-whitespace? stream) 
                   (or (stream-ended? stream)
                       (stream-has-macro? stream))))
       (set-local char (read-char stream))
+   
       (when (and (not contains-number) (numeric? char))
-        (set-local contains-number t))
-      (dynamic-byte-array-push buffer char))
+             (set-local contains-number t)) 
+
+      (when (= char *colon-char-code*)
+        (when contains-double-colon
+          (print "ERROR symbol contains too many colons"))
+        (if (= previous-char *colon-char-code*)
+          (set-local contains-double-colon t)
+         (if contains-single-colon
+           (print "ERROR symbol contains too many colons")
+          (set-local contains-single-colon t))))
+
+      (dynamic-byte-array-push buffer char)
+      (set-local previous-char char))
     (if contains-number
       (let ((n (parse-number (dynamic-byte-array-as-string buffer))))
         (if n
           n
-          (intern (dynamic-byte-array-as-string buffer))))
-     (intern (dynamic-byte-array-as-string buffer)))))
+          (string-to-symbol (dynamic-byte-array-as-string buffer) contains-single-colon contains-double-colon)))
+     (string-to-symbol (dynamic-byte-array-as-string buffer) contains-single-colon contains-double-colon))))
+
+(function string-to-symbol (string single-colon? double-colon?)
+    "
+    if A::B, INTERN symbol B into package A.
+    if A:B, FIND-SYMBOL symbol B (must be exported) in package A.
+    if B, INTERN symbol B into *PACKAGE*.
+    if :B, INTERN symbol B in package KEYWORD.
+    if ::B, INTERN symbol B in package KEYWORD.
+    if A:B:C, error -- too many colons (this case was already caught in READ-SYMBOL).
+    if A::B:C, error -- too many colons (this case was already caught in READ-SYMBOL).
+    "
+  (if (or single-colon? double-colon?)
+    (let* ((package-and-symbol (split-package-from-symbol-name string))
+           (package-name (car package-and-symbol))
+           (symbol-name (cadr package-and-symbol))
+           (keyword-package? (= package-name "")))
+      (cond
+        (keyword-package? (intern symbol-name *keyword-package*))
+        (single-colon? (find-symbol symbol-name (find-package package-name)))
+        (double-colon? (intern symbol-name (find-package package-name)))))
+    (intern string *package*)))
+
+(function split-package-from-symbol-name (string)
+  "input must be of form X:Y or X::Y (X:Y:Z won't work -- X and Y can be empty string).
+   TODO: this is a case where multiple return values would be good to implement"
+  (let ((i 0)
+        (advanced nil)
+        (package-name (dynamic-byte-array 20))
+        (symbol-name (dynamic-byte-array 50))
+        (char nil)
+        (length (dynamic-byte-array-length string)))
+    (while (< i length)
+      (set-local char (dynamic-byte-array-get string i))
+      (if (= char *colon-char-code*)
+        (set-local advanced t)
+       (if advanced
+        (dynamic-byte-array-push package-name char)
+        (dynamic-byte-array-push symbol-name char)))
+      (inc-local i))
+    (list (dynamic-byte-array-as-string symbol-name) (dynamic-byte-array-as-string package-name))))
 
 (function read (stream)
   (skip-whitespace stream)

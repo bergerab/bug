@@ -1425,10 +1425,10 @@ void gis_init(char load_core) {
   GIS_BUILTIN(gis->dynamic_library_builtin, gis->type_dynamic_library_sym, 1)  /* takes the path */
   GIS_BUILTIN(gis->gensym_builtin, gis->lisp_gensym_sym, 0)
   GIS_BUILTIN(gis->find_package_builtin, gis->lisp_find_package_sym, 1);
-  GIS_BUILTIN(gis->find_symbol_builtin, gis->lisp_find_symbol_sym, 1);
+  GIS_BUILTIN(gis->find_symbol_builtin, gis->lisp_find_symbol_sym, 2);
   GIS_BUILTIN(gis->foreign_function_builtin, gis->type_foreign_function_sym, 4) /* takes the dlib, the name, and the parameter types */
   GIS_BUILTIN(gis->function_code_builtin, gis->impl_function_code_sym, 1)
-  GIS_BUILTIN(gis->intern_builtin, gis->lisp_intern_sym, 1);
+  GIS_BUILTIN(gis->intern_builtin, gis->lisp_intern_sym, 2);
   GIS_BUILTIN(gis->make_symbol_builtin, gis->lisp_make_symbol_sym, 1);
   GIS_BUILTIN(gis->make_package_builtin, gis->lisp_make_package_sym, 3);
   GIS_BUILTIN(gis->marshal_builtin, gis->impl_marshal_sym, 3);
@@ -2784,7 +2784,8 @@ void eval_builtin(struct object *f) {
     push(PACKAGE_SYMBOLS(GET_LOCAL(0)));
   } else if (f == gis->intern_builtin) {
     OT("intern", 0, GET_LOCAL(0), type_string);
-    push(intern(GET_LOCAL(0), GIS_PACKAGE));
+    OT("intern", 1, GET_LOCAL(1), type_package);
+    push(intern(GET_LOCAL(0), GET_LOCAL(1)));
   } else if (f == gis->make_symbol_builtin) {
     OT("make-symbol", 0, GET_LOCAL(0), type_string);
     push(symbol(GET_LOCAL(0)));
@@ -2796,7 +2797,8 @@ void eval_builtin(struct object *f) {
     push(PACKAGE_SYMBOLS(GET_LOCAL(0)));
   } else if (f == gis->find_symbol_builtin) {
     OT("find-symbol", 0, GET_LOCAL(0), type_string);
-    push(find_symbol(GET_LOCAL(0), GIS_PACKAGE, 1));
+    OT("find-symbol", 0, GET_LOCAL(1), type_package);
+    push(find_symbol(GET_LOCAL(0), GET_LOCAL(1), 1));
   } else if (f == gis->make_package_builtin) {
     OT("make-package", 0, GET_LOCAL(0), type_string);
     /* arg 1 is not used - reserved for implementing package nicknames later */
