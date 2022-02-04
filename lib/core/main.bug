@@ -147,11 +147,11 @@
 (macro decq (sym)
 	`(setq ,sym (- ,sym 1)))
 
-(macro incl (sym)
+(macro inc-local (sym)
 	`(set-local ,sym (+ 1 ,sym)))
 
-(macro decl (sym)
-	`(set-local ,sym (+ 1 ,sym)))
+(macro dec-local (sym)
+	`(set-local ,sym (- ,sym 1)))
 
 (macro function args
 	`(impl:define-function ,@args))
@@ -244,6 +244,16 @@
 
 (function reduce (f xs acc)
 	(if xs (reduce f (cdr xs) (call f acc (car xs))) acc))
+
+(function pow (x n)
+	"x^n -- this should really be a builtin"
+	(let ((value 1)
+				(n_ n))
+		(while (> n_ 0)
+			(set-local value (* value x))
+			(dec-local n_))
+		value))
+
 
 "TODO: make macroexpand builtin"
 

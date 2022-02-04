@@ -16,6 +16,14 @@ But it is only ever used once recursively (for dispatch chars).
 (setq *comma-char-code* (char-code ","))
 (setq *single-quote-char-code* (char-code "'"))
 (setq *0-char-code* (char-code "0"))
+(setq *1-char-code* (char-code "1"))
+(setq *2-char-code* (char-code "2"))
+(setq *3-char-code* (char-code "3"))
+(setq *4-char-code* (char-code "4"))
+(setq *5-char-code* (char-code "5"))
+(setq *6-char-code* (char-code "6"))
+(setq *7-char-code* (char-code "7"))
+(setq *8-char-code* (char-code "8"))
 (setq *9-char-code* (char-code "9"))
 (setq *space-char-code* (char-code " "))
 (setq *tab-char-code* (char-code "\t"))
@@ -201,10 +209,6 @@ But it is only ever used once recursively (for dispatch chars).
 (function stream-ended? (stream)
   (= *end-of-input* (read-peek stream)))
 
-(function symbol-char? (char)
-  (and (>= char *0-char-code*)
-       (<= char *9-char-code*)))
-
 (function read-peek (stream)
   "TODO: make version of byte-stream-peek that doesn't return a dba"
   (if (byte-stream-has stream)
@@ -227,14 +231,24 @@ But it is only ever used once recursively (for dispatch chars).
   (f (read-peek stream)))
 
 (function read-symbol (stream)
-  (let ((buffer (dynamic-byte-array 100)))
+  (let ((buffer (dynamic-byte-array 100))
+         (contains-number nil)
+         (char nil))
     (skip-whitespace stream)
     (while (not (or 
                   (stream-has-whitespace? stream) 
                   (or (stream-ended? stream)
                       (stream-has-macro? stream))))
-      (dynamic-byte-array-push buffer (read-char stream)))
-    (intern (dynamic-byte-array-as-string buffer))))
+      (set-local char (read-char stream))
+      (when (and (not contains-number) (numeric? char))
+        (set-local contains-number t))
+      (dynamic-byte-array-push buffer char))
+    (if contains-number
+      (let ((n (parse-number (dynamic-byte-array-as-string buffer))))
+        (if n
+          n
+          (intern (dynamic-byte-array-as-string buffer))))
+     (intern (dynamic-byte-array-as-string buffer)))))
 
 (function read (stream)
   (skip-whitespace stream)
@@ -251,6 +265,34 @@ But it is only ever used once recursively (for dispatch chars).
             (call (get-field reader function) stream (read-char stream))))
         (read-symbol stream)))))
 
+(function digit-to-number (char)
+  (cond 
+    ((= char *0-char-code*) 0)
+    ((= char *1-char-code*) 1)
+    ((= char *2-char-code*) 2)
+    ((= char *3-char-code*) 3)
+    ((= char *4-char-code*) 4)
+    ((= char *5-char-code*) 5)
+    ((= char *6-char-code*) 6)
+    ((= char *7-char-code*) 7)
+    ((= char *8-char-code*) 8)
+    ((= char *9-char-code*) 9)
+    (t nil)))
+
+(function parse-number (string)
+  "Attempts to lift a string to a number -- if it can't, return nil."
+  (let ((place 0)
+        (i (- (dynamic-byte-array-length string) 1))
+        (digit 0)
+        (n 0)) 
+    (while (and (>= i 0) digit)
+      (set-local digit (digit-to-number (dynamic-byte-array-get string i)))
+      (when digit
+        (set-local n (+ n (* (pow 10 place) digit)))
+        (inc-local place)
+        (dec-local i)))
+    (when digit n)))
+
 (function read-entire-file (stream)
   (setq *file* stream)
   (let ((expr nil))
@@ -261,7 +303,4 @@ But it is only ever used once recursively (for dispatch chars).
 (setq self-input (open-file "main.bug" "r"))
 
 (function test ()
-  (read (byte-stream "(struct readtable-entry
-     ((char object)
-      (function object)
-      (entries object)))")))
+  (call (impl:compile (read-entire-file self-input) nil nil nil)))
