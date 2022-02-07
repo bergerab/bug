@@ -32,6 +32,9 @@
     (or (= (type-of x) (symbol-type 'cons))
         (= x nil)))
 
+(impl:define-function symbol? (x)
+    (= (type-of x) (symbol-type 'symbol)))
+
 (impl:define-function cons? (x)
 	"Is x a cons cell?"
     (= (type-of x) (symbol-type 'cons)))

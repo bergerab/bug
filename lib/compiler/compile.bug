@@ -9,10 +9,16 @@
   ((symbol object)
    (local-index object)))
 
+"a function that is being compiled"
 (struct bytecode
-  ((code object)
+  ((name object)
+   (code object)
    (constants object)
-   (stack-size object)))
+   (stack-size object)
+   (macro? object)
+   (nargs object)
+   (docstring object)
+   (accepts-all object)))
 
 "the compiler state for compiling to bugbc"
 (struct compiler
@@ -57,11 +63,23 @@
     (set-field c1 symbol-table (clone-symbol-table (get-field c0 symbol-table)))
     c1))
 
+(function compiler-extend-for-function (c0)
+  "clones the symbol-table, and makes a new bytecode object for the compiler"
+  (let ((c1 (alloc compiler)))
+    (set-field c1 bytecode (make-bytecode))
+    (set-field c1 symbol-table (clone-symbol-table (get-field c0 symbol-table)))
+    c1))
+
 (function make-bytecode ()
   (let ((bc (alloc bytecode)))
+    (set-field bc name nil)
     (set-field bc code (dynamic-byte-array 100))
     (set-field bc constants (dynamic-array 20))
     (set-field bc stack-size 0)
+    (set-field bc nargs 0)
+    (set-field bc macro? nil)
+    (set-field bc accepts-all nil)
+    (set-field bc docstring nil)
     bc))
 
 (function make-compiler ()
@@ -91,11 +109,17 @@
 (function compiler-stack-size (c)
   (get-field (get-field c bytecode) stack-size))
 
+(function compiler-bytecode (c)
+  (get-field c bytecode))
+
 (function compiler-set-stack-size (c n)
   (set-field (get-field c bytecode) stack-size n))
 
 (function compiler-inc-stack-size (c)
   (inc-field (get-field c bytecode) stack-size))
+
+(function compiler-inc-nargs (c)
+  (inc-field (get-field c bytecode) nargs))
 
 (function add-constant (compiler value)
   "TODO this should use a ref-equals because lists can be constants. we would want those to always be added as new entries. same with two different strings."
@@ -167,24 +191,39 @@
       ((= symbol '<<) (compiler-compile-arithmetic compiler '<< *op-shift-left* args))
       ((= symbol '>>) (compiler-compile-arithmetic compiler '>> *op-shift-right* args))
 
-      ((= symbol 'cons) (compiler-compile-two-arg-op compiler 'car *op-cons* args))
+      ((= symbol 'cons) (compiler-compile-two-arg-op compiler 'cons *op-cons* args))
       ((= symbol 'car) (compiler-compile-one-arg-op compiler 'car *op-car* args))
-      ((= symbol 'cdr) (compiler-compile-one-arg-op compiler 'car *op-cdr* args))
+      ((= symbol 'cdr) (compiler-compile-one-arg-op compiler 'cdr *op-cdr* args))
+
+      ((= symbol 'and) (compiler-compile-two-arg-op compiler 'and *op-and* args))
+      ((= symbol 'or) (compiler-compile-two-arg-op compiler 'or *op-or* args))
+      ((= symbol '>) (compiler-compile-two-arg-op compiler '> *op-gt* args))
+      ((= symbol '<) (compiler-compile-two-arg-op compiler '< *op-lt* args))
+      ((= symbol '>=) (compiler-compile-two-arg-op compiler '>= *op-gte* args))
+      ((= symbol '<=) (compiler-compile-two-arg-op compiler '<= *op-lte* args))
+      ((= symbol '=) (compiler-compile-two-arg-op compiler '= *op-eq* args))
+
+      ((= symbol 'call) 
+        (require-at-least compiler 'call 1 args)
+        (let ((count (compile-and-count-args compiler (cdr args))))
+          (compiler-compile compiler (car args))
+          (push-byte compiler *op-call-function*)
+          (compiler-push-integer compiler count)))
 
       ((= symbol 'progn) 
-        (require-more-than-zero compiler 'progn args) 
+        (require-at-least compiler 'progn 1 args) 
         (compile-args-as-progn compiler args))
 
-      ((= symbol 'set) (compiler-compile-two-arg-op compiler 'car *op-set-symbol-value* args))
-      ((= symbol 'set-symbol-function) (compiler-compile-two-arg-op compiler 'car *op-set-symbol-function* args))
+      ((= symbol 'set) (compiler-compile-two-arg-op compiler 'set *op-set-symbol-value* args))
+      ((= symbol 'set-symbol-function) (compiler-compile-two-arg-op compiler 'set-symbol-function *op-set-symbol-function* args))
 
       ((= symbol 'print) 
-        (require-more-than-zero compiler 'progn args) 
+        (require-at-least compiler 'print 1 args) 
         (compile-args-with-op compiler args *op-print*)
         (push-byte compiler *op-load-nil*))
 
       ((= symbol 'list) 
-        (require-more-than-zero compiler 'progn args) 
+        (require-at-least compiler 'list 1 args) 
         (let ((count (compile-and-count-args compiler args)))
           (push-byte compiler *op-list*)
           (compiler-push-integer compiler count)))
@@ -193,8 +232,45 @@
         (require-nargs compiler 'quote 1 args) 
         (compile-constant compiler (car args)))
 
+      ((= symbol 'while) 
+        (require-at-least compiler 'while 2 args)
+        (let ((jump-0-index 0)
+              (jump-1-index 0)
+              (jump-offset 0))
+
+          "store the top of the while (to check the condition again)"
+          (set-local jump-0-index (- (compiler-code-length compiler) 1))
+
+          "compile the condition part of the while"
+          (compiler-compile compiler (car args))
+          (push-byte compiler *op-jump-forward-when-nil*)
+          "dummy arg of zeros for jump -- will be updated below to go to end of while statement (once we know how large the while body is)"
+          (push-byte compiler 0)
+          (push-byte compiler 0)
+          (set-local jump-1-index (- (compiler-code-length compiler) 1))
+
+          "compile the body part of the while"
+          (compile-args-as-progn compiler (cddr args))
+          "jump back to the condition"
+          (push-byte compiler *op-jump-backward*)
+          (set-local jump-offset (- (compiler-code-length compiler) jump-0-index))
+          (when (> jump-offset 65535)
+            (print "ERROR 'body' part of 'while' special form exceeded maximum jump."))
+          (push-byte compiler (>> (& jump-offset 65280) 8))
+          (push-byte compiler (& jump-offset 255))
+
+          "now we know how far the jump to the end should have been - update it"
+          (set-local jump-offset (- (compiler-code-length compiler) jump-1-index))
+          (when (> jump-offset 65535)
+            (print "ERROR 'body' part of 'while' special form exceeded maximum jump."))
+
+          "65280 = 0xFF00"
+          (compiler-code-set compiler (- jump-1-index 1) (>> (& jump-offset 65280) 8))
+          (compiler-code-set compiler jump-1-index (& jump-offset 255))
+          (push-byte compiler *op-load-nil*)))
+
       ((= symbol 'if) 
-        (require-more-than-two compiler 'if args)
+        (require-at-least compiler 'if 3 args)
         (let ((jump-0-index 0)
               (jump-1-index 0)
               (jump-offset 0))
@@ -225,8 +301,7 @@
           (compiler-code-set compiler (- jump-0-index 1) (>> (& jump-offset 65280) 8))
           (compiler-code-set compiler jump-0-index (& jump-offset 255))
 
-          "compiler else part"
-          (print (cddr args))
+          "compile else part"
           (compile-args-as-progn compiler (cddr args))
 
           "now we know how far the jump to the end should have been - update it"
@@ -251,6 +326,59 @@
            (print "ERROR local variable not found.")
            (push-byte compiler *op-load-nil*))))
 
+      ((or (= symbol 'impl:define-function) (= symbol 'macro))
+        (require-at-least compiler symbol 2 args)
+        (let* ((params nil)
+               (name (car args))
+               (body nil)
+               (sub-compiler (compiler-extend-for-function compiler))
+               (bc (get-field sub-compiler bytecode))) 
+          (cond 
+            ((list? name) 
+              (set-local params name)
+              (set-local name nil))
+            ((not (symbol? name))
+              (print "ERROR functions must have symbol names"))
+            (t 
+              (set-local params (cadr args))))
+              
+
+          "params can be a symbol, in that case all the given arguments are accepted and bound to the symbol ('accepts-all')"
+          (if (symbol? params)
+            (progn
+              (compiler-allocate-farg sub-compiler params)
+              (set-field bc accepts-all t))
+           (for-each param params
+              (compiler-allocate-farg sub-compiler param)))
+
+          (set-field bc name name)
+
+          "compile each expression in the function and add it to the function's bytecode"
+          (if (= name nil)
+            (set-local body (cdr args))
+           (set-local body (cddr args)))
+
+          (compile-args-as-progn sub-compiler body)
+          "add an implicit return to every function"
+          (push-byte sub-compiler *op-return-function*)
+
+          (if (= symbol 'macro)
+            (progn
+              (set-field bc macro? t)
+              (unless name
+                (print "ERROR macros must have a name."))
+              "leave no return value of the macro during runtime (not sure if this is what others do):"
+              (push-byte compiler *op-load-nil*)
+              "this is key:"
+              (set-symbol-function name (compiler-make-function sub-compiler)))
+             (if (not name)
+               (compile-constant compiler (compiler-make-function sub-compiler))
+              "this is required because macros need to be able to call functions:"
+              (set-symbol-function name (compiler-make-function sub-compiler))
+              (compile-constant compiler name)
+              (compile-constant compiler (compiler-make-function sub-compiler))
+              (push-byte compiler *op-set-symbol-function*)))))
+
       ((= symbol 'let)
             "take a snapshot of the symbol-table (let uses the sym-table before the let)"
             (let ((sub-compiler (compiler-extend-symbol-table compiler))) 
@@ -266,7 +394,7 @@
 
 
       ((= symbol 'symbol-value) (compiler-compile-one-arg-op compiler 'car *op-symbol-value* args))
-      ((= symbol 'symbol-function) (compiler-compile-one-arg-op compiler 'car *op-symbol-value* args))
+      ((= symbol 'symbol-function) (compiler-compile-one-arg-op compiler 'car *op-symbol-function* args))
 
       (t
         (print "ERROR unknown symbol " symbol)
@@ -274,10 +402,18 @@
 
       )))
 
+(function compiler-allocate-farg (compiler sym)
+  (do-compiler-allocate-local compiler sym t))
+
 (function compiler-allocate-local (compiler sym)
+  (do-compiler-allocate-local compiler sym nil))
+
+(function do-compiler-allocate-local (compiler sym farg?)
   (let ((i (compiler-stack-size compiler)))
     (compiler-add-symbol compiler (make-symbol-table-entry sym i))
     (compiler-inc-stack-size compiler)
+    (when farg?
+      (compiler-inc-nargs compiler))
     i))
 
 (function compile-args-as-progn (compiler args)
@@ -306,15 +442,9 @@
     "Push a dummy value:"
     (push-byte compiler *op-load-nil*)))
 
-(function require-more-than-two (compiler symbol args)
-  (unless (> (count args) 2)  
-    (print "ERROR " symbol " takes at least three arguments but was given " (count args) ".")
-    "Push a dummy value:"
-    (push-byte compiler *op-load-nil*)))
-
-(function require-more-than-zero (compiler symbol args)
-  (unless args  
-    (print "ERROR " symbol " takes at least one argument but was given none.")
+(function require-at-least (compiler symbol n args)
+  (when (< (count args) n)  
+    (print "ERROR " symbol " takes at least " n " arguments but was given " (count args) ".")
     "Push a dummy value:"
     (push-byte compiler *op-load-nil*)))
 
@@ -330,7 +460,7 @@
   (push-byte compiler op))
 
 (function compiler-compile-arithmetic (compiler symbol op args)
-  (require-more-than-zero compiler symbol args)
+  (require-at-least compiler symbol 1 args)
   (if (cdr args)
     (progn
         (compiler-compile compiler (car args))
@@ -355,7 +485,15 @@
 (function compiler-make-function (compiler)
   "Makes a function from the code the compiler has generated.
    (impl:make-function name docstring stack-size nargs accepts-all is-macro code constants)"
-  (impl:make-function nil nil (compiler-stack-size compiler) 0 nil nil (compiler-code compiler) (compiler-constants compiler)))
+  (impl:make-function 
+      (get-field (compiler-bytecode compiler) name) 
+      (get-field (compiler-bytecode compiler) docstring) 
+      (compiler-stack-size compiler) 
+      (get-field (compiler-bytecode compiler) nargs) 
+      (get-field (compiler-bytecode compiler) accepts-all) 
+      (get-field (compiler-bytecode compiler) macro?)
+      (compiler-code compiler) 
+      (compiler-constants compiler)))
 
 (function test-compiler ()
   (let ((c (make-compiler)))
@@ -369,3 +507,8 @@
     (print x)
     (print "Calling...")
     (print (call x))))
+
+(function the-ultimate-test ()
+  (let ((file (open-file "../core/main.bug" "r")))
+    (compile (read-entire-file file))
+    (close-file file)))
