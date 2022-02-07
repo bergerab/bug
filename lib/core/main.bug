@@ -139,7 +139,7 @@
 	`(set-field ,instance ,field (+ 1 (get-field ,instance ,field))))
 
 (macro dec-field (instance field)
-	`(set-field ,instance ,field (+ 1 (get-field ,instance ,field))))
+	`(set-field ,instance ,field (- (get-field ,instance ,field) 1)))
 
 (macro incq (sym)
 	`(setq ,sym (+ 1 ,sym)))
