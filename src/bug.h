@@ -328,8 +328,6 @@ struct gis {
   struct object *change_directory_str;
   struct object *char_str;
   struct object *close_file_str;
-  struct object *compile_str;
-  struct object *compile_entire_file_str;
   struct object *continue_str;
   struct object *cons_str;
   struct object *data_stack_str;
@@ -411,7 +409,6 @@ struct gis {
   struct object *push_str;
   struct object *quasiquote_str;
   struct object *quote_str;
-  struct object *read_str;
   struct object *read_bytecode_file_str;
   struct object *read_file_str;
   struct object *record_str;
@@ -476,8 +473,6 @@ struct gis {
   struct object *impl_call_stack_sym; /** stack for saving stack pointers and values for function calls (a cons list) */
   struct object *impl_change_directory_sym;
   struct object *impl_close_file_sym;
-  struct object *impl_compile_sym;
-  struct object *impl_compile_entire_file_sym;
   struct object *impl_continue_sym;
   struct object *impl_data_stack_sym; /** the data stack (a cons list) */
   struct object *impl_debugger_sym;
@@ -501,7 +496,6 @@ struct gis {
   struct object *impl_f_sym; /** the currently executing function */
   struct object *impl_function_sym;
   struct object *impl_function_code_sym;
-  struct object *impl_read_sym;
   struct object *impl_read_bytecode_file_sym;
   struct object *impl_read_file_sym;
   struct object *impl_run_bytecode_sym;
@@ -665,8 +659,6 @@ struct gis {
   struct object *byte_stream_has_builtin;
   struct object *change_directory_builtin;
   struct object *close_file_builtin;
-  struct object *compile_builtin;
-  struct object *compile_entire_file_builtin;
   struct object *debugger_builtin;
   struct object *dynamic_array_builtin;
   struct object *dynamic_array_get_builtin;
@@ -693,7 +685,6 @@ struct gis {
   struct object *function_code_builtin;
   struct object *intern_builtin;
   struct object *gensym_builtin;
-  struct object *read_builtin;
   struct object *read_bytecode_file_builtin;
   struct object *read_file_builtin;
   struct object *run_bytecode_builtin; /* this is currently called "eval" in the C code -- but run-bytecode is less confusing for LISP */
@@ -737,8 +728,6 @@ struct gis *gis;
 
 struct object *run(struct gis *gis);
 
-struct object *compile(struct object *ast, struct object *bc, struct object *st, struct object *fst);
-struct object *compile_entire_file(struct object *input_file, char should_return);
 struct object *eval(struct object *bc, struct object* args);
 /* Temporary -- commented out because unistd.h defines read and having this uncommented causes conflicts
 struct object *read(struct object *s, struct object *package); 
@@ -796,7 +785,5 @@ struct object *write_file(struct object *file, struct object *o);
 struct object *read_file(struct object *file);
 
 struct object *call_function(struct object *f, struct object *args);
-
-void drop_into_repl();
 
 #endif

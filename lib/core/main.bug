@@ -468,15 +468,10 @@
 						(,type-sym (type-of ,val-sym)))
 			(cond ,@cases))))
 
-(function load (path)
-	(let ((file (open-file path "rb")))
-		(let ((f (compile-entire-file file)))
-			(call f))))
-
 (function bs-read-entire-file (stream)
   (let ((expr nil))
     (while (byte-stream-has stream)
-      (set-local expr (cons (impl:c-read stream) expr)))
+      (set-local expr (cons (read stream) expr)))
     (reverse expr)))
 
 (macro include (path)
