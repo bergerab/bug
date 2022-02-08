@@ -1506,7 +1506,7 @@ void gis_init(char load_core) {
     IF_DEBUG() printf("============ Loading core... ==============\n");
 #if SELF_HOSTED
     printf("self hosted\n");
-    eval(read_bytecode_file(open_file(string("core.bc"), string("rb"))), NIL);
+    eval(read_bytecode_file(open_file(string("test.bc"), string("rb"))), NIL);
 #else
     eval(compile_entire_file(
              open_file(string("../lib/core/main.bug"), string("rb")), 0),
@@ -2842,10 +2842,16 @@ void eval_builtin(struct object *f) {
 
     t0 = function(GET_LOCAL(7), GET_LOCAL(6), FIXNUM_VALUE(GET_LOCAL(2)));
     FUNCTION_NAME(t0) = GET_LOCAL(0);
+    printf("F NAME\n");
+    print(FUNCTION_NAME(t0));
     FUNCTION_DOCSTRING(t0) = GET_LOCAL(1);
     FUNCTION_NARGS(t0) = FIXNUM_VALUE(GET_LOCAL(3));
     FUNCTION_IS_MACRO(t0) = GET_LOCAL(5) == NIL ? 0 : 1;
     FUNCTION_ACCEPTS_ALL(t0) = GET_LOCAL(4) == NIL ? 0 : 1;
+    printf("accepts all = %d \n", FUNCTION_ACCEPTS_ALL(t0));
+    printf("is macro = %d \n", FUNCTION_IS_MACRO(t0));
+    printf("nargs = %d \n", FUNCTION_NARGS(t0));
+    printf("DONE\n");
     push(t0);
   } else if (f == gis->find_symbol_builtin) {
     OT("find-symbol", 0, GET_LOCAL(0), type_string);

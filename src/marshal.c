@@ -254,13 +254,15 @@ struct object *marshal_flonum(flonum_t n, struct object *ba) {
 struct object *marshal_function(struct object *bc, struct object *ba, char include_header, struct object *cache) {
   OT("marshal_function", 0, bc, type_function);
   if (ba == NULL)
-    ba = dynamic_byte_array(10);
+    ba = dynamic_byte_array(100);
   if (include_header)
     dynamic_byte_array_push_char(ba, marshaled_type_function);
   marshal_dynamic_array(FUNCTION_CONSTANTS(bc), ba, 0, cache);
   marshal_ufixnum_t(FUNCTION_STACK_SIZE(bc), ba, 0);
   marshal_dynamic_byte_array(FUNCTION_CODE(bc), ba, 0);
-  marshal_symbol(FUNCTION_NAME(bc), ba, cache);
+  marshal_ufixnum_t(FUNCTION_NAME(bc) != NIL, ba, 0);
+  if (FUNCTION_NAME(bc) != NIL)
+    marshal_symbol(FUNCTION_NAME(bc), ba, cache);
   marshal_ufixnum_t(FUNCTION_NARGS(bc), ba, 0);
   marshal_ufixnum_t(FUNCTION_ACCEPTS_ALL(bc), ba, 0);
   return ba;
@@ -610,6 +612,9 @@ struct object *unmarshal_function(struct object *s, char includes_header, struct
   struct object *constants, *code, *f;
   ufixnum_t stack_size;
   s = byte_stream_lift(s);
+
+  printf("TOP OF FUNCTION\n");
+  print(byte_stream_peek(s, 100));
   if (includes_header) {
     t = byte_stream_read_byte(s);
     if (t != marshaled_type_function) {
@@ -620,12 +625,24 @@ struct object *unmarshal_function(struct object *s, char includes_header, struct
   }
 
   constants = unmarshal_dynamic_array(s, 0, cache);
+  if (!includes_header)
+    printf("CONSTANTS = %d\n", (int) DYNAMIC_ARRAY_LENGTH(constants));
   stack_size = unmarshal_ufixnum_t(s);
   code = unmarshal_dynamic_byte_array(s, 0);
   f = function(constants, code, stack_size);
-  FUNCTION_NAME(f) = unmarshal_symbol(s, cache);
+  printf("unmarshaling function name\n");
+  print(byte_stream_peek(s, 10));
+  if (unmarshal_ufixnum_t(s) > 0) {
+    printf("had a name!\n");
+    FUNCTION_NAME(f) = unmarshal_symbol(s, cache);
+  }
+  printf("done unmarshaling function name\n");
+  print(FUNCTION_NAME(f));
+  print(byte_stream_peek(s, 10));
   FUNCTION_NARGS(f) = unmarshal_ufixnum_t(s);
   FUNCTION_ACCEPTS_ALL(f) = unmarshal_ufixnum_t(s);
+  printf("nargs = %d   accepts-all = %d\n", FUNCTION_NARGS(f), FUNCTION_ACCEPTS_ALL(f));
+  print(byte_stream_peek(s, 10));
   return f;
 }
 
@@ -741,6 +758,8 @@ struct object *read_bytecode_file(struct object *s) {
         type_name_of_cstr(bc));
     PRINT_STACK_TRACE_AND_QUIT();
   }
+  print(bc);
+  printf("OK!!");
   return bc;
 }
 

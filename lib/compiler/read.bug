@@ -10,6 +10,9 @@ But it is only ever used once recursively (for dispatch chars).
 (struct readtable
   ((entries object)))
 
+(function char-code (str)
+  (dynamic-byte-array-get str 0))
+
 (setq *at-char-code* (char-code "@"))
 (setq *rparen-char-code* (char-code ")"))
 (setq *lparen-char-code* (char-code "("))
@@ -40,13 +43,6 @@ But it is only ever used once recursively (for dispatch chars).
 
 (setq *keyword-package* (find-package "keyword"))
 
-(setq *default-readtable* (make-readtable))
-(setq *readtable* *default-readtable*)
-
-(setq *end-of-input* '*end-of-input*)
-(setq *file-name* nil)
-(setq *file* nil)
-
 (function make-readtable-entry (char func entries)
   (let ((entry (alloc readtable-entry)))
     (set-field entry char char)
@@ -58,6 +54,13 @@ But it is only ever used once recursively (for dispatch chars).
   (let ((readtable (alloc readtable)))
     (set-field readtable entries nil)
     readtable))
+
+(setq *default-readtable* (make-readtable))
+(setq *readtable* *default-readtable*)
+
+(setq *end-of-input* '*end-of-input*)
+(setq *file-name* nil)
+(setq *file* nil)
 
 (function copy-readtable ()
   (let ((readtable (alloc readtable)))
@@ -181,9 +184,6 @@ But it is only ever used once recursively (for dispatch chars).
 (set-dispatch-macro-character *comma-char-code* *at-char-code*
   (function (stream char)
     (list 'unquote-splicing (read stream))))
-
-(function char-code (str)
-  (dynamic-byte-array-get str 0))
 
 (function skip-whitespace (stream)
   (while (whitespace? (read-peek stream))

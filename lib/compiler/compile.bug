@@ -345,9 +345,10 @@
               
 
           "params can be a symbol, in that case all the given arguments are accepted and bound to the symbol ('accepts-all')"
-          (if (symbol? params)
+          (if (and params (symbol? params))
             (progn
               (compiler-allocate-farg sub-compiler params)
+              (print "accepts all because params is " params)
               (set-field bc accepts-all t))
            (for-each param params
               (compiler-allocate-farg sub-compiler param)))
@@ -377,7 +378,7 @@
               "this is required because macros need to be able to call functions:"
               (set-symbol-function name (compiler-make-function sub-compiler))
               (compile-constant compiler name)
-              (compile-constant compiler (compiler-make-function sub-compiler))
+              (compile-constant compiler (symbol-function name))
               (push-byte compiler *op-set-symbol-function*)))))
 
       ((= symbol 'let)
@@ -497,6 +498,7 @@
 (function compiler-make-function (compiler)
   "Makes a function from the code the compiler has generated.
    (impl:make-function name docstring stack-size nargs accepts-all is-macro code constants)"
+   (print "COMPILER!! accepts all"  (get-field (compiler-bytecode compiler) accepts-all) )
   (impl:make-function 
       (get-field (compiler-bytecode compiler) name) 
       (get-field (compiler-bytecode compiler) docstring) 
@@ -536,11 +538,11 @@
 
 (function self-host ()
   (impl:change-directory "../../build")
-  (let* ((file (open-file "../lib/core/main.bug" "r"))
+  (let* ((file (open-file "../lib/core/main.bug" "rb"))
          (out (open-file "core.bc" "wb"))
          (code (compile (read-entire-file file))))
-    (close-file file)
     (impl:write-bytecode-file out code)
+    (close-file file)
     (print "Wrote bytecode.")))
 
 (function the-good-test ()
