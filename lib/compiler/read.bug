@@ -231,7 +231,7 @@ But it is only ever used once recursively (for dispatch chars).
     *end-of-input*))
 
 (function stream-starts-with (stream f)
-  (f (read-peek stream)))
+  (call f (read-peek stream)))
 
 (function read-symbol (stream)
   (let ((buffer (dynamic-byte-array 50))
@@ -357,8 +357,3 @@ But it is only ever used once recursively (for dispatch chars).
     (while (not (stream-ended? stream))
       (set-local expr (cons (read stream) expr)))
     (concat (list 'progn) (reverse expr))))
-
-(setq self-input (open-file "read.bug" "r"))
-
-(function test-read ()
-  (call (impl:compile (read-entire-file self-input) nil nil nil)))

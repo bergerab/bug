@@ -156,6 +156,7 @@
     (fixnum (compile-constant compiler expr))
     (ufixnum (compile-constant compiler expr))
     (flonum (compile-constant compiler expr))
+    (function (compile-constant compiler expr))
     (string (compile-constant compiler expr))
     (symbol (compile-symbol compiler expr))
     (cons
@@ -250,7 +251,7 @@
           (set-local jump-1-index (- (compiler-code-length compiler) 1))
 
           "compile the body part of the while"
-          (compile-args-as-progn compiler (cddr args))
+          (compile-args-with-op compiler (cdr args) *op-drop*)
           "jump back to the condition"
           (push-byte compiler *op-jump-backward*)
           (set-local jump-offset (- (compiler-code-length compiler) jump-0-index))
@@ -397,10 +398,21 @@
       ((= symbol 'symbol-function) (compiler-compile-one-arg-op compiler 'car *op-symbol-function* args))
 
       (t
-        (print "ERROR unknown symbol " symbol)
-        (push-byte compiler *op-load-nil*))
-
-      )))
+        (if (or (symbol? symbol) (is function symbol))
+            (if (and (fbound? symbol) 
+                     (and (is function (symbol-function symbol))
+                          (function-macro? (symbol-function symbol))))
+              (progn
+                          "^^ Yes needed to check if its a function here to make sure its not a FFI function"
+                (let ((code (apply symbol args)))
+                  "call macro"
+                  (compiler-compile compiler code)))
+             (let ((count (compile-and-count-args compiler args))) 
+               "call regular function"
+               (compile-constant compiler symbol)
+               (push-byte compiler *op-call-symbol-function*)
+               (compiler-push-integer compiler count)))
+          (print "ERROR sexpr starts with a non-symbol, non-function value: " sexpr))))))
 
 (function compiler-allocate-farg (compiler sym)
   (do-compiler-allocate-local compiler sym t))
@@ -508,7 +520,39 @@
     (print "Calling...")
     (print (call x))))
 
+(function compile-entire-file (stream)
+  (let ((compiler (make-compiler))) 
+    (compiler-compile compiler (read-entire-file stream))
+    (push-byte compiler *op-return-function*)
+    (compiler-make-function compiler)))
+
 (function the-ultimate-test ()
-  (let ((file (open-file "../core/main.bug" "r")))
-    (compile (read-entire-file file))
-    (close-file file)))
+  (impl:change-directory "../../build")
+  (let* ((file (open-file "../lib/core/main.bug" "r"))
+         (code (compile (read-entire-file file))))
+    (close-file file)
+    (print code)
+    (call code)))
+
+(function self-host ()
+  (impl:change-directory "../../build")
+  (let* ((file (open-file "../lib/core/main.bug" "r"))
+         (out (open-file "core.bc" "wb"))
+         (code (compile (read-entire-file file))))
+    (close-file file)
+    (impl:write-bytecode-file out code)
+    (print "Wrote bytecode.")))
+
+(function the-good-test ()
+  (impl:change-directory "../../build")
+  (let* ((file (open-file "../lib/core/test.bug" "r"))
+         (code (compile (read-entire-file file))))
+    (close-file file)
+    (print code)
+    (call code)))
+
+(function ptest ()
+  (let* ((file (open-file "../core/main.bug" "r"))
+         (sexpr (read-entire-file file)))
+    (close-file file)
+    (print sexpr)))

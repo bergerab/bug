@@ -47,7 +47,7 @@ struct object *unmarshal(struct object *s, struct object *cache);
 struct object *unmarshal_nil(struct object *s);
 struct object *unmarshal_function(struct object *s, char includes_header, struct object *cache);
 struct object *unmarshal_vec2(struct object *s, char includes_header);
-struct object *unmarshal_dynamic_string_array(struct object *s, char includes_header, struct object *cache, struct object *darr);
+struct object *unmarshal_dynamic_string_array(struct object *s, char includes_header, struct object *cache);
 struct object *unmarshal_dynamic_array(struct object *s, char includes_header, struct object *cache);
 struct object *unmarshal_dynamic_byte_array(struct object *s, char includes_header);
 struct object *unmarshal_cons(struct object *s, char includes_header, struct object *cache);

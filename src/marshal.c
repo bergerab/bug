@@ -59,6 +59,7 @@ struct object *string_marshal_cache_intern_cstr(struct object *cache, char *str,
 }
 
 struct object *string_marshal_cache_intern(struct object *cache, struct object *str, ufixnum_t *index) {
+  dynamic_byte_array_force_cstr(str);
   return do_string_marshal_cache_intern_cstr(cache, STRING_CONTENTS(str), STRING_LENGTH(str), index, str);
 }
 /*===============================*
@@ -262,9 +263,6 @@ struct object *marshal_function(struct object *bc, struct object *ba, char inclu
   marshal_symbol(FUNCTION_NAME(bc), ba, cache);
   marshal_ufixnum_t(FUNCTION_NARGS(bc), ba, 0);
   marshal_ufixnum_t(FUNCTION_ACCEPTS_ALL(bc), ba, 0);
-  marshal_ufixnum_t(FUNCTION_NAME(bc) != NIL, ba, 0);
-  if (FUNCTION_NAME(bc) != NIL) 
-    marshal_symbol(FUNCTION_NAME(bc), ba, 0);
   return ba;
 }
 
@@ -488,7 +486,7 @@ struct object *unmarshal_string(struct object *s, char includes_header, struct o
 
 struct object *unmarshal_symbol(struct object *s, struct object *cache) {
   unsigned char t;
-  struct object *symbol_name, *package_name;
+  struct object *symbol_name, *package_name, *package;
   s = byte_stream_lift(s);
   OT2("unmarshal_symbol", 0, s, type_file, type_enumerator);
   t = byte_stream_read_byte(s);
@@ -499,7 +497,14 @@ struct object *unmarshal_symbol(struct object *s, struct object *cache) {
   if (t == marshaled_type_symbol) {
     package_name = unmarshal_string(s, 0, cache, 0); /* clone_from_cache is 0 because modifying symbol names is not allowed */
     symbol_name = unmarshal_string(s, 0, cache, 0);
-    return intern(symbol_name, find_package(package_name));
+    package = find_package(package_name);
+    if (package == NIL) {
+      printf("Unmarshaled symbol had a package, that didn't exist.\n");
+      print(symbol_name);
+      print(package_name);
+      exit(1);
+    }
+    return intern(symbol_name, package == NIL ? GIS_PACKAGE : package);
   } else {
     symbol_name = unmarshal_string(s, 0, cache, 0);
     return symbol(symbol_name);
@@ -564,7 +569,7 @@ struct object *unmarshal_dynamic_array(struct object *s, char includes_header, s
 }
 
 /* if given an existing dynamic array, it will push all items to that. otherwise makes a new one. */
-struct object *unmarshal_dynamic_string_array(struct object *s, char includes_header, struct object *cache, struct object *darr) {
+struct object *unmarshal_dynamic_string_array(struct object *s, char includes_header, struct object *cache) {
   unsigned char t;
   ufixnum_t length;
   s = byte_stream_lift(s);
@@ -579,10 +584,8 @@ struct object *unmarshal_dynamic_string_array(struct object *s, char includes_he
     }
   }
   length = unmarshal_ufixnum_t(s);
-  if (darr == NULL)
-    darr = dynamic_array(length);
-  while (length-- > 0) dynamic_array_push(darr, unmarshal_string(s, 0, cache, 0));
-  return darr;
+  while (length-- > 0) dynamic_array_push(cache, unmarshal_string(s, 0, NULL, 0));
+  return cache;
 }
 
 struct object *unmarshal_vec2(struct object *s, char includes_header) {
@@ -615,6 +618,7 @@ struct object *unmarshal_function(struct object *s, char includes_header, struct
       PRINT_STACK_TRACE_AND_QUIT();
     }
   }
+
   constants = unmarshal_dynamic_array(s, 0, cache);
   stack_size = unmarshal_ufixnum_t(s);
   code = unmarshal_dynamic_byte_array(s, 0);
@@ -622,9 +626,6 @@ struct object *unmarshal_function(struct object *s, char includes_header, struct
   FUNCTION_NAME(f) = unmarshal_symbol(s, cache);
   FUNCTION_NARGS(f) = unmarshal_ufixnum_t(s);
   FUNCTION_ACCEPTS_ALL(f) = unmarshal_ufixnum_t(s);
-  if (unmarshal_ufixnum_t(s)) {
-    FUNCTION_NAME(f) = unmarshal_symbol(s, cache);
-  }
   return f;
 }
 
@@ -670,6 +671,7 @@ struct object *unmarshal(struct object *s, struct object *cache) {
       return unmarshal_function(s, 1, cache);
     default:
       printf("BC: cannot unmarshal marshaled type %d.", t);
+      exit(1);
       return NIL;
   }
 }
@@ -728,7 +730,7 @@ struct object *read_bytecode_file(struct object *s) {
 
   /* load cache with defaults, then fill with additional from file */
   cache = string_marshal_cache_get_default();
-  unmarshal_dynamic_string_array(s, 0, NULL, cache);
+  unmarshal_dynamic_string_array(s, 0, cache);
 
   bc = unmarshal_function(s, 0, cache);
 
@@ -772,11 +774,13 @@ struct object *byte_stream_do_read(struct object *e, fixnum_t n, char peek) {
   OT2("byte_stream_do_read", 0, e, type_enumerator, type_file);
 
   ret = dynamic_byte_array(n);
-  DYNAMIC_ARRAY_LENGTH(ret) = n;
 
   if (type_of(e) == gis->file_type) {
-    fread(DYNAMIC_BYTE_ARRAY_BYTES(ret), sizeof(char), n, FILE_FP(e));
-    if (peek) fseek(FILE_FP(e), -n, SEEK_CUR);
+    n = fread(DYNAMIC_BYTE_ARRAY_BYTES(ret), sizeof(char), n, FILE_FP(e));
+    if (peek) {
+      fseek(FILE_FP(e), -n, SEEK_CUR);
+    } 
+    DYNAMIC_ARRAY_LENGTH(ret) = n;
   } else {
     t = type_of(ENUMERATOR_SOURCE(e));
     if (t == gis->dynamic_byte_array_type || t == gis->string_type) {

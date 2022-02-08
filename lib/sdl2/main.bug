@@ -223,6 +223,7 @@
 		nil)
 
 	(if (get-error)
-		(print (get-error)))
+		(print (get-error))
+		nil)
 
 	(main-loop 0))

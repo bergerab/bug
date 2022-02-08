@@ -473,17 +473,18 @@
 		(let ((f (compile-entire-file file)))
 			(call f))))
 
-(impl:change-directory "../lib/sdl2")
-(load "main.bug")
+(function bs-read-entire-file (stream)
+  (let ((expr nil))
+    (while (byte-stream-has stream)
+      (set-local expr (cons (impl:c-read stream) expr)))
+    (reverse expr)))
 
-(impl:change-directory "../html")
-(load "main.bug")
+(macro include (path)
+	(let* ((file (open-file path "rb"))
+			   (expr (bs-read-entire-file file)))
+		(close-file file)
+		`(progn ,@expr)))
 
-(impl:change-directory "../json")
-(load "main.bug")
-
-(impl:change-directory "../disassembler")
-(load "main.bug")
-
-(impl:change-directory "../compiler")
-(load "main.bug")
+(include "../lib/compiler/read.bug")
+(include "../lib/compiler/ops.bug")
+(include "../lib/compiler/compile.bug")

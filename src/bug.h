@@ -361,6 +361,8 @@ struct gis {
   struct object *eval_str;
   struct object *external_str;
   struct object *f_str;
+  struct object *fbound_str;
+  struct object *function_macro_str;
   struct object *file_str;
   struct object *find_package_str; 
   struct object *find_symbol_str;
@@ -533,7 +535,9 @@ struct gis {
   struct object *lisp_cons_sym;
   struct object *lisp_div_sym;
   struct object *lisp_equals_sym;
+  struct object *lisp_fbound_sym;
   struct object *lisp_function_sym;
+  struct object *lisp_function_macro_sym;
   struct object *lisp_find_package_sym;
   struct object *lisp_find_symbol_sym;
   struct object *lisp_gensym_sym;
@@ -674,6 +678,8 @@ struct gis {
   struct object *dynamic_byte_array_push_builtin;
   struct object *dynamic_byte_array_pop_builtin;
   struct object *dynamic_library_builtin;
+  struct object *fbound_builtin;
+  struct object *function_macro_builtin;
   struct object *find_package_builtin;
   struct object *find_symbol_builtin;
   struct object *foreign_function_builtin;

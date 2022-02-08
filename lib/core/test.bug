@@ -1,0 +1,3 @@
+(impl:define-function a (x)
+  (print b))
+(a )

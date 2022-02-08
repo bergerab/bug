@@ -951,6 +951,7 @@ struct object *find_symbol(struct object *string, struct object *package, char i
 
 struct object *intern(struct object *string, struct object *package) {
   struct object *sym;
+  OT("intern", 1, package, type_package);
 
   sym = do_find_symbol(string, package, 1);
   if (sym != NULL)
@@ -1034,6 +1035,8 @@ void gis_init(char load_core) {
   GIS_STR(gis->eval_str, "eval");
   GIS_STR(gis->external_str, "external");
   GIS_STR(gis->f_str, "f");
+  GIS_STR(gis->fbound_str, "fbound?");
+  GIS_STR(gis->function_macro_str, "function-macro?");
   GIS_STR(gis->file_str, "file");
   GIS_STR(gis->find_package_str, "find-package");
   GIS_STR(gis->find_symbol_str, "find-symbol");
@@ -1081,7 +1084,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->push_str, "push");
   GIS_STR(gis->quasiquote_str, "quasiquote");
   GIS_STR(gis->quote_str, "quote");
-  GIS_STR(gis->read_str, "read");
+  GIS_STR(gis->read_str, "c-read");
   GIS_STR(gis->read_bytecode_file_str, "read-bytecode-file");
   GIS_STR(gis->read_file_str, "read-file");
   GIS_STR(gis->record_str, "record");
@@ -1242,6 +1245,8 @@ void gis_init(char load_core) {
   GIS_SYM(gis->lisp_gensym_sym, gis->gensym_str, gis->lisp_package);
   GIS_SYM(gis->lisp_gt_sym, gis->gt_str, gis->lisp_package);
   GIS_SYM(gis->lisp_gte_sym, gis->gte_str, gis->lisp_package);
+  GIS_SYM(gis->lisp_fbound_sym, gis->fbound_str, gis->lisp_package);
+  GIS_SYM(gis->lisp_function_macro_sym, gis->function_macro_str, gis->lisp_package);
   GIS_SYM(gis->lisp_if_sym, gis->if_str, gis->lisp_package);
   GIS_SYM(gis->lisp_intern_sym, gis->intern_str, gis->lisp_package);
   GIS_SYM(gis->lisp_let_sym, gis->let_str, gis->lisp_package);
@@ -1335,6 +1340,8 @@ void gis_init(char load_core) {
   PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_byte_stream_peek_sym, PACKAGE_SYMBOLS(gis->lisp_package));
   PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_byte_stream_read_sym, PACKAGE_SYMBOLS(gis->lisp_package));
   PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_byte_stream_has_sym, PACKAGE_SYMBOLS(gis->lisp_package));
+  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_compile_sym, PACKAGE_SYMBOLS(gis->lisp_package));
+  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_read_sym, PACKAGE_SYMBOLS(gis->lisp_package));
 
   symbol_set_value(gis->impl_continue_sym, gis->impl_continue_sym);
   symbol_set_value(gis->type_t_sym, gis->type_t_sym); /* t has itself as its value */
@@ -1425,10 +1432,12 @@ void gis_init(char load_core) {
   GIS_BUILTIN(gis->dynamic_byte_array_pop_builtin, gis->impl_dynamic_byte_array_pop_sym, 1);
   GIS_BUILTIN(gis->change_directory_builtin, gis->impl_change_directory_sym, 1) /* takes the new directory */
   GIS_BUILTIN(gis->close_file_builtin, gis->impl_close_file_sym, 1);
-  GIS_BUILTIN(gis->compile_builtin, gis->impl_compile_sym, 4);
+  GIS_BUILTIN(gis->compile_builtin, gis->impl_compile_sym, 1);
   GIS_BUILTIN(gis->compile_entire_file_builtin, gis->impl_compile_entire_file_sym, 1);
   GIS_BUILTIN(gis->dynamic_library_builtin, gis->type_dynamic_library_sym, 1)  /* takes the path */
   GIS_BUILTIN(gis->gensym_builtin, gis->lisp_gensym_sym, 0)
+  GIS_BUILTIN(gis->fbound_builtin, gis->lisp_fbound_sym, 1);
+  GIS_BUILTIN(gis->function_macro_builtin, gis->lisp_function_macro_sym, 1);
   GIS_BUILTIN(gis->find_package_builtin, gis->lisp_find_package_sym, 1);
   GIS_BUILTIN(gis->find_symbol_builtin, gis->lisp_find_symbol_sym, 2);
   GIS_BUILTIN(gis->foreign_function_builtin, gis->type_foreign_function_sym, 4) /* takes the dlib, the name, and the parameter types */
@@ -1437,13 +1446,13 @@ void gis_init(char load_core) {
   GIS_BUILTIN(gis->make_function_builtin, gis->impl_make_function_sym, 8);
   GIS_BUILTIN(gis->make_symbol_builtin, gis->lisp_make_symbol_sym, 1);
   GIS_BUILTIN(gis->make_package_builtin, gis->lisp_make_package_sym, 3);
-  GIS_BUILTIN(gis->marshal_builtin, gis->impl_marshal_sym, 3);
+  GIS_BUILTIN(gis->marshal_builtin, gis->impl_marshal_sym, 2);
   GIS_BUILTIN(gis->marshal_integer_builtin, gis->impl_marshal_integer_sym, 3);
   GIS_BUILTIN(gis->open_file_builtin, gis->impl_open_file_sym, 2);
   GIS_BUILTIN(gis->package_symbols_builtin, gis->lisp_package_symbols_sym, 1);
   GIS_BUILTIN(gis->package_name_builtin, gis->lisp_package_name_sym, 1);
   GIS_BUILTIN(gis->type_of_builtin, gis->impl_type_of_sym, 1)
-  GIS_BUILTIN(gis->read_builtin, gis->impl_read_sym, 2);
+  GIS_BUILTIN(gis->read_builtin, gis->impl_read_sym, 1);
   GIS_BUILTIN(gis->read_bytecode_file_builtin, gis->impl_read_bytecode_file_sym, 1);
   GIS_BUILTIN(gis->read_file_builtin, gis->impl_read_file_sym, 1);
   GIS_BUILTIN(gis->run_bytecode_builtin, gis->impl_run_bytecode_sym, 2);
@@ -1454,7 +1463,7 @@ void gis_init(char load_core) {
   GIS_BUILTIN(gis->struct_field_builtin, gis->impl_struct_field_sym, 2);
   GIS_BUILTIN(gis->set_struct_field_builtin, gis->impl_set_struct_field_sym, 3);
   GIS_BUILTIN(gis->to_string_builtin, gis->lisp_to_string_sym, 1);
-  GIS_BUILTIN(gis->unmarshal_builtin, gis->impl_unmarshal_sym, 2);
+  GIS_BUILTIN(gis->unmarshal_builtin, gis->impl_unmarshal_sym, 1);
   GIS_BUILTIN(gis->use_package_builtin, gis->impl_use_package_sym, 1) /* takes name of package */
   GIS_BUILTIN(gis->write_bytecode_file_builtin, gis->impl_write_bytecode_file_sym, 2);
   GIS_BUILTIN(gis->write_file_builtin, gis->impl_write_file_sym, 2);
@@ -1490,9 +1499,21 @@ void gis_init(char load_core) {
   /* Load core.bug */
   gis->loaded_core = 0;
   if (load_core) {
+
+#define SELF_HOSTED 0
+
+
     IF_DEBUG() printf("============ Loading core... ==============\n");
-    eval(compile_entire_file(open_file(string("../lib/core/main.bug"), string("rb")), 0), NIL);
+#if SELF_HOSTED
+    printf("self hosted\n");
+    eval(read_bytecode_file(open_file(string("core.bc"), string("rb"))), NIL);
+#else
+    eval(compile_entire_file(
+             open_file(string("../lib/core/main.bug"), string("rb")), 0),
+         NIL);
+#endif
     IF_DEBUG() printf("============ Core loaded... ===============\n");
+
     gis->loaded_core = 1;
   }
 }
@@ -2650,6 +2671,11 @@ void eval_builtin(struct object *f) {
   struct object *t0, *t1;
   if (f == gis->use_package_builtin) {
     /* TODO */
+  } else if (f == gis->fbound_builtin) {
+    OT("fbound?", 0, GET_LOCAL(0), type_symbol);
+    push(SYMBOL_FUNCTION_IS_SET(GET_LOCAL(0)) ? T : NIL);
+  } else if (f == gis->function_macro_builtin) {
+    push((OBJECT_TYPE(f) == type_function && FUNCTION_IS_MACRO(GET_LOCAL(0))) ? T : NIL);
   } else if (f == gis->find_package_builtin) {
     push(find_package(string_designator(GET_LOCAL(0))));
   } else if (f == gis->symbol_type_builtin) {
@@ -2759,13 +2785,13 @@ void eval_builtin(struct object *f) {
     close_file(GET_LOCAL(0));
     push(NIL);
   } else if (f == gis->compile_builtin) {
-    push(compile(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2), GET_LOCAL(3)));
+    push(compile(GET_LOCAL(0), NIL, NIL, NIL));
   } else if (f == gis->compile_entire_file_builtin) {
     push(compile_entire_file(GET_LOCAL(0), 1));
   } else if (f == gis->open_file_builtin) {
     push(open_file(GET_LOCAL(0), GET_LOCAL(1)));
   } else if (f == gis->read_builtin) {
-    push(read(GET_LOCAL(0), GET_LOCAL(1)));
+    push(read(GET_LOCAL(0), NIL));
   } else if (f == gis->read_bytecode_file_builtin) {
     push(read_bytecode_file(GET_LOCAL(0)));
   } else if (f == gis->read_file_builtin) {
@@ -2773,11 +2799,11 @@ void eval_builtin(struct object *f) {
   } else if (f == gis->run_bytecode_builtin) { /* TODO: this builtin is weird -- you can run bytecode simply by calling it like a function (f) -- this can probably be removed*/
     push(eval(GET_LOCAL(0), GET_LOCAL(1)));
   } else if (f == gis->marshal_builtin) {
-    push(marshal(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2)));
+    push(marshal(GET_LOCAL(0), GET_LOCAL(1), NULL));
   } else if (f == gis->marshal_integer_builtin) {
     push(marshal_ufixnum(GET_LOCAL(0), GET_LOCAL(1), GET_LOCAL(2) == NIL ? 0 : 1));
   } else if (f == gis->unmarshal_builtin) {
-    push(unmarshal(GET_LOCAL(0), GET_LOCAL(1)));
+    push(unmarshal(GET_LOCAL(0), NULL));
   } else if (f == gis->write_bytecode_file_builtin) {
     write_bytecode_file(GET_LOCAL(0), GET_LOCAL(1));
     push(NIL);
@@ -4112,7 +4138,7 @@ void run_tests() {
   assert_string_eq(to_string(string("")), string(""));
 
   assert_string_eq(to_string(cons(string("ABC"), fixnum(43))),
-                   string("(\"ABC\" 43)"));
+                   string("(\"ABC\" . 43)"));
   assert_string_eq(to_string(cons(string("ABC"), cons(ufixnum(24234234), NIL))),
                    string("(\"ABC\" 24234234)"));
 

@@ -1,3 +1,0 @@
-(load "read.bug")
-(load "ops.bug")
-(load "compile.bug")
