@@ -215,7 +215,7 @@ But it is only ever used once recursively (for dispatch chars).
 (function read-peek (stream)
   "TODO: make version of byte-stream-peek that doesn't return a dba"
   (if (byte-stream-has stream)
-    (dynamic-byte-array-get (byte-stream-peek stream 1) 0)
+    (byte-stream-peek-byte stream)
     *end-of-input*))
 
 (function read-peek-second (stream)

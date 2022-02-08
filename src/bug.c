@@ -992,6 +992,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->b_str, "b");
   GIS_STR(gis->byte_stream_str, "byte-stream");
   GIS_STR(gis->byte_stream_peek_str, "byte-stream-peek");
+  GIS_STR(gis->byte_stream_peek_byte_str, "byte-stream-peek-byte");
   GIS_STR(gis->byte_stream_read_str, "byte-stream-read");
   GIS_STR(gis->byte_stream_has_str, "byte-stream-has");
   GIS_STR(gis->call_stack_str, "call-stack");
@@ -1094,6 +1095,8 @@ void gis_init(char load_core) {
   GIS_STR(gis->set_symbol_function_str, "set-symbol-function");
   GIS_STR(gis->set_struct_field_str, "set-struct-field");
   GIS_STR(gis->stack_str, "stack");
+  GIS_STR(gis->standard_output_str, "*standard-output*");
+  GIS_STR(gis->standard_input_str, "*standard-input*");
   GIS_STR(gis->star_package_star_str, "*package*");
   GIS_STR(gis->string_str, "string");
   GIS_STR(gis->string_concat_str, "string-concat");
@@ -1174,6 +1177,7 @@ void gis_init(char load_core) {
   GIS_SYM(gis->impl_and_sym, gis->and_str, gis->impl_package);
   GIS_SYM(gis->impl_byte_stream_sym, gis->byte_stream_str, gis->impl_package);
   GIS_SYM(gis->impl_byte_stream_peek_sym, gis->byte_stream_peek_str, gis->impl_package);
+  GIS_SYM(gis->impl_byte_stream_peek_byte_sym, gis->byte_stream_peek_byte_str, gis->impl_package);
   GIS_SYM(gis->impl_byte_stream_read_sym, gis->byte_stream_read_str, gis->impl_package);
   GIS_SYM(gis->impl_byte_stream_has_sym, gis->byte_stream_has_str, gis->impl_package);
   GIS_SYM(gis->impl_call_sym, gis->call_str, gis->impl_package);
@@ -1264,6 +1268,8 @@ void gis_init(char load_core) {
   GIS_SYM(gis->lisp_print_sym, gis->print_str, gis->lisp_package);
   GIS_SYM(gis->lisp_quasiquote_sym, gis->quasiquote_str, gis->lisp_package);
   GIS_SYM(gis->lisp_quote_sym, gis->quote_str, gis->lisp_package);
+  GIS_SYM(gis->lisp_standard_input_sym, gis->standard_input_str, gis->lisp_package);
+  GIS_SYM(gis->lisp_standard_output_sym, gis->standard_output_str, gis->lisp_package);
   GIS_SYM(gis->lisp_set_sym, gis->set_str, gis->lisp_package);
   GIS_SYM(gis->lisp_set_local_sym, gis->set_local_str, gis->lisp_package);
   GIS_SYM(gis->lisp_set_symbol_function_sym, gis->set_symbol_function_str, gis->lisp_package);
@@ -1338,6 +1344,7 @@ void gis_init(char load_core) {
   PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_dynamic_byte_array_pop_sym, PACKAGE_SYMBOLS(gis->lisp_package));
   PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_byte_stream_sym, PACKAGE_SYMBOLS(gis->lisp_package));
   PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_byte_stream_peek_sym, PACKAGE_SYMBOLS(gis->lisp_package));
+  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_byte_stream_peek_byte_sym, PACKAGE_SYMBOLS(gis->lisp_package));
   PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_byte_stream_read_sym, PACKAGE_SYMBOLS(gis->lisp_package));
   PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_byte_stream_has_sym, PACKAGE_SYMBOLS(gis->lisp_package));
   PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_compile_sym, PACKAGE_SYMBOLS(gis->lisp_package));
@@ -1411,6 +1418,7 @@ void gis_init(char load_core) {
   GIS_BUILTIN(gis->apply_builtin, gis->lisp_apply_sym, 2);
   GIS_BUILTIN(gis->byte_stream_builtin, gis->impl_byte_stream_sym, 1);
   GIS_BUILTIN(gis->byte_stream_peek_builtin, gis->impl_byte_stream_peek_sym, 2);
+  GIS_BUILTIN(gis->byte_stream_peek_byte_builtin, gis->impl_byte_stream_peek_byte_sym, 1);
   GIS_BUILTIN(gis->byte_stream_read_builtin, gis->impl_byte_stream_read_sym, 2);
   GIS_BUILTIN(gis->byte_stream_has_builtin, gis->impl_byte_stream_has_sym, 1);
   GIS_BUILTIN(gis->debugger_builtin, gis->impl_debugger_sym, 0);
@@ -1494,19 +1502,19 @@ void gis_init(char load_core) {
   gis->standard_out = file_stdout();
   gis->standard_in = file_stdin();
 
+  symbol_set_value(gis->lisp_standard_input_sym, gis->standard_in);
+  symbol_set_value(gis->lisp_standard_output_sym, gis->standard_out);
+
   gis->gensym_counter = 0;
 
   /* Load core.bug */
   gis->loaded_core = 0;
   if (load_core) {
 
-#define SELF_HOSTED 0
-
-
+#define SELF_HOSTED 1
     IF_DEBUG() printf("============ Loading core... ==============\n");
 #if SELF_HOSTED
-    printf("self hosted\n");
-    eval(read_bytecode_file(open_file(string("test.bc"), string("rb"))), NIL);
+    eval(read_bytecode_file(open_file(string("compiler.bc"), string("rb"))), NIL);
 #else
     eval(compile_entire_file(
              open_file(string("../lib/core/main.bug"), string("rb")), 0),
@@ -2777,6 +2785,8 @@ void eval_builtin(struct object *f) {
     push(byte_stream_lift(GET_LOCAL(0)));
   } else if (f == gis->byte_stream_peek_builtin) {
     push(byte_stream_peek(GET_LOCAL(0), FIXNUM_VALUE(GET_LOCAL(1)))); /* TODO: support more than just fixnum */
+  } else if (f == gis->byte_stream_peek_byte_builtin) {
+    push(fixnum(byte_stream_peek_byte(GET_LOCAL(0))));
   } else if (f == gis->byte_stream_has_builtin) {
     push(byte_stream_has(GET_LOCAL(0)) ? T : NIL);
   } else if (f == gis->byte_stream_read_builtin) {
@@ -2842,16 +2852,10 @@ void eval_builtin(struct object *f) {
 
     t0 = function(GET_LOCAL(7), GET_LOCAL(6), FIXNUM_VALUE(GET_LOCAL(2)));
     FUNCTION_NAME(t0) = GET_LOCAL(0);
-    printf("F NAME\n");
-    print(FUNCTION_NAME(t0));
     FUNCTION_DOCSTRING(t0) = GET_LOCAL(1);
     FUNCTION_NARGS(t0) = FIXNUM_VALUE(GET_LOCAL(3));
     FUNCTION_IS_MACRO(t0) = GET_LOCAL(5) == NIL ? 0 : 1;
     FUNCTION_ACCEPTS_ALL(t0) = GET_LOCAL(4) == NIL ? 0 : 1;
-    printf("accepts all = %d \n", FUNCTION_ACCEPTS_ALL(t0));
-    printf("is macro = %d \n", FUNCTION_IS_MACRO(t0));
-    printf("nargs = %d \n", FUNCTION_NARGS(t0));
-    printf("DONE\n");
     push(t0);
   } else if (f == gis->find_symbol_builtin) {
     OT("find-symbol", 0, GET_LOCAL(0), type_string);

@@ -73,8 +73,8 @@
 (function make-bytecode ()
   (let ((bc (alloc bytecode)))
     (set-field bc name nil)
-    (set-field bc code (dynamic-byte-array 100))
-    (set-field bc constants (dynamic-array 20))
+    (set-field bc code (dynamic-byte-array 10))
+    (set-field bc constants (dynamic-array 10))
     (set-field bc stack-size 0)
     (set-field bc nargs 0)
     (set-field bc macro? nil)
@@ -348,7 +348,6 @@
           (if (and params (symbol? params))
             (progn
               (compiler-allocate-farg sub-compiler params)
-              (print "accepts all because params is " params)
               (set-field bc accepts-all t))
            (for-each param params
               (compiler-allocate-farg sub-compiler param)))
@@ -498,7 +497,6 @@
 (function compiler-make-function (compiler)
   "Makes a function from the code the compiler has generated.
    (impl:make-function name docstring stack-size nargs accepts-all is-macro code constants)"
-   (print "COMPILER!! accepts all"  (get-field (compiler-bytecode compiler) accepts-all) )
   (impl:make-function 
       (get-field (compiler-bytecode compiler) name) 
       (get-field (compiler-bytecode compiler) docstring) 
@@ -538,11 +536,13 @@
 
 (function self-host ()
   (impl:change-directory "../../build")
-  (let* ((file (open-file "../lib/core/main.bug" "rb"))
-         (out (open-file "core.bc" "wb"))
+  (let* ((input (open-file "../lib/bootstrap/main.bug" "rb"))
+         (file (byte-stream (impl:read-file input)))
+         (out (open-file "compiler.bc" "wb"))
          (code (compile (read-entire-file file))))
     (impl:write-bytecode-file out code)
-    (close-file file)
+    (close-file input)
+    (close-file out)
     (print "Wrote bytecode.")))
 
 (function the-good-test ()

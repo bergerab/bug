@@ -488,3 +488,4 @@
 (include "../lib/compiler/read.bug")
 (include "../lib/compiler/ops.bug")
 (include "../lib/compiler/compile.bug")
+(include "../lib/compiler/repl.bug")

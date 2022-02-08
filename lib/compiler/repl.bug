@@ -1,0 +1,7 @@
+(function write (x)
+    (impl:write-file *standard-output* x))
+
+(function repl ()
+  (while t
+    (write "b>> ")
+    (print (call (compile (read *standard-input*))))))

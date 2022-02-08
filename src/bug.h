@@ -318,6 +318,7 @@ struct gis {
   struct object *b_str;
   struct object *byte_stream_str;
   struct object *byte_stream_peek_str;
+  struct object *byte_stream_peek_byte_str;
   struct object *byte_stream_read_str;
   struct object *byte_stream_has_str;
   struct object *call_stack_str;
@@ -420,6 +421,8 @@ struct gis {
   struct object *set_symbol_function_str;
   struct object *set_struct_field_str;
   struct object *stack_str;
+  struct object *standard_output_str;
+  struct object *standard_input_str;
   struct object *star_package_star_str;
   struct object *string_str;
   struct object *strings_str;
@@ -466,6 +469,7 @@ struct gis {
   struct object *impl_and_sym;
   struct object *impl_byte_stream_sym;
   struct object *impl_byte_stream_peek_sym;
+  struct object *impl_byte_stream_peek_byte_sym;
   struct object *impl_byte_stream_read_sym;
   struct object *impl_byte_stream_has_sym;
   struct object *impl_call_sym;
@@ -560,6 +564,8 @@ struct gis {
   struct object *lisp_print_sym;
   struct object *lisp_quasiquote_sym;
   struct object *lisp_quote_sym;
+  struct object *lisp_standard_output_sym;
+  struct object *lisp_standard_input_sym;
   struct object *lisp_set_sym;
   struct object *lisp_set_local_sym;
   struct object *lisp_set_symbol_function_sym;
@@ -654,6 +660,7 @@ struct gis {
   struct object *apply_builtin;
   struct object *byte_stream_builtin;
   struct object *byte_stream_peek_builtin;
+  struct object *byte_stream_peek_byte_builtin;
   struct object *byte_stream_read_builtin;
   struct object *byte_stream_has_builtin;
   struct object *change_directory_builtin;

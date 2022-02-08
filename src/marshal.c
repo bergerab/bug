@@ -532,6 +532,7 @@ struct object *unmarshal_cons(struct object *s, char includes_header, struct obj
 struct object *unmarshal_dynamic_byte_array(struct object *s, char includes_header) {
   unsigned char t;
   ufixnum_t length;
+  struct object *ret;
   s = byte_stream_lift(s);
   if (includes_header) {
     t = byte_stream_read_byte(s);
@@ -545,7 +546,13 @@ struct object *unmarshal_dynamic_byte_array(struct object *s, char includes_head
     }
   }
   length = unmarshal_ufixnum_t(s);
-  return byte_stream_read(s, length);
+  ret = byte_stream_read(s, length);
+  if (DYNAMIC_BYTE_ARRAY_LENGTH(ret) != length) {
+    printf("Failed to unmarshal dynamic byte array. There were not enough bytes in the input stream (maybe not all bytes of the DBA were written?).\n");
+    printf("Asked for %d bytes, but only found %d bytes.\n", (int) length, (int) DYNAMIC_BYTE_ARRAY_LENGTH(ret));
+    exit(1);
+  }
+  return ret;
 }
 
 struct object *unmarshal_dynamic_array(struct object *s, char includes_header, struct object *cache) {
@@ -613,8 +620,6 @@ struct object *unmarshal_function(struct object *s, char includes_header, struct
   ufixnum_t stack_size;
   s = byte_stream_lift(s);
 
-  printf("TOP OF FUNCTION\n");
-  print(byte_stream_peek(s, 100));
   if (includes_header) {
     t = byte_stream_read_byte(s);
     if (t != marshaled_type_function) {
@@ -625,24 +630,14 @@ struct object *unmarshal_function(struct object *s, char includes_header, struct
   }
 
   constants = unmarshal_dynamic_array(s, 0, cache);
-  if (!includes_header)
-    printf("CONSTANTS = %d\n", (int) DYNAMIC_ARRAY_LENGTH(constants));
   stack_size = unmarshal_ufixnum_t(s);
   code = unmarshal_dynamic_byte_array(s, 0);
   f = function(constants, code, stack_size);
-  printf("unmarshaling function name\n");
-  print(byte_stream_peek(s, 10));
   if (unmarshal_ufixnum_t(s) > 0) {
-    printf("had a name!\n");
     FUNCTION_NAME(f) = unmarshal_symbol(s, cache);
   }
-  printf("done unmarshaling function name\n");
-  print(FUNCTION_NAME(f));
-  print(byte_stream_peek(s, 10));
   FUNCTION_NARGS(f) = unmarshal_ufixnum_t(s);
   FUNCTION_ACCEPTS_ALL(f) = unmarshal_ufixnum_t(s);
-  printf("nargs = %d   accepts-all = %d\n", FUNCTION_NARGS(f), FUNCTION_ACCEPTS_ALL(f));
-  print(byte_stream_peek(s, 10));
   return f;
 }
 
@@ -758,8 +753,6 @@ struct object *read_bytecode_file(struct object *s) {
         type_name_of_cstr(bc));
     PRINT_STACK_TRACE_AND_QUIT();
   }
-  print(bc);
-  printf("OK!!");
   return bc;
 }
 
@@ -795,11 +788,12 @@ struct object *byte_stream_do_read(struct object *e, fixnum_t n, char peek) {
   ret = dynamic_byte_array(n);
 
   if (type_of(e) == gis->file_type) {
+    /* TODO there is a bug here somewhere... i can read bytecode files fine when I read them all at once, then make a string stream from them
+       but if i use a file directly, bad things happen (runs out of characters from the stream) */
     n = fread(DYNAMIC_BYTE_ARRAY_BYTES(ret), sizeof(char), n, FILE_FP(e));
     if (peek) {
       fseek(FILE_FP(e), -n, SEEK_CUR);
     } 
-    DYNAMIC_ARRAY_LENGTH(ret) = n;
   } else {
     t = type_of(ENUMERATOR_SOURCE(e));
     if (t == gis->dynamic_byte_array_type || t == gis->string_type) {
@@ -807,13 +801,16 @@ struct object *byte_stream_do_read(struct object *e, fixnum_t n, char peek) {
                &DYNAMIC_BYTE_ARRAY_BYTES(
                    ENUMERATOR_SOURCE(e))[ENUMERATOR_INDEX(e)],
                sizeof(char) * n);
-        if (!peek) ENUMERATOR_INDEX(e) += n;
+        if (!peek) {
+          ENUMERATOR_INDEX(e) += n;
+        }
     } else {
         printf("BC: byte stream get is not implemented for type %s.",
                type_name_of_cstr(e));
         PRINT_STACK_TRACE_AND_QUIT();
     }
   }
+  DYNAMIC_ARRAY_LENGTH(ret) = n;
   return ret;
 }
 
