@@ -1,6 +1,10 @@
 (function compile (expr)
   "TODO: return value should be a function -- need some way of making a function from code and constants make a op_make_function?"
-  (compiler-make-function (compiler-compile (make-compiler) expr)))
+  (let ((compiler (make-compiler)))
+    (compiler-compile compiler expr)
+    "Is this OK? always add a return? what about top level expressions?"
+    (push-byte compiler *op-return-function*)
+    (compiler-make-function compiler)))
 
 (struct symbol-table
   ((entries object)))

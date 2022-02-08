@@ -782,6 +782,8 @@ struct object *byte_stream_lift(struct object *e) {
 /* TODO: limit n so that it cannot read more than the file */
 struct object *byte_stream_do_read(struct object *e, fixnum_t n, char peek) {
   struct object *ret, *t;
+  fixnum_t i;
+  int c;
 
   OT2("byte_stream_do_read", 0, e, type_enumerator, type_file);
 
@@ -790,10 +792,26 @@ struct object *byte_stream_do_read(struct object *e, fixnum_t n, char peek) {
   if (type_of(e) == gis->file_type) {
     /* TODO there is a bug here somewhere... i can read bytecode files fine when I read them all at once, then make a string stream from them
        but if i use a file directly, bad things happen (runs out of characters from the stream) */
-    n = fread(DYNAMIC_BYTE_ARRAY_BYTES(ret), sizeof(char), n, FILE_FP(e));
+
     if (peek) {
-      fseek(FILE_FP(e), -n, SEEK_CUR);
-    } 
+      for (i = 0; i < n; ++i) {
+        c = fgetc(FILE_FP(e));
+        if (c == EOF) {
+          n = i;
+          break;
+        }
+        dynamic_byte_array_push_char(ret, c);
+      }
+
+      for (i = DYNAMIC_BYTE_ARRAY_LENGTH(ret) - 1; i >= 0; --i) {
+        c = dynamic_byte_array_get(ret, i);
+        ungetc(c, FILE_FP(e));
+      }
+    } else {
+      /* fread and fseek do not play well with all file handles (e.g. stdin stdout) when doing peek (fseek).
+         so reads can be done with fread, peeks with fgetc. */
+      n = fread(DYNAMIC_BYTE_ARRAY_BYTES(ret), sizeof(char), n, FILE_FP(e));
+    }
   } else {
     t = type_of(ENUMERATOR_SOURCE(e));
     if (t == gis->dynamic_byte_array_type || t == gis->string_type) {
@@ -827,7 +845,7 @@ char byte_stream_has(struct object *e) {
     if (t == gis->dynamic_byte_array_type || t == gis->string_type) {
         return ENUMERATOR_INDEX(e) < DYNAMIC_BYTE_ARRAY_LENGTH(ENUMERATOR_SOURCE(e));
     } else {
-      print(ENUMERATOR_SOURCE(e));
+        print(ENUMERATOR_SOURCE(e));
         printf("BC: byte_stream_has is not implemented for type %s.\n",
                type_name_of_cstr(ENUMERATOR_SOURCE(e)));
         PRINT_STACK_TRACE_AND_QUIT();

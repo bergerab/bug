@@ -1510,18 +1510,7 @@ void gis_init(char load_core) {
   /* Load core.bug */
   gis->loaded_core = 0;
   if (load_core) {
-
-#define SELF_HOSTED 1
-    IF_DEBUG() printf("============ Loading core... ==============\n");
-#if SELF_HOSTED
     eval(read_bytecode_file(open_file(string("compiler.bc"), string("rb"))), NIL);
-#else
-    eval(compile_entire_file(
-             open_file(string("../lib/core/main.bug"), string("rb")), 0),
-         NIL);
-#endif
-    IF_DEBUG() printf("============ Core loaded... ===============\n");
-
     gis->loaded_core = 1;
   }
 }
@@ -4582,111 +4571,7 @@ void drop_into_repl() {
   }
 }
 
-/*
- * Compile Mode:
- *   > bug -c myfile.bug -o myfile.bc
- * Interpret Mode:
- *   > bug myfile.bc
- *     OR
- *   > bug myfile.bug
- *     If it is a bytecode file, interpret as bytecode. Otherwise, attempt to
- * compile it, then interpret the results. Repl Mode: > bug
- */
 int main(int argc, char **argv) {
-  char interpret_mode, compile_mode, repl_mode;
-  struct object *bc, *input_file, *output_file, *input_filepath,
-      *output_filepath, *temp;
-
-  init(1); /* must init before using NIL */
-
-  interpret_mode = compile_mode = repl_mode = 0;
-  output_filepath = input_filepath = NIL;
-
-  if (argc == 1) {
-    repl_mode = 1;
-  } else if (argc == 2) {
-    interpret_mode = 1;
-
-    if (strcmp(argv[1], "--help") == 0) {
-      printf("Bug LISP\n");
-      printf(
-          "  --run-tests\tRuns the interpreter and compiler's test suite.\n");
-      printf("  -c\tCompiles the given file.\n");
-      printf("  -o\tChooses a name for the compiled file.\n");
-      return 0;
-    }
-
-    if (strcmp(argv[1], "--run-tests") == 0) {
-      run_tests();
-      return 0;
-    }
-
-    if (strcmp(argv[1], "-c") == 0) {
-      printf(
-          "You must provide a file name to the -c parameter (the source file "
-          "to compile).");
-      return 0;
-    }
-    if (strcmp(argv[1], "-o") == 0) {
-      printf("You may only use the -o parameter when compiling a source file.");
-      return 0;
-    }
-
-    if (argv[1][0] == '-') {
-      printf("Invalid command argument \"%s\". Use --help flag to see options.",
-             argv[1]);
-      return 0;
-    }
-
-    input_filepath = string(argv[1]);
-  } else {
-    compile_mode = 1;
-    if (strcmp(argv[1], "-c") != 0) {
-      /* TODO */
-      printf("help message");
-      return 0;
-    }
-    input_filepath = string(argv[2]);
-
-    if (argc < 5 || strcmp(argv[3], "-o") != 0) {
-      /* TODO */
-      printf("You must specify an output file name with the -o argument.");
-      return 0;
-    }
-    output_filepath = string(argv[4]);
-  }
-
-  if (compile_mode) {
-    input_file =
-        open_file(input_filepath,
-                  string("rb")); /* without binary mode, running on Windows
-                                    under mingw fseek/fread were out of sync and
-                                    was getting garbage at end of read */
-    /* read the full file, otherwise a unclosed paren will just cause this to
-     * hang like the REPL would */
-    temp = read_file(input_file);
-    OBJECT_TYPE(temp) = type_string;
-    close_file(input_file);
-    input_file = byte_stream_lift(temp);
-    output_file = open_file(output_filepath, string("wb"));
-    bc = compile_entire_file(input_file, 0);
-    write_bytecode_file(output_file, bc);
-    close_file(output_file);
-  } else if (interpret_mode) { /* add logic to compile the file if given a
-                                  source file */
-    input_file = open_file(input_filepath, string("rb"));
-    bc = read_bytecode_file(input_file);
-    DYNAMIC_ARRAY_LENGTH(gis->call_stack) = 0; /* clear the call stack */
-    eval(bc, NIL);
-    close_file(input_file);
-  } else if (repl_mode) {
-    while (1) {
-      write_file(gis->standard_out, string("b> "));
-      bc = compile(read(gis->standard_in, NIL), NIL, NIL, NIL);
-      eval(bc, NIL);
-      print(DYNAMIC_ARRAY_LENGTH(gis->data_stack) ? pop() : NIL);
-    }
-  }
-
+  init(1);
   return 0;
 }
