@@ -347,6 +347,21 @@
 			(car args))
 		""))
 
+(function string-length (s)
+	(dynamic-byte-array-length s))
+
+(function string-empty? (s)
+	(= 0 (string-length s)))
+
+(function string-push-char (s c)
+	(dynamic-byte-array-push s c))
+
+(function string-get (s x)
+	(dynamic-byte-array-get s x))
+
+(function dynamic-array-last (da)
+	(dynamic-array-get da (- (dynamic-array-length da) 1)))
+
 (function do-times (f n)
 	(when (> n 0)
 		(call f)
@@ -467,6 +482,51 @@
 		`(let* ((,val-sym ,id)
 						(,type-sym (type-of ,val-sym)))
 			(cond ,@cases))))
+
+(macro string-for-each args
+	(let ((item-sym (car args))
+				(body (cddr args))
+				(xs (cadr args))
+				(index-sym (gensym))
+				(list-sym (gensym))
+				(length-sym (gensym)))
+			`(let* ((,index-sym 0)
+							(,list-sym ,xs)
+						 	(,length-sym (string-length ,list-sym)))
+					(let* ((,item-sym nil))
+						(while (< ,index-sym ,length-sym)
+							(set-local ,item-sym (string-get ,list-sym ,index-sym))
+							(progn ,@body)
+  						(inc-local ,index-sym))))))
+
+(function string-split-char (string char)
+	(let ((parts (dynamic-array 5)))
+		(dynamic-array-push parts (dynamic-byte-array-as-string (dynamic-array 10)))
+		(string-for-each c string
+			(if (= c char)
+				(progn
+					(dynamic-array-push parts (dynamic-byte-array-as-string (dynamic-array 10))))
+			 (string-push-char (dynamic-array-last parts) c)))
+		parts))
+
+(setq *directory-delimiter* #\/)
+
+(function file-path-split (fp)
+	(string-split-char fp *directory-delimiter*))
+
+(function file-path-get-file-name (fp)
+	(dynamic-array-last (file-path-split fp)))
+
+(function file-path-get-base-path (fp)
+	(let* ((s "")
+				 (parts (file-path-split fp))
+				 (i 0)
+				 (j (- (dynamic-array-length parts) 1)))
+		(while (< i j)
+			(set-local s (string-concat s (dynamic-array-get parts i)))
+			(string-push-char s *directory-delimiter*)
+			(inc-local i))
+		s))
 
 (macro include (path)
 	(let* ((file (open-file path "rb"))
