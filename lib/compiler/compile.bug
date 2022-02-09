@@ -1,8 +1,8 @@
 (function compile (expr)
-  "TODO: return value should be a function -- need some way of making a function from code and constants make a op_make_function?"
+  ;; TODO: return value should be a function -- need some way of making a function from code and constants make a op_make_function?
   (let ((compiler (make-compiler)))
     (compiler-compile compiler expr)
-    "Is this OK? always add a return? what about top level expressions?"
+    ;; Is this OK? always add a return? what about top level expressions?
     (push-byte compiler *op-return-function*)
     (compiler-make-function compiler)))
 
@@ -13,7 +13,7 @@
   ((symbol object)
    (local-index object)))
 
-"a function that is being compiled"
+;; a function that is being compiled
 (struct bytecode
   ((name object)
    (code object)
@@ -24,7 +24,7 @@
    (docstring object)
    (accepts-all object)))
 
-"the compiler state for compiling to bugbc"
+;; the compiler state for compiling to bugbc
 (struct compiler
   ((bytecode object)
    (symbol-table object)))
@@ -126,7 +126,7 @@
   (inc-field (get-field c bytecode) nargs))
 
 (function add-constant (compiler value)
-  "TODO this should use a ref-equals because lists can be constants. we would want those to always be added as new entries. same with two different strings."
+  ;; TODO this should use a ref-equals because lists can be constants. we would want those to always be added as new entries. same with two different strings.
   (let* ((i 0)
         (existing-value 
           (dynamic-array-find constant (compiler-constants compiler) 
@@ -175,7 +175,7 @@
         (let ((entry (compiler-find-symbol compiler expr)))
           (if entry 
             (progn 
-                "This is a local variable. TODO: make sure you can access function parameters this way too."
+                ;; This is a local variable. TODO: make sure you can access function parameters this way too.
                 (push-byte compiler *op-load-from-stack*)
                 (compiler-push-integer compiler (get-field entry local-index)))
            (compile-constant compiler expr)
@@ -243,20 +243,20 @@
               (jump-1-index 0)
               (jump-offset 0))
 
-          "store the top of the while (to check the condition again)"
+          ;; store the top of the while (to check the condition again)
           (set-local jump-0-index (- (compiler-code-length compiler) 1))
 
-          "compile the condition part of the while"
+          ;; compile the condition part of the while
           (compiler-compile compiler (car args))
           (push-byte compiler *op-jump-forward-when-nil*)
-          "dummy arg of zeros for jump -- will be updated below to go to end of while statement (once we know how large the while body is)"
+          ;; dummy arg of zeros for jump -- will be updated below to go to end of while statement (once we know how large the while body is)
           (push-byte compiler 0)
           (push-byte compiler 0)
           (set-local jump-1-index (- (compiler-code-length compiler) 1))
 
-          "compile the body part of the while"
+          ;; compile the body part of the while
           (compile-args-with-op compiler (cdr args) *op-drop*)
-          "jump back to the condition"
+          ;; jump back to the condition
           (push-byte compiler *op-jump-backward*)
           (set-local jump-offset (- (compiler-code-length compiler) jump-0-index))
           (when (> jump-offset 65535)
@@ -264,12 +264,12 @@
           (push-byte compiler (>> (& jump-offset 65280) 8))
           (push-byte compiler (& jump-offset 255))
 
-          "now we know how far the jump to the end should have been - update it"
+          ;; now we know how far the jump to the end should have been - update it
           (set-local jump-offset (- (compiler-code-length compiler) jump-1-index))
           (when (> jump-offset 65535)
             (print "ERROR 'body' part of 'while' special form exceeded maximum jump."))
 
-          "65280 = 0xFF00"
+          ;; 65280 = 0xFF00
           (compiler-code-set compiler (- jump-1-index 1) (>> (& jump-offset 65280) 8))
           (compiler-code-set compiler jump-1-index (& jump-offset 255))
           (push-byte compiler *op-load-nil*)))
@@ -280,41 +280,41 @@
               (jump-1-index 0)
               (jump-offset 0))
 
-          "compile the condition part of the if"
+          ;; compile the condition part of the if
           (compiler-compile compiler (car args))
           (push-byte compiler *op-jump-forward-when-nil*)
-          "dummy arg of zeros for jump -- will be updated below to go to end of if statement:"
+          ;; dummy arg of zeros for jump -- will be updated below to go to end of if statement:
           (push-byte compiler 0)
           (push-byte compiler 0)
           (set-local jump-0-index (- (compiler-code-length compiler) 1))
 
-          "compile the then part of the if"
+          ;; compile the then part of the if
           (compiler-compile compiler (cadr args))
           (push-byte compiler *op-jump-forward*)
-          "dummy arg of zeros for jump -- will be updated below to go to end of if statement:"
+          ;; dummy arg of zeros for jump -- will be updated below to go to end of if statement:
           (push-byte compiler 0)
           (push-byte compiler 0)
           (set-local jump-1-index (- (compiler-code-length compiler) 1))
 
-          "now we know how far the first jump should have been - update it"
+          ;; now we know how far the first jump should have been - update it
           (set-local jump-offset (- (compiler-code-length compiler) jump-0-index))
           (when (> jump-offset 65535)
-            "TODO: should we use op-jump-forward/op-jump-backwards and use unsigned numbers for jumps? or just have op-jump and use signed? or both? this limit depends on that decision."
+            ;; TODO: should we use op-jump-forward/op-jump-backwards and use unsigned numbers for jumps? or just have op-jump and use signed? or both? this limit depends on that decision.
             (print "ERROR 'then' part of 'if' special form exceeded maximum jump."))
 
-          "65280 = 0xFF00"
+          ;; 65280 = 0xFF00
           (compiler-code-set compiler (- jump-0-index 1) (>> (& jump-offset 65280) 8))
           (compiler-code-set compiler jump-0-index (& jump-offset 255))
 
-          "compile else part"
+          ;; compile else part
           (compile-args-as-progn compiler (cddr args))
 
-          "now we know how far the jump to the end should have been - update it"
+          ;; now we know how far the jump to the end should have been - update it
           (set-local jump-offset (- (compiler-code-length compiler) jump-1-index))
           (when (> jump-offset 65535)
             (print "ERROR 'else' part of 'if' special form exceeded maximum jump."))
 
-          "65280 = 0xFF00"
+          ;; 65280 = 0xFF00
           (compiler-code-set compiler (- jump-1-index 1) (>> (& jump-offset 65280) 8))
           (compiler-code-set compiler jump-1-index (& jump-offset 255))))
 
@@ -348,7 +348,7 @@
               (set-local params (cadr args))))
               
 
-          "params can be a symbol, in that case all the given arguments are accepted and bound to the symbol ('accepts-all')"
+          ;; params can be a symbol, in that case all the given arguments are accepted and bound to the symbol ('accepts-all')
           (if (and params (symbol? params))
             (progn
               (compiler-allocate-farg sub-compiler params)
@@ -358,13 +358,13 @@
 
           (set-field bc name name)
 
-          "compile each expression in the function and add it to the function's bytecode"
+          ;; compile each expression in the function and add it to the function's bytecode
           (if (= name nil)
             (set-local body (cdr args))
            (set-local body (cddr args)))
 
           (compile-args-as-progn sub-compiler body)
-          "add an implicit return to every function"
+          ;; add an implicit return to every function
           (push-byte sub-compiler *op-return-function*)
 
           (if (= symbol 'macro)
@@ -372,22 +372,22 @@
               (set-field bc macro? t)
               (unless name
                 (print "ERROR macros must have a name."))
-              "leave no return value of the macro during runtime (not sure if this is what others do):"
+              ;; leave no return value of the macro during runtime (not sure if this is what others do):
               (push-byte compiler *op-load-nil*)
-              "this is key:"
+              ;; this is key:
               (set-symbol-function name (compiler-make-function sub-compiler)))
              (if (not name)
                (compile-constant compiler (compiler-make-function sub-compiler))
-              "this is required because macros need to be able to call functions:"
+              ;; this is required because macros need to be able to call functions:
               (set-symbol-function name (compiler-make-function sub-compiler))
               (compile-constant compiler name)
               (compile-constant compiler (symbol-function name))
               (push-byte compiler *op-set-symbol-function*)))))
 
       ((= symbol 'let)
-            "take a snapshot of the symbol-table (let uses the sym-table before the let)"
+            ;; take a snapshot of the symbol-table (let uses the sym-table before the let)
             (let ((sub-compiler (compiler-extend-symbol-table compiler))) 
-              "compile using the symbol table from before the let (each let param does not add to the available locals of the next)"
+              ;; compile using the symbol table from before the let (each let param does not add to the available locals of the next)
               (for-each param (car args)
                   (let* ((key (car param))
                          (value (cadr param))
@@ -406,13 +406,13 @@
             (if (and (fbound? symbol) 
                      (and (is function (symbol-function symbol))
                           (function-macro? (symbol-function symbol))))
+                          ;; ^^ Yes needed to check if its a function here to make sure its not a FFI function
               (progn
-                          "^^ Yes needed to check if its a function here to make sure its not a FFI function"
                 (let ((code (apply symbol args)))
-                  "call macro"
+                  ;; call macro
                   (compiler-compile compiler code)))
              (let ((count (compile-and-count-args compiler args))) 
-               "call regular function"
+               ;; call regular function
                (compile-constant compiler symbol)
                (push-byte compiler *op-call-symbol-function*)
                (compiler-push-integer compiler count)))
@@ -455,13 +455,13 @@
 (function require-nargs (compiler symbol n args)
   (unless (= (count args) n)
     (print "ERROR " symbol " takes " n " arguments but was given " (count args))
-    "Push a dummy value:"
+    ;; Push a dummy value:
     (push-byte compiler *op-load-nil*)))
 
 (function require-at-least (compiler symbol n args)
   (when (< (count args) n)  
     (print "ERROR " symbol " takes at least " n " arguments but was given " (count args) ".")
-    "Push a dummy value:"
+    ;; Push a dummy value:
     (push-byte compiler *op-load-nil*)))
 
 (function compiler-compile-one-arg-op (compiler symbol op args)
@@ -503,7 +503,7 @@
    (impl:make-function name docstring stack-size nargs accepts-all is-macro code constants)"
   (impl:make-function 
       (get-field (compiler-bytecode compiler) name) 
-      (get-field (compiler-bytecode compiler) docstring) 
+      (get-field (compiler-bytecode compiler) docstring)
       (compiler-stack-size compiler) 
       (get-field (compiler-bytecode compiler) nargs) 
       (get-field (compiler-bytecode compiler) accepts-all) 
@@ -511,18 +511,9 @@
       (compiler-code compiler) 
       (compiler-constants compiler)))
 
-(function test-compiler ()
-  (let ((c (make-compiler)))
-    (print (compiler-symbol-table c))
-    (compiler-add-symbol c (make-symbol-table-entry 'asdf 23))
-    (print (compiler-find-symbol c 'asdf))))
-
-(function test-compile (txt)
-  (let ((x (compile (read (byte-stream txt)))))
-    (print "Compilation successful.")
-    (print x)
-    (print "Calling...")
-    (print (call x))))
+(function compile-string (s)
+  (let ((x (compile (read (byte-stream s)))))
+    (call x)))
 
 (function compile-entire-file (stream)
   (let ((compiler (make-compiler))) 
@@ -530,35 +521,54 @@
     (push-byte compiler *op-return-function*)
     (compiler-make-function compiler)))
 
-(function the-ultimate-test ()
-  (impl:change-directory "../../build")
-  (let* ((file (open-file "../lib/core/main.bug" "r"))
-         (code (compile (read-entire-file file))))
-    (close-file file)
-    (print code)
-    (call code)))
-
-(function self-host ()
-  (impl:change-directory "../../build")
-  (let* ((input (open-file "../lib/bootstrap/main.bug" "rb"))
-         (file (byte-stream (impl:read-file input)))
-         (out (open-file "compiler.bc" "wb"))
-         (code (compile (read-entire-file file))))
-    (impl:write-bytecode-file out code)
+(function compile-compiler ()
+  (let* ((input (open-file "../lib/compiler/main.bug" "rb"))
+         (code (compile (read-entire-file input))))
     (close-file input)
-    (close-file out)
-    (print "Wrote bytecode.")))
+    code))
 
-(function the-good-test ()
-  (impl:change-directory "../../build")
-  (let* ((file (open-file "../lib/core/test.bug" "r"))
-         (code (compile (read-entire-file file))))
-    (close-file file)
-    (print code)
-    (call code)))
+(function bootstrap-compiler (verbose)
+  "
+  Compile the compiler using the bootstrapping compiler (called A).
+  (Now we know the new compiler is valid as far as syntax goes, but could contain bugs)
+  Evaluate the result. Now you have become the new compiler
+  (An error may have happened during evaluation -- this is good it catches bugs before it kills the bootstrap process)
+  As the new compiler, compile yourself (called B).
+  (An error may happen if there is a bug in the compiler -- again this is good)
+  Evaluate the compiler (yourself) you just compiled.
+  (An error may happen during evaluation -- this catches bugs in the generated code)
+  As the compiled compiler, compile yourself one more time (called C).
+  (Again this catches bugs in the generated code)
+  Compare the code of B and C. If they are identical, succeed. Otherwise error.
+  (Again this catches bugs in the generated code)
+  "
+  (when verbose
+    (print "Generating Compiler A..."))
+  (let ((A (compile-compiler))) 
+    (when verbose
+      (print "Becoming Compiler A..."))
+    (call A)
+    (when verbose
+      (print "Generating Compiler B..."))
+    (let ((B (compile-compiler)))
+      (when verbose
+        (print "Becoming Compiler B..."))
+      (call B)
+      (when verbose
+        (print "Generating Compiler C..."))
+        (let ((C (compile-compiler)))
+          (when (= A B)
+            C)))))
 
-(function ptest ()
-  (let* ((file (open-file "../core/main.bug" "r"))
-         (sexpr (read-entire-file file)))
-    (close-file file)
-    (print sexpr)))
+(function commit-compiler (C)
+  "different than the struct compiler - C should be a function (the result of (bootstrap-compiler))"
+  (let* ((output-file (open-file "../bootstrap/compiler.bc" "wb")))
+    (impl:write-bytecode-file output-file C)
+    (close-file output-file)))
+
+(function bootstrap-and-commit (verbose)
+  "Runs the bootstraping procedure, and writes the result to 'bootstrap/compiler.bc'"
+  (let ((C (bootstrap-compiler verbose)))
+    (if C
+      (commit-compiler C)
+     (print "ERROR bootstrapping procedure failed"))))

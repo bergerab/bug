@@ -25,13 +25,7 @@
     example: (id \"test\") => id=\"test\" "
   (string-concat (to-string (car attr)) "=" (string-quote (cadr attr))))
 
-(function render-html (el)
-  (do-render-html el 0))
-
-(function do-render-html-recurse (child depth) 
-  (do-render-html child depth))
-
-"TODO: split any strings on newlines and add indentation when applicable."
+;; TODO: split any strings on newlines and add indentation when applicable.
 (function do-render-html (el depth)
   "Converts a element list into a string."
   (let ((indent (string-times *indent-string* depth)))
@@ -65,6 +59,12 @@
                     (if (in (car el) *self-closing-tag-names*) ""
                       (string-concat (if place-on-new-line indent "") "</" (to-string tag-name) ">")))))
       (string-concat indent (to-string el)))))
+
+(function render-html (el)
+  (do-render-html el 0))
+
+(function do-render-html-recurse (child depth) 
+  (do-render-html child depth))
 
 (function write-html (path html)
   "Converts a element list into a string and writes the result to a file."

@@ -13,7 +13,6 @@ But it is only ever used once recursively (for dispatch chars).
 (function char-code (str)
   (dynamic-byte-array-get str 0))
 
-(setq *at-char-code* (char-code "@"))
 (setq *rparen-char-code* (char-code ")"))
 (setq *lparen-char-code* (char-code "("))
 (setq *comma-char-code* (char-code ","))
@@ -28,17 +27,11 @@ But it is only ever used once recursively (for dispatch chars).
 (setq *7-char-code* (char-code "7"))
 (setq *8-char-code* (char-code "8"))
 (setq *9-char-code* (char-code "9"))
-(setq *space-char-code* (char-code " "))
 (setq *tab-char-code* (char-code "\t"))
-(setq *newline-char-code* (char-code "\n"))
 (setq *return-char-code* (char-code "\r"))
 (setq *tick-char-code* (char-code "`"))
 (setq *double-quote-char-code* (char-code "\""))
 (setq *semicolon-char-code* (char-code ";"))
-(setq *backslash-char-code* (char-code "\\"))
-(setq *n-char-code* (char-code "n"))
-(setq *r-char-code* (char-code "r"))
-(setq *t-char-code* (char-code "t"))
 (setq *colon-char-code* (char-code ":"))
 
 (setq *keyword-package* (find-package "keyword"))
@@ -127,7 +120,7 @@ But it is only ever used once recursively (for dispatch chars).
                 (not (or (= lookahead *double-quote-char-code*)
                          (= lookahead *end-of-input*))))
         (cond 
-          ((= lookahead *backslash-char-code*)
+          ((= lookahead (char-code "\\"))
             (progn 
               (read-char stream)
               (dynamic-byte-array-push buffer (handle-string-escape stream))))
@@ -141,16 +134,16 @@ But it is only ever used once recursively (for dispatch chars).
     (cond 
       ((= char *end-of-input*) 
         (print "ERROR end of input during string escape"))
-      ((= char *n-char-code*)
-        *newline-char-code*)
-      ((= char *r-char-code*)
+      ((= char (char-code "n"))
+        (char-code "\n"))
+      ((= char (char-code "r"))
         *return-char-code*)
       ((= char *double-quote-char-code*)
         *double-quote-char-code*)
-      ((= char *t-char-code*)
+      ((= char (char-code "t"))
         *tab-char-code*)
-      ((= char *backslash-char-code*)
-        *backslash-char-code*)
+      ((= char (char-code "\\"))
+        (char-code "\\"))
       (t (print "ERROR unknown escape code " char)))))
 
 (set-macro-character *semicolon-char-code* 
@@ -158,7 +151,7 @@ But it is only ever used once recursively (for dispatch chars).
     (let ((char nil))
       (while (progn 
                 (set-local char (read-char stream))
-                (not (or (= char *newline-char-code*)
+                (not (or (= char (char-code "\n"))
                          (= char *end-of-input*))))
         nil)
       (read stream))))
@@ -181,18 +174,48 @@ But it is only ever used once recursively (for dispatch chars).
   (function (stream char)
     (print "UNEXPECTED RPAREN!")))
 
-(set-dispatch-macro-character *comma-char-code* *at-char-code*
+(set-dispatch-macro-character (char-code "#") *single-quote-char-code*
+  (function (stream char)
+    `#',(read stream)))
+
+(set-dispatch-macro-character *comma-char-code* (char-code "@")
   (function (stream char)
     (list 'unquote-splicing (read stream))))
+
+(function read-character-name (stream)
+   (let ((buffer (dynamic-byte-array 10))
+         (char nil)
+         (skip-rules t))
+     (while 
+      ;; the first pass skips the normal rules so it can read characters that would otherwise interrupt the reading of a symbol (like a character in a readtable or whitespace)
+      (or skip-rules 
+        (not (or (stream-has-whitespace? stream) 
+             (stream-has-macro? stream))))
+      (when (stream-ended? stream)
+        (print "ERROR stream ended during character name."))
+      (set-local skip-rules nil)
+      (set-local char (read-char stream))
+      (dynamic-byte-array-push buffer char))
+      (let ((name (dynamic-byte-array-as-string buffer)))
+        (cond 
+        ((= 1 (dynamic-byte-array-length name)) (dynamic-byte-array-get name 0))
+        ((= name "Space") (char-code " "))
+        ((= name "Newline") (char-code "\n"))
+        (t
+          (print "ERROR invalid character name " name))))))
+
+(set-dispatch-macro-character (char-code "#") (char-code "\\")
+  (function (stream char)
+    (read-character-name stream)))
 
 (function skip-whitespace (stream)
   (while (whitespace? (read-peek stream))
     (read-char stream)))
 
 (function whitespace? (char)
-  (or (= char *space-char-code*)
+  (or (= char (char-code " "))
       (or (= char *tab-char-code*)
-        (or (= char *newline-char-code*)
+        (or (= char (char-code "\n"))
             (= char *return-char-code*)))))
 
 (function numeric? (char)
@@ -320,7 +343,9 @@ But it is only ever used once recursively (for dispatch chars).
             (progn 
               (read-char stream)
               (call dispatch-reader stream (read-char stream)))
-            (call (get-field reader function) stream (read-char stream))))
+            (if (get-field reader function)
+              (call (get-field reader function) stream (read-char stream))
+              (read-symbol stream))))
         (read-symbol stream)))))
 
 (function digit-to-number (char)

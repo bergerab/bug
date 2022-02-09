@@ -2,8 +2,14 @@
     (impl:write-file *standard-output* x))
 
 (function repl ()
+  "compile core just so we have the macros at runtime (something that we usually wouldn't want) --
+   there should be some way to just get macros/functions bound to symbols
+   maybe 'images' are a solution to this."
+  (let ((core (open-file "../lib/core/main.bug" "rb")))
+    (compile (read-entire-file core)))
+
   (while t
-    (write "b>> ")
+    (write "b> ")
     (let ((expr (read *standard-input*))) 
       (let ((code (compile expr)))
         (print (call code))

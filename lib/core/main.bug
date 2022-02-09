@@ -484,3 +484,8 @@
 (include "../lib/compiler/ops.bug")
 (include "../lib/compiler/compile.bug")
 (include "../lib/compiler/repl.bug")
+
+(print "IT WORKED")
+(set-macro-character *comma-char-code*
+  (function (stream char)
+    (list 'unquote (read stream))))

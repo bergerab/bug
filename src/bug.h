@@ -412,7 +412,6 @@ struct gis {
   struct object *read_bytecode_file_str;
   struct object *read_file_str;
   struct object *record_str;
-  struct object *run_bytecode_str;
   struct object *set_str;
   struct object *set_local_str;
   struct object *set_symbol_function_str;
@@ -498,7 +497,6 @@ struct gis {
   struct object *impl_function_code_sym;
   struct object *impl_read_bytecode_file_sym;
   struct object *impl_read_file_sym;
-  struct object *impl_run_bytecode_sym;
   struct object *impl_struct_field_sym;
   struct object *impl_i_sym; /** the index of the next instruction in bc to execute */
   struct object *impl_macro_sym;
@@ -687,7 +685,6 @@ struct gis {
   struct object *gensym_builtin;
   struct object *read_bytecode_file_builtin;
   struct object *read_file_builtin;
-  struct object *run_bytecode_builtin; /* this is currently called "eval" in the C code -- but run-bytecode is less confusing for LISP */
   struct object *string_concat_builtin;
   struct object *struct_field_builtin;
   struct object *to_string_builtin;
