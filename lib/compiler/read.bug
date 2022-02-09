@@ -1,7 +1,5 @@
-"
-readtable-entry is a recursive structure (entries is supposed to be a list of itself).
-But it is only ever used once recursively (for dispatch chars).
-"
+;; readtable-entry is a recursive structure (entries is supposed to be a list of itself).
+;; But it is only ever used once recursively (for dispatch chars).
 (struct readtable-entry
   ((char object)
    (function object)
@@ -9,30 +7,6 @@ But it is only ever used once recursively (for dispatch chars).
 
 (struct readtable
   ((entries object)))
-
-(function char-code (str)
-  (dynamic-byte-array-get str 0))
-
-(setq *rparen-char-code* (char-code ")"))
-(setq *lparen-char-code* (char-code "("))
-(setq *comma-char-code* (char-code ","))
-(setq *single-quote-char-code* (char-code "'"))
-(setq *0-char-code* (char-code "0"))
-(setq *1-char-code* (char-code "1"))
-(setq *2-char-code* (char-code "2"))
-(setq *3-char-code* (char-code "3"))
-(setq *4-char-code* (char-code "4"))
-(setq *5-char-code* (char-code "5"))
-(setq *6-char-code* (char-code "6"))
-(setq *7-char-code* (char-code "7"))
-(setq *8-char-code* (char-code "8"))
-(setq *9-char-code* (char-code "9"))
-(setq *tab-char-code* (char-code "\t"))
-(setq *return-char-code* (char-code "\r"))
-(setq *tick-char-code* (char-code "`"))
-(setq *double-quote-char-code* (char-code "\""))
-(setq *semicolon-char-code* (char-code ";"))
-(setq *colon-char-code* (char-code ":"))
 
 (setq *keyword-package* (find-package "keyword"))
 
@@ -98,34 +72,34 @@ But it is only ever used once recursively (for dispatch chars).
       (set-macro-character disp-char nil)
       (set-field (get-macro-character-entry disp-char) entries (list (make-readtable-entry sub-char f nil))))))
 
-(set-macro-character *tick-char-code*
+(set-macro-character #\`
   (function (stream char)
     (list 'quasiquote (read stream))))
 
-(set-macro-character *comma-char-code*
+(set-macro-character #\,
   (function (stream char)
     (list 'unquote (read stream))))
 
-(set-macro-character *single-quote-char-code*
+(set-macro-character #\'
   (function (stream char)
     (list 'quote (read stream))))
 
-(set-macro-character *double-quote-char-code*
+(set-macro-character #\" ;" just for VS code
   (function (stream char) 
-    "TODO: read string"
+    ; TODO: read string
     (let ((lookahead nil)
           (buffer (dynamic-byte-array 100)))
       (while (progn 
                 (set-local lookahead (read-peek stream))
-                (not (or (= lookahead *double-quote-char-code*)
+                (not (or (= lookahead #\") ;" just for VS code
                          (= lookahead *end-of-input*))))
         (cond 
-          ((= lookahead (char-code "\\"))
+          ((= lookahead #\\)
             (progn 
               (read-char stream)
               (dynamic-byte-array-push buffer (handle-string-escape stream))))
           (t (dynamic-byte-array-push buffer (read-char stream)))))
-      (when (= lookahead *double-quote-char-code*)
+      (when (= lookahead #\") ;" just for VS code
         (read-char stream))
       (dynamic-byte-array-as-string buffer))))
 
@@ -134,43 +108,43 @@ But it is only ever used once recursively (for dispatch chars).
     (cond 
       ((= char *end-of-input*) 
         (print "ERROR end of input during string escape"))
-      ((= char (char-code "n"))
-        (char-code "\n"))
-      ((= char (char-code "r"))
-        *return-char-code*)
-      ((= char *double-quote-char-code*)
-        *double-quote-char-code*)
-      ((= char (char-code "t"))
-        *tab-char-code*)
-      ((= char (char-code "\\"))
-        (char-code "\\"))
+      ((= char #\n)
+        #\Newline)
+      ((= char #\r)
+        #\Return)
+      ((= char #\") ;" just for VS code
+        #\") ;" just for VS code
+      ((= char #\t)
+        #\Tab)
+      ((= char #\\)
+        #\\)
       (t (print "ERROR unknown escape code " char)))))
 
-(set-macro-character *semicolon-char-code* 
+(set-macro-character #\;
   (function (stream char) 
     (let ((char nil))
       (while (progn 
                 (set-local char (read-char stream))
-                (not (or (= char (char-code "\n"))
+                (not (or (= char #\Newline)
                          (= char *end-of-input*))))
         nil)
       (read stream))))
 
-(set-macro-character *lparen-char-code*
+(set-macro-character #\(
   (function (stream char)
     (let ((lookahead nil)
           (xs nil))
       (while (progn 
                 (set-local lookahead (read-peek stream))
-                (not (or (= lookahead *rparen-char-code*)
+                (not (or (= lookahead #\))
                          (= lookahead *end-of-input*))))
         (set-local xs (cons (read stream) xs))
         (skip-whitespace stream))
-      (when (= lookahead *rparen-char-code*)
+      (when (= lookahead #\))
         (read-char stream)) 
       (reverse xs))))
 
-(set-macro-character *rparen-char-code*
+(set-macro-character #\)
   (function (stream char)
     (print "UNEXPECTED RPAREN!")))
 
@@ -178,7 +152,7 @@ But it is only ever used once recursively (for dispatch chars).
   (function (stream char)
     (symbol-function (read stream))))
 
-(set-dispatch-macro-character *comma-char-code* (char-code "@")
+(set-dispatch-macro-character #\, #\@
   (function (stream char)
     (list 'unquote-splicing (read stream))))
 
@@ -199,12 +173,18 @@ But it is only ever used once recursively (for dispatch chars).
       (let ((name (dynamic-byte-array-as-string buffer)))
         (cond 
         ((= 1 (dynamic-byte-array-length name)) (dynamic-byte-array-get name 0))
-        ((= name "Space") (char-code " "))
-        ((= name "Newline") (char-code "\n"))
+        ((= name "Space") #\Space)
+        ((= name "Newline") #\Newline)
+        ((= name "Linefeed") #\Linefeed)
+        ((= name "Tab") #\Tab)
+        ((= name "Backspace") #\Backspace)
+        ((= name "Bell") #\Bell)
+        ((= name "Null") #\Null)
+        ((= name "Return") #\Return)
         (t
           (print "ERROR invalid character name " name))))))
 
-(set-dispatch-macro-character (char-code "#") (char-code "\\")
+(set-dispatch-macro-character #\# #\\
   (function (stream char)
     (read-character-name stream)))
 
@@ -213,14 +193,14 @@ But it is only ever used once recursively (for dispatch chars).
     (read-char stream)))
 
 (function whitespace? (char)
-  (or (= char (char-code " "))
-      (or (= char *tab-char-code*)
-        (or (= char (char-code "\n"))
-            (= char *return-char-code*)))))
+  (or (= char #\Space)
+      (or (= char #\Tab)
+        (or (= char #\Newline)
+            (= char #\Return)))))
 
 (function numeric? (char)
-  (and (>= char *0-char-code*)
-       (<= char *9-char-code*)))
+  (and (>= char #\0)
+       (<= char #\9)))
 
 (function stream-has-macro? (stream)
   "Is the next char a macro character for a reader macro?"
@@ -273,10 +253,10 @@ But it is only ever used once recursively (for dispatch chars).
       (when (and (not contains-number) (numeric? char))
              (set-local contains-number t)) 
 
-      (when (= char *colon-char-code*)
+      (when (= char #\:)
         (when contains-double-colon
           (print "ERROR symbol contains too many colons"))
-        (if (= previous-char *colon-char-code*)
+        (if (= previous-char #\:)
           (set-local contains-double-colon t)
          (if contains-single-colon
            (print "ERROR symbol contains too many colons")
@@ -323,7 +303,7 @@ But it is only ever used once recursively (for dispatch chars).
         (length (dynamic-byte-array-length string)))
     (while (< i length)
       (set-local char (dynamic-byte-array-get string i))
-      (if (= char *colon-char-code*)
+      (if (= char #\:)
         (set-local advanced t)
        (if advanced
         (dynamic-byte-array-push package-name char)
@@ -350,16 +330,16 @@ But it is only ever used once recursively (for dispatch chars).
 
 (function digit-to-number (char)
   (cond 
-    ((= char *0-char-code*) 0)
-    ((= char *1-char-code*) 1)
-    ((= char *2-char-code*) 2)
-    ((= char *3-char-code*) 3)
-    ((= char *4-char-code*) 4)
-    ((= char *5-char-code*) 5)
-    ((= char *6-char-code*) 6)
-    ((= char *7-char-code*) 7)
-    ((= char *8-char-code*) 8)
-    ((= char *9-char-code*) 9)
+    ((= char #\0) 0)
+    ((= char #\1) 1)
+    ((= char #\2) 2)
+    ((= char #\3) 3)
+    ((= char #\4) 4)
+    ((= char #\5) 5)
+    ((= char #\6) 6)
+    ((= char #\7) 7)
+    ((= char #\8) 8)
+    ((= char #\9) 9)
     (t nil)))
 
 (function parse-number (string)
