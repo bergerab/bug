@@ -174,9 +174,9 @@ But it is only ever used once recursively (for dispatch chars).
   (function (stream char)
     (print "UNEXPECTED RPAREN!")))
 
-;;(set-dispatch-macro-character (char-code "#") *single-quote-char-code*
-;;  (function (stream char)
-;;    `#',(read stream)))
+(set-dispatch-macro-character #\# #\'
+  (function (stream char)
+    (symbol-function (read stream))))
 
 (set-dispatch-macro-character *comma-char-code* (char-code "@")
   (function (stream char)
