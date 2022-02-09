@@ -1,4 +1,4 @@
-"Cons helpers that should probably be builtins"
+;; Cons helpers that should probably be builtins
 (impl:define-function cadr (x)
 	"Gets the second item in a list."
   (car (cdr x)))
@@ -279,15 +279,15 @@
 			(dec-local n_))
 		value))
 
-"TODO: make macroexpand builtin"
+;; TODO: make macroexpand builtin
 
-"===================== misc =========================="
+;; ===================== misc ==========================
 (function fib (x)
   (if (< x 2)
     x
     (+ (fib (- x 2)) 
        (fib (- x 1)))))
-"====================================================="
+;; =====================================================
 
 (function do-filter (f xs)
 	(when xs
@@ -333,7 +333,7 @@
 	 n))
 
 (function string-join (xs str)
-	"TODO: (if (cadr xs) ...) usage seems wrong and weird - it is for checking if there are at least 2 items left in the list, it should be (if (cdr xs) ..) for that."
+	;; TODO: (if (cadr xs) ...) usage seems wrong and weird - it is for checking if there are at least 2 items left in the list, it should be (if (cdr xs) ..) for that.
 	(if (cadr xs) 
 		(string-concat (string-concat (car xs) str) (string-join (cdr xs) str))
 		(if (car xs)
@@ -407,7 +407,7 @@
   	(c int)
   	(d int)))
   
-" TODO: this should be OK to say (pointer b)"
+;; TODO: this should be OK to say (pointer b)
   (struct a
    ((x int) 
     (y (pointer b))))
@@ -468,17 +468,11 @@
 						(,type-sym (type-of ,val-sym)))
 			(cond ,@cases))))
 
-(function bs-read-entire-file (stream)
-  (let ((expr nil))
-    (while (byte-stream-has stream)
-      (set-local expr (cons (read stream) expr)))
-    (reverse expr)))
-
 (macro include (path)
 	(let* ((file (open-file path "rb"))
-			   (expr (bs-read-entire-file file)))
+			   (expr (read-entire-file file)))
 		(close-file file)
-		`(progn ,@expr)))
+		expr))
 
 (include "../lib/compiler/read.bug")
 (include "../lib/compiler/ops.bug")
