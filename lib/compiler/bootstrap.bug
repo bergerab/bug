@@ -1,0 +1,14 @@
+(setq *path-stack* (dynamic-array 10))
+(setq *current-path* (impl:get-current-working-directory))
+
+;; both run time and compile time
+(macro define-compile-time-path-stack ()
+	(setq *path-stack* (dynamic-array 10))
+	(setq *current-path* (impl:get-current-working-directory)))
+
+(define-compile-time-path-stack)
+
+;; This file is run from the build directory so all paths are relative to that
+;; this is the only file where the paths used in (include ...) are not relative to this file
+(include "..\\lib\\core\\main.bug")
+(include "..\\lib\\compiler\\main2.bug")

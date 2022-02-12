@@ -1046,6 +1046,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->function_str, "function");
   GIS_STR(gis->function_code_str, "function-code");
   GIS_STR(gis->struct_field_str, "struct-field");
+  GIS_STR(gis->get_current_working_directory_str, "get-current-working-directory");
   GIS_STR(gis->gensym_str, "gensym");
   GIS_STR(gis->gt_str, ">");
   GIS_STR(gis->gte_str, ">=");
@@ -1105,6 +1106,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->symbol_str, "symbol");
   GIS_STR(gis->symbol_type_str, "symbol-type");
   GIS_STR(gis->symbol_value_str, "symbol-value");
+  GIS_STR(gis->symbol_value_set_str, "symbol-value?");
   GIS_STR(gis->t_str, "t");
   GIS_STR(gis->temp_str, "temp");
   GIS_STR(gis->type_of_str, "type-of");
@@ -1197,6 +1199,7 @@ void gis_init(char load_core) {
   GIS_SYM(gis->impl_dynamic_byte_array_pop_sym, gis->dynamic_byte_array_pop_str, gis->impl_package);
   GIS_SYM(gis->impl_f_sym, gis->f_str, gis->impl_package); /** the currently executing function */
   GIS_SYM(gis->impl_function_code_sym, gis->function_code_str, gis->impl_package);
+  GIS_SYM(gis->impl_get_current_working_directory_sym, gis->get_current_working_directory_str, gis->impl_package); 
   GIS_SYM(gis->impl_struct_field_sym, gis->struct_field_str, gis->impl_package);
   GIS_SYM(gis->impl_i_sym, gis->i_str, gis->impl_package); /** the index of the next instruction in bc to execute */
   GIS_SYM(gis->impl_macro_sym, gis->macro_str, gis->impl_package);
@@ -1265,6 +1268,7 @@ void gis_init(char load_core) {
   GIS_SYM(gis->lisp_symbol_name_sym, gis->symbol_name_str, gis->lisp_package);
   GIS_SYM(gis->lisp_symbol_function_sym, gis->symbol_function_str, gis->lisp_package);
   GIS_SYM(gis->lisp_symbol_value_sym, gis->symbol_value_str, gis->lisp_package);
+  GIS_SYM(gis->lisp_symbol_value_set_sym, gis->symbol_value_set_str, gis->lisp_package);
   GIS_SYM(gis->lisp_sub_sym, gis->sub_str, gis->lisp_package);
   GIS_SYM(gis->lisp_to_string_sym, gis->to_string_str, gis->lisp_package);
   GIS_SYM(gis->lisp_unquote_splicing_sym, gis->unquote_splicing_str, gis->lisp_package);
@@ -1421,6 +1425,7 @@ void gis_init(char load_core) {
   GIS_BUILTIN(gis->change_directory_builtin, gis->impl_change_directory_sym, 1) /* takes the new directory */
   GIS_BUILTIN(gis->close_file_builtin, gis->impl_close_file_sym, 1);
   GIS_BUILTIN(gis->dynamic_library_builtin, gis->type_dynamic_library_sym, 1)  /* takes the path */
+  GIS_BUILTIN(gis->get_current_working_directory_builtin, gis->impl_get_current_working_directory_sym, 0)
   GIS_BUILTIN(gis->gensym_builtin, gis->lisp_gensym_sym, 0)
   GIS_BUILTIN(gis->fbound_builtin, gis->lisp_fbound_sym, 1);
   GIS_BUILTIN(gis->function_macro_builtin, gis->lisp_function_macro_sym, 1);
@@ -1443,6 +1448,7 @@ void gis_init(char load_core) {
   GIS_BUILTIN(gis->define_struct_builtin, gis->impl_define_struct_sym, 2);
   GIS_BUILTIN(gis->symbol_name_builtin, gis->lisp_symbol_name_sym, 1);
   GIS_BUILTIN(gis->symbol_type_builtin, gis->impl_symbol_type_sym, 1);
+  GIS_BUILTIN(gis->symbol_value_set_builtin, gis->lisp_symbol_value_set_sym, 1);
   GIS_BUILTIN(gis->string_concat_builtin, gis->impl_string_concat_sym, 2);
   GIS_BUILTIN(gis->struct_field_builtin, gis->impl_struct_field_sym, 2);
   GIS_BUILTIN(gis->set_struct_field_builtin, gis->impl_set_struct_field_sym, 3);
@@ -1485,7 +1491,6 @@ void gis_init(char load_core) {
   gis->loaded_core = 0;
   if (load_core) {
     eval(read_bytecode_file(open_file(string("../bootstrap/compiler.bc"), string("rb"))), NIL);
-    symbol_set_value(intern(string("*t-char-code*"), gis->user_package), fixnum(0));
     repl = find_symbol(string("repl"), gis->user_package, 1);
     if (!SYMBOL_FUNCTION_IS_SET(repl)) {
       printf("You the compiler must have a function called 'repl'.");
@@ -1683,6 +1688,9 @@ void eval_builtin(struct object *f) {
     push(dynamic_byte_array(FIXNUM_VALUE(GET_LOCAL(0))));
   } else if (f == gis->to_string_builtin) {
     push(to_string(GET_LOCAL(0)));
+  } else if (f == gis->symbol_value_set_builtin) {
+    OT("symbol-value?", 0, GET_LOCAL(0), type_symbol);
+    push(SYMBOL_VALUE_IS_SET(GET_LOCAL(0)) ? T : NIL);
   } else if (f == gis->dynamic_array_get_builtin) {
     push(dynamic_array_get(GET_LOCAL(0), GET_LOCAL(1)));
   } else if (f == gis->dynamic_array_set_builtin) {
@@ -1723,6 +1731,8 @@ void eval_builtin(struct object *f) {
   } else if (f == gis->change_directory_builtin) {
     change_directory(GET_LOCAL(0));
     push(NIL);
+  } else if (f == gis->get_current_working_directory_builtin) {
+    push(get_current_working_directory());
   } else if (f == gis->alloc_struct_builtin) {
     push(alloc_struct(GET_LOCAL(0), 1));
   } else if (f == gis->gensym_builtin) {

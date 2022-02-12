@@ -332,13 +332,24 @@
 		(do-count (cdr list) (+ n 1))
 	 n))
 
+;; TODO: (if (cadr xs) ...) usage seems wrong and weird - it is for checking if there are at least 2 items left in the list, it should be (if (cdr xs) ..) for that.
 (function string-join (xs str)
-	;; TODO: (if (cadr xs) ...) usage seems wrong and weird - it is for checking if there are at least 2 items left in the list, it should be (if (cdr xs) ..) for that.
 	(if (cadr xs) 
 		(string-concat (string-concat (car xs) str) (string-join (cdr xs) str))
 		(if (car xs)
 			(car xs)
 			"")))
+
+;; TODO: (if (cadr xs) ...) usage seems wrong and weird - it is for checking if there are at least 2 items left in the list, it should be (if (cdr xs) ..) for that.
+(function string-join-char (xs char)
+	(if xs
+		(let ((ret "")) 
+			(for-each s xs
+				(set-local ret (string-concat ret s))
+				(dynamic-byte-array-push ret char))
+			(dynamic-byte-array-pop ret)
+			ret)
+	 ""))
 
 (function string-concat args
 	(if args
@@ -509,7 +520,7 @@
 			 (string-push-char (dynamic-array-last parts) c)))
 		parts))
 
-(setq *directory-delimiter* #\/)
+(setq *directory-delimiter* #\\)
 
 (function file-path-split (fp)
 	(string-split-char fp *directory-delimiter*))
@@ -528,13 +539,73 @@
 			(inc-local i))
 		s))
 
-(macro include (path)
-	(let* ((file (open-file path "rb"))
-			   (expr (read-entire-file file)))
-		(close-file file)
-		expr))
+(macro in-directory args
+	(let ((path (car args))
+				(body (cdr args))
+				(val-sym (gensym)))
+		`(progn
+			(push-directory ,path)
+			(let ((,val-sym (progn ,@body)))
+				(pop-directory)
+				,val-sym))))
 
-(include "../lib/compiler/read.bug")
-(include "../lib/compiler/ops.bug")
-(include "../lib/compiler/compile.bug")
-(include "../lib/compiler/repl.bug")
+(function file-path args
+	(string-join-char args *directory-delimiter*))
+
+(macro file-path-mac args
+	(string-join-char args *directory-delimiter*))
+
+(macro compile-time-and-runtime-push-directory (x)
+	(dynamic-array-push *path-stack* *current-path*)
+	(setq *current-path* x)
+	(impl:change-directory *current-path*)
+	`(progn
+		(dynamic-array-push *path-stack* *current-path*)
+		(setq *current-path* ,x)
+		(impl:change-directory *current-path*)))
+
+(macro compile-time-and-runtime-pop-directory ()
+	(setq *current-path* (dynamic-array-pop *path-stack*))
+	(impl:change-directory *current-path*)
+	`(progn
+		(setq *current-path* (dynamic-array-pop *path-stack*))
+		(impl:change-directory *current-path*)))
+
+(function push-directory (x)
+	(print "push dir\n")
+	(dynamic-array-push *path-stack* *current-path*)
+	(print *path-stack*)
+	(setq *current-path* x)
+	(impl:change-directory *current-path*))
+
+(function pop-directory ()
+	(print "pop dir\n")
+	(setq *current-path* (dynamic-array-pop *path-stack*))
+	(impl:change-directory *current-path*))
+
+;; include needs to change the working dir both during execution, and 
+;; during the open/read should make a IN-DIRECTORY
+(macro include (path)
+	(let ((wd (file-path-get-base-path path))) ;; previous working directory
+		(in-directory wd
+			(let* ((file (open-file (file-path-get-file-name path) "rb"))
+						 (expr (read-entire-file file))) 
+				;; when expr is compiled, the in-directory is no longer working
+				`(progn
+						(compile-time-and-runtime-push-directory ,wd)
+						,expr
+						(compile-time-and-runtime-pop-directory))))))
+
+(function load (path)
+	(let ((wd (file-path-get-base-path path)))
+		(in-directory wd
+			(let* ((file (open-file (file-path-get-file-name path) "rb"))
+						 (expr (read-entire-file file))
+						 (code (compile expr))) 
+				(call code)))))
+
+ (function load-bootstrap ()
+    (let* ((input (open-file "../lib/compiler/bootstrap.bug" "rb"))
+           (code (compile (read-entire-file input))))
+      (close-file input)
+      (call code)))

@@ -374,6 +374,7 @@ struct gis {
   struct object *gensym_str;
   struct object *gt_str;
   struct object *gte_str;
+  struct object *get_current_working_directory_str;
   struct object *i_str;
   struct object *if_str;
   struct object *impl_str;
@@ -430,6 +431,7 @@ struct gis {
   struct object *symbol_name_str;
   struct object *symbol_type_str;
   struct object *symbol_value_str;
+  struct object *symbol_value_set_str;
   struct object *t_str;
   struct object *temp_str;
   struct object *to_string_str;
@@ -495,6 +497,7 @@ struct gis {
   struct object *impl_f_sym; /** the currently executing function */
   struct object *impl_function_sym;
   struct object *impl_function_code_sym;
+  struct object *impl_get_current_working_directory_sym;
   struct object *impl_read_bytecode_file_sym;
   struct object *impl_read_file_sym;
   struct object *impl_struct_field_sym;
@@ -566,6 +569,7 @@ struct gis {
   struct object *lisp_symbol_function_sym;
   struct object *lisp_symbol_name_sym;
   struct object *lisp_symbol_value_sym;
+  struct object *lisp_symbol_value_set_sym;
   struct object *lisp_sub_sym;
   struct object *lisp_to_string_sym;
   struct object *lisp_unquote_splicing_sym;
@@ -682,6 +686,7 @@ struct gis {
   struct object *foreign_function_builtin;
   struct object *function_code_builtin;
   struct object *intern_builtin;
+  struct object *get_current_working_directory_builtin;
   struct object *gensym_builtin;
   struct object *read_bytecode_file_builtin;
   struct object *read_file_builtin;
@@ -701,6 +706,7 @@ struct gis {
   struct object *define_struct_builtin;
   struct object *symbol_name_builtin;
   struct object *symbol_type_builtin;
+  struct object *symbol_value_set_builtin;
   struct object *type_of_builtin;
   struct object *unmarshal_builtin;
   struct object *use_package_builtin;

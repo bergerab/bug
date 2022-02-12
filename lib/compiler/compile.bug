@@ -521,11 +521,11 @@
     (push-byte compiler *op-return-function*)
     (compiler-make-function compiler)))
 
-(function compile-compiler ()
-  (let* ((input (open-file "../lib/compiler/main.bug" "rb"))
-         (code (compile (read-entire-file input))))
-    (close-file input)
-    code))
+ (function compile-compiler ()
+    (let* ((input (open-file "../lib/compiler/bootstrap.bug" "rb"))
+           (code (compile (read-entire-file input))))
+      (close-file input)
+      code))
 
 (function bootstrap-compiler (verbose)
   "

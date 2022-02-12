@@ -1,0 +1,4 @@
+(include "read.bug")
+(include "ops.bug")
+(include "compile.bug")
+(include "repl.bug")

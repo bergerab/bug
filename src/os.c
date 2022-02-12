@@ -12,3 +12,10 @@ void change_directory(struct object *path) {
   dynamic_byte_array_force_cstr(path);
   chdir(STRING_CONTENTS(path));
 }
+
+#define MAX_FILE_PATH_SIZE 500 
+
+struct object *get_current_working_directory() {
+  char buffer[MAX_FILE_PATH_SIZE];
+  return string(getcwd(buffer, MAX_FILE_PATH_SIZE));
+}
