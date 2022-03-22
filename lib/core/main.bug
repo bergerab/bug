@@ -572,14 +572,11 @@
 		(impl:change-directory *current-path*)))
 
 (function push-directory (x)
-	(print "push dir\n")
 	(dynamic-array-push *path-stack* *current-path*)
-	(print *path-stack*)
 	(setq *current-path* x)
 	(impl:change-directory *current-path*))
 
 (function pop-directory ()
-	(print "pop dir\n")
 	(setq *current-path* (dynamic-array-pop *path-stack*))
 	(impl:change-directory *current-path*))
 
@@ -596,7 +593,8 @@
 						,expr
 						(compile-time-and-runtime-pop-directory))))))
 
-(function load (path)
+(function old-load (path)
+	"Not a true LOAD (in the common lisp sense)"
 	(let ((wd (file-path-get-base-path path)))
 		(in-directory wd
 			(let* ((file (open-file (file-path-get-file-name path) "rb"))
@@ -604,8 +602,14 @@
 						 (code (compile expr))) 
 				(call code)))))
 
- (function load-bootstrap ()
-    (let* ((input (open-file "../lib/compiler/bootstrap.bug" "rb"))
-           (code (compile (read-entire-file input))))
-      (close-file input)
-      (call code)))
+(function eval (expr)
+	(call (compile expr)))
+
+(function load (path)
+	(let ((wd (file-path-get-base-path path)))
+		(in-directory wd
+			(let ((file (open-file (file-path-get-file-name path) "r"))) 
+				(while (byte-stream-has file)
+					(let ((expr (read file)))
+						(print "LOAD: " expr " \n")
+						(eval expr)))))))

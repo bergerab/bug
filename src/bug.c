@@ -777,12 +777,10 @@ char equals(struct object *o0, struct object *o1) {
     case type_record: /* TODO */
     case type_type:
       return o0 == o1;
+    default:
+      /* TODO: allow for overriding */
+      return OBJECT_POINTER(o0) == OBJECT_POINTER(o1);
   }
-
-  /* TODO: handle user defined types */
-
-  printf("Equality is not supported for the given type.");
-  PRINT_STACK_TRACE_AND_QUIT();
 }
 
 /*===============================*
@@ -961,6 +959,7 @@ struct object *intern(struct object *string, struct object *package) {
   sym = symbol(string);
   SYMBOL_PACKAGE(sym) = package; /* set the home package */
   PACKAGE_SYMBOLS(package) = cons(sym, PACKAGE_SYMBOLS(package));
+  dynamic_array_push(symbol_get_value(gis->impl_interned_symbols_sym), sym);
   if (package == gis->keyword_package) { /* all symbols in keyword package have
                                           the value of themselves*/
     symbol_set_value(sym, sym);
@@ -1130,6 +1129,7 @@ void gis_init(char load_core) {
   GIS_STR(gis->while_str, "while");
   GIS_STR(gis->write_bytecode_file_str, "write-bytecode-file");
   GIS_STR(gis->write_file_str, "write-file");
+  GIS_STR(gis->write_image_str, "write-image");
   GIS_STR(gis->x_str, "x");
   GIS_STR(gis->y_str, "y");
 
@@ -1160,11 +1160,21 @@ void gis_init(char load_core) {
   gis->impl_package = package(gis->impl_str);
 
   /* Initialize Symbols */
-#define GIS_SYM(sym, str, pack)                             \
-  sym = symbol(str);                                        \
-  SYMBOL_PACKAGE(sym) = pack;                               \
-  PACKAGE_SYMBOLS(pack) = cons(sym, PACKAGE_SYMBOLS(pack)); \
+#define GIS_SYM(sym, str, pack)                                              \
+  sym = symbol(str);                                                         \
+  SYMBOL_PACKAGE(sym) = pack;                                                \
+  PACKAGE_SYMBOLS(pack) = cons(sym, PACKAGE_SYMBOLS(pack));                  \
+  dynamic_array_push(symbol_get_value(gis->impl_interned_symbols_sym), sym); \
   symbol_export(sym);
+
+  /* Setup interned symbols without using GIS_SYM */
+  gis->impl_interned_symbols_sym = symbol(string("interned-symbols")); 
+  SYMBOL_PACKAGE(gis->impl_interned_symbols_sym) = gis->impl_package;
+  PACKAGE_SYMBOLS(gis->impl_package) = cons(gis->impl_interned_symbols_sym, PACKAGE_SYMBOLS(gis->impl_package));
+  symbol_export(gis->impl_interned_symbols_sym);
+  symbol_set_value(gis->impl_interned_symbols_sym, dynamic_array(256));
+  dynamic_array_push(symbol_get_value(gis->impl_interned_symbols_sym), NIL);
+  dynamic_array_push(symbol_get_value(gis->impl_interned_symbols_sym), gis->impl_interned_symbols_sym);
 
   GIS_SYM(gis->impl_alloc_struct_sym, gis->alloc_struct_str, gis->impl_package);
   GIS_SYM(gis->impl_and_sym, gis->and_str, gis->impl_package);
@@ -1221,6 +1231,7 @@ void gis_init(char load_core) {
   GIS_SYM(gis->impl_use_package_sym, gis->use_package_str, gis->impl_package);
   GIS_SYM(gis->impl_write_bytecode_file_sym, gis->write_bytecode_file_str, gis->impl_package);
   GIS_SYM(gis->impl_write_file_sym, gis->write_file_str, gis->impl_package);
+  GIS_SYM(gis->impl_write_image_sym, gis->write_image_str, gis->impl_package);
   GIS_SYM(gis->keyword_external_sym, gis->external_str, gis->keyword_package);
   GIS_SYM(gis->keyword_function_sym, gis->function_str, gis->keyword_package);
   GIS_SYM(gis->keyword_inherited_sym, gis->inherited_str, gis->keyword_package);
@@ -1457,6 +1468,7 @@ void gis_init(char load_core) {
   GIS_BUILTIN(gis->use_package_builtin, gis->impl_use_package_sym, 1) /* takes name of package */
   GIS_BUILTIN(gis->write_bytecode_file_builtin, gis->impl_write_bytecode_file_sym, 2);
   GIS_BUILTIN(gis->write_file_builtin, gis->impl_write_file_sym, 2);
+  GIS_BUILTIN(gis->write_image_builtin, gis->impl_write_image_sym, 1);
 
   /* initialize set interpreter state */
   gis->data_stack = dynamic_array(10);
@@ -1698,6 +1710,9 @@ void eval_builtin(struct object *f) {
     push(NIL);
   } else if (f == gis->dynamic_array_length_builtin) {
     push(dynamic_array_length(GET_LOCAL(0)));
+  } else if (f == gis->write_image_builtin) {
+    write_image(GET_LOCAL(0));
+    push(NIL);
   } else if (f == gis->dynamic_array_push_builtin) {
     dynamic_array_push(GET_LOCAL(0), GET_LOCAL(1));
     push(NIL);

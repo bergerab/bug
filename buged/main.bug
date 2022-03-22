@@ -1,1 +1,1 @@
-(load "sdl.bug")
+(old-load "sdl.bug")

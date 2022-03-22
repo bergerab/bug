@@ -78,3 +78,63 @@ In this example, the value from incq's sym is printed within print-return.
 - Update types to allow for type specifiers
 
 - make a define system where any object type can be defined and named. this would be useful for many cases, like functions.
+
+- have something like FASL
+  - two ways of compiling... 
+    - one is to include macros and functions -- if it will be loaded into a lisp environment.
+    - second is to remove all macros
+
+- load must read one expression at a time and evaluate them in order. This is the only way something like package definitions work.
+
+- image based refactor
+  - the bytecode files should be structured in a way where it is image based.
+  - right now compiler.bc is evaluated and then the "repl" function is called
+  - this should turn into loading an image, and calling the "repl" function
+  - this is different than what i've been doing whikjch is to include the text of files in other files (using INCLUDE).
+    that is not a good way of doing it. It is slow, and confusing.
+  - bug image files .bugi
+    - BUGI contains list of packages (each package contains all symbols, and what is bound to the symbol)
+  - there is a difference between FASL and images thoug#+HTML:
+    - how do you combine these? what if you want to have a compiler and a HTML renderer and load both libraries?
+
+- there are a few different thing you can compile to in common lisp
+  - there's compiled files - (normally called .FASL files). which are files compiled for fast LOADing
+  - there's compiled functions 
+
+
+From LispWorks:
+
+```
+The compiler translates Lisp forms and source files into binary code for the host machine. A compiled Lisp function, for instance, is a sequence of machine instructions that directly execute the actions the evaluator would perform in interpreting an application of the original source lambda expression. Where possible the behaviors of compiled and interpreted versions of the same Lisp function are identical. Unfortunately the definition of the Common Lisp language results in certain unavoidable exceptions to this rule. The compiler, for instance, must macroexpand the source before translating it; any side effects of macro-expansion happen only once, at compile time.
+
+By using declarations, you can advise the compiler of the types of variables local to a function or shared across an application. For example, numeric operations on a variable declared as a single-float can be compiled as direct floating-point operations, without the need to check the type at execution time. You can also control the relative emphasis the compiler places on efficiency (speed and space), safety (type checking) and support for debugging. By default the compiler produces code that performs all the necessary type checking and includes code to recover from errors. It is especially important that the type declarations be correct when compiling with a safety level less than 3 (see later in this chapter for more details).
+
+When compiling a Lisp source file, the compiler produces its output in a format that is much faster to load than textual Lisp source -- the "fasl" or "fast-load" form. Fasl files contain arbitrary Common Lisp objects in a pre-digested form. They are loaded without needing to use the expensive read function. A series of "fasl-loader" routines built into LispWorks interpret the contents of fasl files, building the appropriate objects and structures in such a way that objects that were eq before fasl-dumping are created eq when fasl-loaded.
+
+Fasl files are given pathname extensions that reflect the target processor they were compiled for; as the fasl files contain processor specific instruction sequences it is essential that the loader be able to distinguish between files compiled for different targets. These pathname extensions always end in "fasl". See dump-forms-to-file for details of all the possible fasl file extensions.
+```
+
+What is implemented right now is the compiled function feature -- compiled functions -- but with a twist. I'm treating the top-level as a function too. This shouldn't be the case.
+The top-level is just for LOAD and COMPILE-FILE to handle (all about loading).
+
+There are 3 outputs of a lisp system:
+  1. Compiled function compiles to the target language
+  2. Compiled source (a file) compiles to a FASL file
+  3. The 
+
+I merged loading with compiled functions. Compiling a function shouldn't have anything to do with setting symbol values.
+
+
+Blunders:
+  7.  [ ] There should be a way to import/export an image. 
+  8.  [ ] Starting the bootstrapped compiler should start by loading an image, then calling the REPL function.
+
+  1.  [ ] COMPILE shouldn't set symbol values during compilation.
+  2.  [ ] COMPILE should completely remove defmacros (don't just push NIL).
+  4.  [ ] There should be a COMPILE-FILE function that produces a FASL file.
+  5.  [ ] There should be a way to load FASL files.
+  9.  [ ] Producing a new compiler means LOADing all the compiler files again.
+  10. [ ] Creating the new compiler on disk is exporting the image
+  11. [ ] Macros _should_ be kept around, it is useful when debugging an image. Compiled functions do not have any reference to macros within them.
+  3.  [x] LOAD should READ each form in the input stream and EVAL each individually one line at a time.
+  6.  [x] There should be an EVAL function. (OK - I made it so eval compiles and runs)

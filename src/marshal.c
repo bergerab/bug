@@ -719,6 +719,164 @@ struct object *make_bytecode_file_header() {
   write_file(file, ba);
 }
 
+struct object *make_image_header() {
+  struct object *ba = dynamic_byte_array(10);
+  dynamic_byte_array_push_char(ba, 'b');
+  dynamic_byte_array_push_char(ba, 'u');
+  dynamic_byte_array_push_char(ba, 'g');
+  dynamic_byte_array_push_char(ba, 'i');
+  marshal_ufixnum_t(IMAGE_VERSION, ba, 0);
+  return ba;
+}
+
+/**
+ * Writes image to a file
+ * 
+ * String cache list, then:
+ * There should be a package list:
+ * [package, package, package]
+ *  name - string
+ *  symbols - list of ufixnum
+ * [type, type, type] - gis->types
+ *  name - string
+ *  is_builtin - string
+ *  struct_field_names - only if not builtin - string list
+ *  struct_field_types - only if not builtin - ufixnum_t list reference to types index
+ * There should be a symbol list:
+ * [symbol, symbol]
+ *  name - string
+ *  has home package - byte
+ *  home package - ufixnum
+ *  is value set - byte 
+ *  value slot - object (present if value is set)
+ *  is function set - byte
+ *  function slot - object (present if value is set)
+ *  is type set- byte
+ *  type - object
+ * 
+ * Each package should be marshaled with a list of ufixnums that says which symbols.
+ * 
+ * Build symbol list in memory, write package list to the file.
+ * Then write the symbol list to the file.
+ * 
+ */
+ void write_image(struct object *file) {
+  struct object *cache, *symbol_cache, *package_cursor, *ba;
+  ufixnum_t user_cache_start_index, i;
+
+  OT("write_image", 0, file, type_file);
+
+  ba = dynamic_byte_array(1024);
+
+  write_file(file, make_image_header());
+  cache = string_marshal_cache_get_default();
+  user_cache_start_index = DYNAMIC_ARRAY_LENGTH(cache);
+
+  symbol_cache = symbol_get_value(gis->impl_interned_symbols_sym);
+
+  /* write string cache */
+  write_file(file, marshal_dynamic_string_array(cache, NULL, 0, NULL, user_cache_start_index));
+
+  /* write list of packages */
+  package_cursor = symbol_get_value(gis->impl_packages_sym);
+  marshal_ufixnum_t(count(package_cursor), ba, 0);
+  while (package_cursor != NIL) {
+    marshal_image_package(CONS_CAR(package_cursor), ba, cache, symbol_cache);
+    package_cursor = CONS_CDR(package_cursor);
+  }
+
+  /* write list of symbols */
+  marshal_ufixnum_t(DYNAMIC_ARRAY_LENGTH(symbol_cache), ba, 0);
+  for (i = 0; i < DYNAMIC_ARRAY_LENGTH(symbol_cache); ++i) {
+    marshal_image_symbol(dynamic_array_get_ufixnum_t(symbol_cache, i), ba, cache);
+  }
+
+  write_file(file, ba);
+}
+
+/**
+ * Read 
+ * 
+ * 1. Load the types, and add them to the gis->types list
+ * 2. 
+ * 
+ */
+void load_image(struct object *file) {
+  return;
+}
+
+struct object *marshal_image_symbol(struct object *sym, struct object *ba, struct object *string_cache) {
+  OT("marshal_image_symbol", 0, sym, type_symbol);
+  if (ba == NULL)
+    ba = dynamic_byte_array(10);
+
+  marshal_string(SYMBOL_NAME(sym), ba, 0, string_cache);
+  marshal_ufixnum_t(SYMBOL_PACKAGE(sym) != NIL, ba, 0);
+  if (SYMBOL_PACKAGE(sym) != NIL) {
+    /* TODO look up package's index */
+    marshal_ufixnum_t(0, ba, 0);
+  }
+
+  marshal_ufixnum_t(SYMBOL_VALUE_IS_SET(sym), ba, 0);
+  if (SYMBOL_VALUE_IS_SET(sym)) {
+    marshal(SYMBOL_VALUE(sym), ba, string_cache);
+  }
+
+  marshal_ufixnum_t(SYMBOL_FUNCTION_IS_SET(sym), ba, 0);
+  if (SYMBOL_FUNCTION_IS_SET(sym)) {
+    marshal(SYMBOL_FUNCTION(sym), ba, string_cache);
+    /* TODO: what happens with FFI? What if the function is a foreign function? Should those be skipped? */
+  }
+
+  /* Saving types is complicated -- they can be ffi_type* -- might need a separate cache for those
+  marshal_ufixnum_t(SYMBOL_TYPE_IS_SET(sym), ba, 0);
+  if (SYMBOL_TYPE_IS_SET(sym)) {
+    marshal(SYMBOL_TYPE(sym), ba, string_cache);
+  }
+  */
+
+  return ba;
+}
+
+struct object *marshal_image_package(struct object *pack, struct object *ba, struct object *string_cache, struct object *symbol_cache) {
+  struct object *symbol_indices, *cursor;
+  ufixnum_t i;
+
+  OT("marshal_image_package", 0, pack, type_package);
+  if (ba == NULL)
+    ba = dynamic_byte_array(10);
+  marshal_string(PACKAGE_NAME(pack), ba, 0, string_cache);
+
+  symbol_indices = dynamic_array(100);
+
+  /* look up index in symbol_cache */
+  cursor = PACKAGE_SYMBOLS(pack);
+  while (cursor != NIL) {
+    for (i = 0; i < DYNAMIC_ARRAY_LENGTH(symbol_cache); ++i) {
+      if (CONS_CAR(cursor) == DYNAMIC_ARRAY_VALUES(symbol_cache)[i]) {
+        break;
+      }
+    }
+    if (DYNAMIC_ARRAY_LENGTH(symbol_cache) == i) {
+      printf("Attempted to look up symbol in symbol cache, but couldn't find it.\n");
+      PRINT_STACK_TRACE_AND_QUIT();
+    }
+    dynamic_array_push(symbol_indices, ufixnum(i));
+    cursor = CONS_CDR(cursor);
+  }
+
+  /* how many symbols are in the package */
+  marshal_ufixnum_t(DYNAMIC_ARRAY_LENGTH(symbol_indices), ba, 0);
+  /* the index in the symbol cache of each symbol */
+  for (i = 0; i < DYNAMIC_ARRAY_LENGTH(symbol_indices); ++i) {
+    marshal_ufixnum_t(i, ba, 0);
+  }
+
+  /* TODO: free symbol_indices */
+
+  return ba;
+}
+
 struct object *read_bytecode_file(struct object *s) {
   struct object *bc, *cache;
   ufixnum_t version;

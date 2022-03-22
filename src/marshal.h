@@ -4,6 +4,7 @@
 #include "bug.h"
 
 #define BC_VERSION 1
+#define IMAGE_VERSION 1
 
 enum marshaled_type {
   marshaled_type_integer,
@@ -68,5 +69,10 @@ struct object *byte_stream_read(struct object *e, fixnum_t n);
 struct object *byte_stream_peek(struct object *e, fixnum_t n);
 char byte_stream_read_byte(struct object *e);
 char byte_stream_peek_byte(struct object *e);
+
+void write_image(struct object *file);
+void load_image(struct object *file);
+struct object *marshal_image_symbol(struct object *sym, struct object *ba, struct object *string_cache);
+struct object *marshal_image_package(struct object *pack, struct object *ba, struct object *string_cache, struct object *symbol_cache);
 
 #endif

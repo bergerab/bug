@@ -527,6 +527,12 @@
       (close-file input)
       code))
 
+ (function load-bootstrap ()
+    (let* ((input (open-file "../lib/compiler/bootstrap.bug" "rb"))
+           (code (compile (read-entire-file input))))
+      (close-file input)
+      (call code)))
+
 (function bootstrap-compiler (verbose)
   "
   Compile the compiler using the bootstrapping compiler (called A).
