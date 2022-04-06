@@ -8,6 +8,8 @@
 /* used as a reference to null as a variable */
 void *ffi_null = NULL;
 
+struct gis *gis;
+
 /*===============================*
  *===============================*
  * Types                         *

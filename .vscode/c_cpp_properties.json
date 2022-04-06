@@ -10,7 +10,6 @@
                 "UNICODE",
                 "_UNICODE"
             ],
-            "compilerPath": "C:\\Strawberry\\c\\bin\\gcc.exe",
             "cStandard": "c89",
             "intelliSenseMode": "windows-gcc-x64"
         }

@@ -729,9 +729,11 @@ struct gis {
 /**
  * The global interpreter state
  * 
+ * (extern because must be used in several C files)
+ * 
  * Initialized using init()
  */
-struct gis *gis;
+extern struct gis *gis;
 
 struct object *run(struct gis *gis);
 

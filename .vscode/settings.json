@@ -6,6 +6,7 @@
     "*.tcc": "c",
     "typeinfo": "cpp",
     "*.rh": "c",
-    "ffi.h": "c"
+    "ffi.h": "c",
+    "bug.h": "c"
   }
 }
