@@ -11,14 +11,14 @@ struct object *string_marshal_cache_get_default() {
   /* call out a bunch of names that could be frequently used in the bytecode.
      if a symbol (used as a value or looked up directly) uses one of the names below
      for its symbol-name or the home package's name. */
-  dynamic_array_push(cache, gis->user_str);
-  dynamic_array_push(cache, gis->lisp_str);
-  dynamic_array_push(cache, gis->keyword_str);
-  dynamic_array_push(cache, gis->impl_str);
-  dynamic_array_push(cache, gis->t_str);
-  dynamic_array_push(cache, gis->var_str);
-  dynamic_array_push(cache, gis->list_str);
-  dynamic_array_push(cache, gis->cons_str);
+  dynamic_array_push(cache, string("user"));
+  dynamic_array_push(cache, string("lisp"));
+  dynamic_array_push(cache, string("keyword"));
+  dynamic_array_push(cache, string("impl"));
+  dynamic_array_push(cache, string("t"));
+  dynamic_array_push(cache, string("var"));
+  dynamic_array_push(cache, string("list"));
+  dynamic_array_push(cache, string("cons"));
   return cache;
 }
 
@@ -772,13 +772,15 @@ struct object *make_image_header() {
   cache = string_marshal_cache_get_default();
   user_cache_start_index = DYNAMIC_ARRAY_LENGTH(cache);
 
-  symbol_cache = symbol_get_value(gis->impl_interned_symbols_sym);
+  symbol_cache = CSYM_VAL("impl", "symbols");
 
   /* write string cache */
+  printf("writing string cache\n");
   write_file(file, marshal_dynamic_string_array(cache, NULL, 0, NULL, user_cache_start_index));
 
   /* write list of packages */
-  package_cursor = symbol_get_value(gis->impl_packages_sym);
+  printf("writing package list\n");
+  package_cursor = CSYM_VAL("impl", "*packages*");
   marshal_ufixnum_t(count(package_cursor), ba, 0);
   while (package_cursor != NIL) {
     marshal_image_package(CONS_CAR(package_cursor), ba, cache, symbol_cache);
@@ -786,11 +788,15 @@ struct object *make_image_header() {
   }
 
   /* write list of symbols */
+  printf("writing symbol list\n");
   marshal_ufixnum_t(DYNAMIC_ARRAY_LENGTH(symbol_cache), ba, 0);
   for (i = 0; i < DYNAMIC_ARRAY_LENGTH(symbol_cache); ++i) {
+    printf("i=%d\n", (int)i);
+    print(dynamic_array_get_ufixnum_t(symbol_cache, i));
     marshal_image_symbol(dynamic_array_get_ufixnum_t(symbol_cache, i), ba, cache);
   }
 
+  printf("writing file\n");
   write_file(file, ba);
 }
 

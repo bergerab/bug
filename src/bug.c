@@ -661,7 +661,7 @@ void print_stack() {
   if (print_stack_did_recurse > 1) { /* prevent infinite recursion if the source of the error was a function called within this function */
     exit(1);
   }
-  f = symbol_get_value(gis->impl_f_sym);
+  f = symbol_get_value(gis->f);
   printf("Stack Trace\n");
   while (i > 0) { /* TODO: this prints the stack in a revered order */
     if (f == NIL) {
@@ -939,7 +939,6 @@ struct object *do_find_symbol(struct object *string, struct object *package, cha
       cursor = CONS_CDR(cursor);
     }
   }
-
   return NULL;
 }
 
@@ -947,6 +946,12 @@ struct object *find_symbol(struct object *string, struct object *package, char i
   struct object *sym = do_find_symbol(string, package, include_internal);
   if (sym == NULL) return NIL;
   return sym;
+}
+
+struct object *c_intern(char *symbol_name, char *package_name) {
+  struct object *val = intern(string(symbol_name), find_package(string(package_name)));
+  symbol_export(val);
+  return val;
 }
 
 struct object *intern(struct object *string, struct object *package) {
@@ -961,7 +966,7 @@ struct object *intern(struct object *string, struct object *package) {
   sym = symbol(string);
   SYMBOL_PACKAGE(sym) = package; /* set the home package */
   PACKAGE_SYMBOLS(package) = cons(sym, PACKAGE_SYMBOLS(package));
-  dynamic_array_push(symbol_get_value(gis->impl_interned_symbols_sym), sym);
+  dynamic_array_push(CSYM_VAL("impl", "symbols"), sym);
   if (package == gis->keyword_package) { /* all symbols in keyword package have
                                           the value of themselves*/
     symbol_set_value(sym, sym);
@@ -969,6 +974,10 @@ struct object *intern(struct object *string, struct object *package) {
   }
 
   return sym;
+}
+
+struct image *make_initial_image() {
+  return NULL;
 }
 
 /** creates a new global interpreter state with one package (called "lisp")
@@ -982,162 +991,9 @@ void gis_init(char load_core) {
     exit(1);
   }
 
-  /* Initialize all strings */
-/* Creates a string on the GIS. */
-#define GIS_STR(str, cstr) str = string(cstr);
-  GIS_STR(gis->a_str, "a");
-  GIS_STR(gis->add_str, "+");
-  GIS_STR(gis->alloc_struct_str, "alloc-struct");
-  GIS_STR(gis->and_str, "and");
-  GIS_STR(gis->ampersand_str, "&");
-  GIS_STR(gis->apply_str, "apply");
-  GIS_STR(gis->b_str, "b");
-  GIS_STR(gis->byte_stream_str, "byte-stream");
-  GIS_STR(gis->byte_stream_peek_str, "byte-stream-peek");
-  GIS_STR(gis->byte_stream_peek_byte_str, "byte-stream-peek-byte");
-  GIS_STR(gis->byte_stream_read_str, "byte-stream-read");
-  GIS_STR(gis->byte_stream_has_str, "byte-stream-has");
-  GIS_STR(gis->call_stack_str, "call-stack");
-  GIS_STR(gis->call_str, "call");
-  GIS_STR(gis->car_str, "car");
-  GIS_STR(gis->cdr_str, "cdr");
-  GIS_STR(gis->change_directory_str, "change-directory");
-  GIS_STR(gis->char_str, "char");
-  GIS_STR(gis->close_file_str, "close-file");
-  GIS_STR(gis->continue_str, "continue");
-  GIS_STR(gis->cons_str, "cons");
-  GIS_STR(gis->data_stack_str, "data-stack");
-  GIS_STR(gis->debugger_str, "debugger");
-  GIS_STR(gis->define_function_str, "define-function");
-  GIS_STR(gis->define_struct_str, "define-struct");
-  GIS_STR(gis->div_str, "/");
-  GIS_STR(gis->double_left_arrow_str, "<<");
-  GIS_STR(gis->double_right_arrow_str, ">>");
-  GIS_STR(gis->drop_str, "drop");
-  GIS_STR(gis->dynamic_array_str, "dynamic-array");
-  GIS_STR(gis->dynamic_array_get_str, "dynamic-array-get");
-  GIS_STR(gis->dynamic_array_set_str, "dynamic-array-set");
-  GIS_STR(gis->dynamic_array_length_str, "dynamic-array-length");
-  GIS_STR(gis->dynamic_array_push_str, "dynamic-array-push");
-  GIS_STR(gis->dynamic_array_pop_str, "dynamic-array-pop");
-  GIS_STR(gis->dynamic_array_concat_str, "dynamic-array-concat");
-  GIS_STR(gis->dynamic_byte_array_as_string_str, "dynamic-byte-array-as-string");
-  GIS_STR(gis->dynamic_byte_array_str, "dynamic-byte-array");
-  GIS_STR(gis->dynamic_byte_array_concat_str, "dynamic-byte-array-concat");
-  GIS_STR(gis->dynamic_byte_array_get_str, "dynamic-byte-array-get");
-  GIS_STR(gis->dynamic_byte_array_insert_str, "dynamic-byte-array-insert");
-  GIS_STR(gis->dynamic_byte_array_length_str, "dynamic-byte-array-length");
-  GIS_STR(gis->dynamic_byte_array_set_str, "dynamic-byte-array-set");
-  GIS_STR(gis->dynamic_byte_array_push_str, "dynamic-byte-array-push");
-  GIS_STR(gis->dynamic_byte_array_pop_str, "dynamic-byte-array-pop");
-  GIS_STR(gis->dynamic_library_str, "dynamic-library");
-  GIS_STR(gis->enumerator_str, "enumerator");
-  GIS_STR(gis->equals_str, "=");
-  GIS_STR(gis->eval_str, "eval");
-  GIS_STR(gis->external_str, "external");
-  GIS_STR(gis->f_str, "f");
-  GIS_STR(gis->fbound_str, "fbound?");
-  GIS_STR(gis->function_macro_str, "function-macro?");
-  GIS_STR(gis->file_str, "file");
-  GIS_STR(gis->find_package_str, "find-package");
-  GIS_STR(gis->find_symbol_str, "find-symbol");
-  GIS_STR(gis->fixnum_str, "fixnum");
-  GIS_STR(gis->flonum_str, "flonum");
-  GIS_STR(gis->foreign_function_str, "foreign-function");
-  GIS_STR(gis->function_str, "function");
-  GIS_STR(gis->function_code_str, "function-code");
-  GIS_STR(gis->struct_field_str, "struct-field");
-  GIS_STR(gis->get_current_working_directory_str, "get-current-working-directory");
-  GIS_STR(gis->gensym_str, "gensym");
-  GIS_STR(gis->gt_str, ">");
-  GIS_STR(gis->gte_str, ">=");
-  GIS_STR(gis->i_str, "i");
-  GIS_STR(gis->if_str, "if");
-  GIS_STR(gis->intern_str, "intern");
-  GIS_STR(gis->impl_str, "impl");
-  GIS_STR(gis->inherited_str, "inherited");
-  GIS_STR(gis->internal_str, "internal");
-  GIS_STR(gis->int_str, "int");
-  GIS_STR(gis->keyword_str, "keyword");
-  GIS_STR(gis->list_str, "list");
-  GIS_STR(gis->let_str, "let");
-  GIS_STR(gis->lisp_str, "lisp");
-  GIS_STR(gis->lt_str, "<");
-  GIS_STR(gis->lte_str, "<=");
-  GIS_STR(gis->macro_str, "macro");
-  GIS_STR(gis->make_function_str, "make-function");
-  GIS_STR(gis->make_symbol_str, "make-symbol");
-  GIS_STR(gis->make_package_str, "make-package");
-  GIS_STR(gis->marshal_str, "marshal");
-  GIS_STR(gis->marshal_integer_str, "marshal-integer");
-  GIS_STR(gis->mul_str, "*");
-  GIS_STR(gis->nil_str, "nil");
-  GIS_STR(gis->object_str, "object");
-  GIS_STR(gis->open_file_str, "open-file");
-  GIS_STR(gis->or_str, "or");
-  GIS_STR(gis->package_str, "package");
-  GIS_STR(gis->packages_str, "packages");
-  GIS_STR(gis->package_name_str, "package-name");
-  GIS_STR(gis->package_symbols_str, "package-symbols");
-  GIS_STR(gis->pointer_str, "pointer");
-  GIS_STR(gis->pop_str, "pop");
-  GIS_STR(gis->progn_str, "progn");
-  GIS_STR(gis->print_str, "print");
-  GIS_STR(gis->push_str, "push");
-  GIS_STR(gis->quasiquote_str, "quasiquote");
-  GIS_STR(gis->quote_str, "quote");
-  GIS_STR(gis->read_bytecode_file_str, "read-bytecode-file");
-  GIS_STR(gis->read_file_str, "read-file");
-  GIS_STR(gis->record_str, "record");
-  GIS_STR(gis->set_str, "set");
-  GIS_STR(gis->set_local_str, "set-local");
-  GIS_STR(gis->set_symbol_function_str, "set-symbol-function");
-  GIS_STR(gis->set_struct_field_str, "set-struct-field");
-  GIS_STR(gis->stack_str, "stack");
-  GIS_STR(gis->standard_output_str, "*standard-output*");
-  GIS_STR(gis->standard_input_str, "*standard-input*");
-  GIS_STR(gis->star_package_star_str, "*package*");
-  GIS_STR(gis->string_str, "string");
-  GIS_STR(gis->string_concat_str, "string-concat");
-  GIS_STR(gis->strings_str, "strings");
-  GIS_STR(gis->struct_str, "struct");
-  GIS_STR(gis->sub_str, "-");
-  GIS_STR(gis->symbol_function_str, "symbol-function");
-  GIS_STR(gis->symbol_name_str, "symbol-name");
-  GIS_STR(gis->symbol_str, "symbol");
-  GIS_STR(gis->symbol_type_str, "symbol-type");
-  GIS_STR(gis->symbol_value_str, "symbol-value");
-  GIS_STR(gis->symbol_value_set_str, "symbol-value?");
-  GIS_STR(gis->t_str, "t");
-  GIS_STR(gis->temp_str, "temp");
-  GIS_STR(gis->type_of_str, "type-of");
-  GIS_STR(gis->type_str, "type");
-  GIS_STR(gis->to_string_str, "to-string"); 
-  GIS_STR(gis->use_package_str, "use-package"); 
-  GIS_STR(gis->user_str, "user");
-  GIS_STR(gis->unmarshal_str, "unmarshal");
-  GIS_STR(gis->unquote_str, "unquote");
-  GIS_STR(gis->unquote_splicing_str, "unquote-splicing");
-  GIS_STR(gis->ufixnum_str, "ufixnum");
-  GIS_STR(gis->uint_str, "uint");
-  GIS_STR(gis->uint8_str, "uint8");
-  GIS_STR(gis->uint16_str, "uint16");
-  GIS_STR(gis->uint32_str, "uint32");
-  GIS_STR(gis->value_str, "value");
-  GIS_STR(gis->var_str, "var");
-  GIS_STR(gis->void_str, "void");
-  GIS_STR(gis->vec2_str, "vec2");
-  GIS_STR(gis->vertical_bar_str, "|");
-  GIS_STR(gis->while_str, "while");
-  GIS_STR(gis->write_bytecode_file_str, "write-bytecode-file");
-  GIS_STR(gis->write_file_str, "write-file");
-  GIS_STR(gis->write_image_str, "write-image");
-  GIS_STR(gis->x_str, "x");
-  GIS_STR(gis->y_str, "y");
-
   /* Bootstrap NIL */
   NIL = NULL;
-  NIL = symbol(gis->nil_str);
+  NIL = symbol(string("nil"));
   /* All fields that are initialied to NIL must be re-initialized to NIL here because we just defined what NIL is */
   SYMBOL_PLIST(NIL) = NIL;
   SYMBOL_FUNCTION(NIL) = NIL;
@@ -1155,6 +1011,9 @@ void gis_init(char load_core) {
   PACKAGE_SYMBOLS(gis->type_package) = cons(NIL, NIL); /* add to the type package */
   symbol_export(NIL); /* export nil */
 
+  gis->i = c_intern("i", "impl");
+  gis->f = c_intern("f", "impl");
+
   /* initialize other packages */
   gis->lisp_package = package(gis->lisp_str);
   gis->keyword_package = package(gis->keyword_str);
@@ -1166,190 +1025,8 @@ void gis_init(char load_core) {
   sym = symbol(str);                                                         \
   SYMBOL_PACKAGE(sym) = pack;                                                \
   PACKAGE_SYMBOLS(pack) = cons(sym, PACKAGE_SYMBOLS(pack));                  \
-  dynamic_array_push(symbol_get_value(gis->impl_interned_symbols_sym), sym); \
+  dynamic_array_push(symbol_get_value(gis->impl_symbols_sym), sym); \
   symbol_export(sym);
-
-  /* Setup interned symbols without using GIS_SYM */
-  gis->impl_interned_symbols_sym = symbol(string("interned-symbols")); 
-  SYMBOL_PACKAGE(gis->impl_interned_symbols_sym) = gis->impl_package;
-  PACKAGE_SYMBOLS(gis->impl_package) = cons(gis->impl_interned_symbols_sym, PACKAGE_SYMBOLS(gis->impl_package));
-  symbol_export(gis->impl_interned_symbols_sym);
-  symbol_set_value(gis->impl_interned_symbols_sym, dynamic_array(256));
-  dynamic_array_push(symbol_get_value(gis->impl_interned_symbols_sym), NIL);
-  dynamic_array_push(symbol_get_value(gis->impl_interned_symbols_sym), gis->impl_interned_symbols_sym);
-
-  GIS_SYM(gis->impl_alloc_struct_sym, gis->alloc_struct_str, gis->impl_package);
-  GIS_SYM(gis->impl_and_sym, gis->and_str, gis->impl_package);
-  GIS_SYM(gis->impl_byte_stream_sym, gis->byte_stream_str, gis->impl_package);
-  GIS_SYM(gis->impl_byte_stream_peek_sym, gis->byte_stream_peek_str, gis->impl_package);
-  GIS_SYM(gis->impl_byte_stream_peek_byte_sym, gis->byte_stream_peek_byte_str, gis->impl_package);
-  GIS_SYM(gis->impl_byte_stream_read_sym, gis->byte_stream_read_str, gis->impl_package);
-  GIS_SYM(gis->impl_byte_stream_has_sym, gis->byte_stream_has_str, gis->impl_package);
-  GIS_SYM(gis->impl_call_sym, gis->call_str, gis->impl_package);
-  GIS_SYM(gis->impl_call_stack_sym, gis->call_stack_str, gis->impl_package); /** stack for saving stack pointers and values for function calls (a cons list) */
-  GIS_SYM(gis->impl_change_directory_sym, gis->change_directory_str, gis->impl_package);
-  GIS_SYM(gis->impl_close_file_sym, gis->close_file_str, gis->impl_package); 
-  GIS_SYM(gis->impl_continue_sym, gis->continue_str, gis->impl_package); 
-  GIS_SYM(gis->impl_data_stack_sym, gis->data_stack_str, gis->impl_package); /** the data stack (a cons list) */
-  GIS_SYM(gis->impl_debugger_sym, gis->debugger_str, gis->impl_package);
-  GIS_SYM(gis->impl_define_function_sym, gis->define_function_str, gis->impl_package);
-  GIS_SYM(gis->impl_define_struct_sym, gis->define_struct_str, gis->impl_package);
-  GIS_SYM(gis->impl_drop_sym, gis->drop_str, gis->impl_package);
-  GIS_SYM(gis->impl_dynamic_array_get_sym, gis->dynamic_array_get_str, gis->impl_package);
-  GIS_SYM(gis->impl_dynamic_array_set_sym, gis->dynamic_array_set_str, gis->impl_package);
-  GIS_SYM(gis->impl_dynamic_array_length_sym, gis->dynamic_array_length_str, gis->impl_package);
-  GIS_SYM(gis->impl_dynamic_array_push_sym, gis->dynamic_array_push_str, gis->impl_package);
-  GIS_SYM(gis->impl_dynamic_array_pop_sym, gis->dynamic_array_pop_str, gis->impl_package);
-  GIS_SYM(gis->impl_dynamic_array_concat_sym, gis->dynamic_array_concat_str, gis->impl_package);
-  GIS_SYM(gis->impl_dynamic_byte_array_as_string_sym, gis->dynamic_byte_array_as_string_str, gis->impl_package);
-  GIS_SYM(gis->impl_dynamic_byte_array_concat_sym, gis->dynamic_byte_array_concat_str, gis->impl_package);
-  GIS_SYM(gis->impl_dynamic_byte_array_get_sym, gis->dynamic_byte_array_get_str, gis->impl_package);
-  GIS_SYM(gis->impl_dynamic_byte_array_insert_sym, gis->dynamic_byte_array_insert_str, gis->impl_package);
-  GIS_SYM(gis->impl_dynamic_byte_array_length_sym, gis->dynamic_byte_array_length_str, gis->impl_package);
-  GIS_SYM(gis->impl_dynamic_byte_array_set_sym, gis->dynamic_byte_array_set_str, gis->impl_package);
-  GIS_SYM(gis->impl_dynamic_byte_array_push_sym, gis->dynamic_byte_array_push_str, gis->impl_package);
-  GIS_SYM(gis->impl_dynamic_byte_array_pop_sym, gis->dynamic_byte_array_pop_str, gis->impl_package);
-  GIS_SYM(gis->impl_f_sym, gis->f_str, gis->impl_package); /** the currently executing function */
-  GIS_SYM(gis->impl_function_code_sym, gis->function_code_str, gis->impl_package);
-  GIS_SYM(gis->impl_get_current_working_directory_sym, gis->get_current_working_directory_str, gis->impl_package); 
-  GIS_SYM(gis->impl_struct_field_sym, gis->struct_field_str, gis->impl_package);
-  GIS_SYM(gis->impl_i_sym, gis->i_str, gis->impl_package); /** the index of the next instruction in bc to execute */
-  GIS_SYM(gis->impl_macro_sym, gis->macro_str, gis->impl_package);
-  GIS_SYM(gis->impl_make_function_sym, gis->make_function_str, gis->impl_package);
-  GIS_SYM(gis->impl_marshal_sym, gis->marshal_str, gis->impl_package);
-  GIS_SYM(gis->impl_marshal_integer_sym, gis->marshal_integer_str, gis->impl_package);
-  GIS_SYM(gis->impl_open_file_sym, gis->open_file_str, gis->impl_package); 
-  GIS_SYM(gis->impl_packages_sym, gis->packages_str, gis->impl_package); /** all packages */
-  GIS_SYM(gis->impl_pop_sym, gis->pop_str, gis->impl_package);
-  GIS_SYM(gis->impl_push_sym, gis->push_str, gis->impl_package);
-  GIS_SYM(gis->impl_read_bytecode_file_sym, gis->read_bytecode_file_str, gis->impl_package);
-  GIS_SYM(gis->impl_read_file_sym, gis->read_file_str, gis->impl_package);
-  GIS_SYM(gis->impl_strings_sym, gis->strings_str, gis->impl_package);
-  GIS_SYM(gis->impl_string_concat_sym, gis->string_concat_str, gis->impl_package);
-  GIS_SYM(gis->impl_set_struct_field_sym, gis->set_struct_field_str, gis->impl_package);
-  GIS_SYM(gis->impl_symbol_type_sym, gis->symbol_type_str, gis->impl_package);
-  GIS_SYM(gis->impl_type_of_sym, gis->type_of_str, gis->impl_package);
-  GIS_SYM(gis->impl_unmarshal_sym, gis->unmarshal_str, gis->impl_package);
-  GIS_SYM(gis->impl_use_package_sym, gis->use_package_str, gis->impl_package);
-  GIS_SYM(gis->impl_write_bytecode_file_sym, gis->write_bytecode_file_str, gis->impl_package);
-  GIS_SYM(gis->impl_write_file_sym, gis->write_file_str, gis->impl_package);
-  GIS_SYM(gis->impl_write_image_sym, gis->write_image_str, gis->impl_package);
-  GIS_SYM(gis->keyword_external_sym, gis->external_str, gis->keyword_package);
-  GIS_SYM(gis->keyword_function_sym, gis->function_str, gis->keyword_package);
-  GIS_SYM(gis->keyword_inherited_sym, gis->inherited_str, gis->keyword_package);
-  GIS_SYM(gis->keyword_internal_sym, gis->internal_str, gis->keyword_package);
-  GIS_SYM(gis->keyword_value_sym, gis->value_str, gis->keyword_package);
-  GIS_SYM(gis->lisp_add_sym, gis->add_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_apply_sym, gis->apply_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_bin_and_sym, gis->ampersand_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_bin_or_sym, gis->vertical_bar_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_car_sym, gis->car_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_cdr_sym, gis->cdr_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_div_sym, gis->div_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_equals_sym, gis->equals_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_find_package_sym, gis->find_package_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_find_symbol_sym, gis->find_symbol_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_gensym_sym, gis->gensym_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_gt_sym, gis->gt_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_gte_sym, gis->gte_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_fbound_sym, gis->fbound_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_function_macro_sym, gis->function_macro_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_if_sym, gis->if_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_intern_sym, gis->intern_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_let_sym, gis->let_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_list_sym, gis->list_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_lt_sym, gis->lt_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_lte_sym, gis->lte_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_make_symbol_sym, gis->make_symbol_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_make_package_sym, gis->make_package_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_mul_sym, gis->mul_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_or_sym, gis->or_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_package_sym, gis->star_package_star_str, gis->lisp_package); 
-  GIS_SYM(gis->lisp_package_symbols_sym, gis->package_symbols_str, gis->lisp_package); 
-  GIS_SYM(gis->lisp_package_name_sym, gis->package_name_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_progn_sym, gis->progn_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_print_sym, gis->print_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_quasiquote_sym, gis->quasiquote_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_quote_sym, gis->quote_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_standard_input_sym, gis->standard_input_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_standard_output_sym, gis->standard_output_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_set_sym, gis->set_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_set_local_sym, gis->set_local_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_set_symbol_function_sym, gis->set_symbol_function_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_shift_left_sym, gis->double_left_arrow_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_shift_right_sym, gis->double_right_arrow_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_symbol_name_sym, gis->symbol_name_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_symbol_function_sym, gis->symbol_function_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_symbol_value_sym, gis->symbol_value_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_symbol_value_set_sym, gis->symbol_value_set_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_sub_sym, gis->sub_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_to_string_sym, gis->to_string_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_unquote_splicing_sym, gis->unquote_splicing_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_unquote_sym, gis->unquote_str, gis->lisp_package);
-  GIS_SYM(gis->lisp_while_sym, gis->while_str, gis->lisp_package);
-  GIS_SYM(gis->type_object_sym, gis->object_str, gis->type_package);
-  GIS_SYM(gis->type_char_sym, gis->char_str, gis->type_package);
-  GIS_SYM(gis->type_dynamic_array_sym, gis->dynamic_array_str, gis->type_package);
-  GIS_SYM(gis->type_dynamic_byte_array_sym, gis->dynamic_byte_array_str, gis->type_package);
-  GIS_SYM(gis->type_dynamic_library_sym, gis->dynamic_library_str, gis->type_package);
-  GIS_SYM(gis->type_enumerator_sym, gis->enumerator_str, gis->type_package);
-  GIS_SYM(gis->type_file_sym, gis->file_str, gis->type_package);
-  GIS_SYM(gis->type_fixnum_sym, gis->fixnum_str, gis->type_package);
-  GIS_SYM(gis->type_flonum_sym, gis->flonum_str, gis->type_package);
-  GIS_SYM(gis->type_foreign_function_sym, gis->foreign_function_str, gis->type_package);
-  GIS_SYM(gis->type_function_sym, gis->function_str, gis->type_package);
-  GIS_SYM(gis->type_cons_sym, gis->cons_str, gis->type_package);
-  GIS_SYM(gis->type_int_sym, gis->int_str, gis->type_package);
-  GIS_SYM(gis->type_object_sym, gis->object_str, gis->type_package);
-  /* WARNING: Do NOT initialize type_nil_sym again. It has been bootstrapped already -- re-initializing will cause segfaults. */
-  /* keep this warning in the code in alphabetical order wherever type_nil_sym would have been. */
-  GIS_SYM(gis->type_package_sym, gis->package_str, gis->type_package);
-  GIS_SYM(gis->type_pointer_sym, gis->pointer_str, gis->type_package);
-  GIS_SYM(gis->type_record_sym, gis->record_str, gis->type_package);
-  GIS_SYM(gis->type_string_sym, gis->string_str, gis->type_package);
-  GIS_SYM(gis->type_struct_sym, gis->struct_str, gis->type_package);
-  GIS_SYM(gis->type_symbol_sym, gis->symbol_str, gis->type_package);
-  GIS_SYM(gis->type_t_sym, gis->t_str, gis->type_package);
-  GIS_SYM(gis->type_type_sym, gis->type_str, gis->type_package);
-  GIS_SYM(gis->type_ufixnum_sym, gis->ufixnum_str, gis->type_package);
-  GIS_SYM(gis->type_uint_sym, gis->uint_str, gis->type_package);
-  GIS_SYM(gis->type_uint16_sym, gis->uint16_str, gis->type_package);
-  GIS_SYM(gis->type_uint32_sym, gis->uint32_str, gis->type_package);
-  GIS_SYM(gis->type_uint8_sym, gis->uint8_str, gis->type_package);
-  GIS_SYM(gis->type_vec2_sym, gis->vec2_str, gis->type_package);
-  GIS_SYM(gis->type_void_sym, gis->void_str, gis->type_package);
-
-  /* add symbols to lisp package to make them visible */
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->type_function_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_macro_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_open_file_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_close_file_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_call_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_symbol_type_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_alloc_struct_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_set_struct_field_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_struct_field_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_type_of_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_and_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_dynamic_array_get_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_dynamic_array_set_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_dynamic_array_length_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_dynamic_array_push_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_dynamic_array_pop_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_dynamic_array_concat_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_dynamic_byte_array_as_string_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_dynamic_byte_array_concat_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_dynamic_byte_array_get_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_dynamic_byte_array_insert_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_dynamic_byte_array_length_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_dynamic_byte_array_set_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_dynamic_byte_array_push_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_dynamic_byte_array_pop_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_byte_stream_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_byte_stream_peek_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_byte_stream_peek_byte_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_byte_stream_read_sym, PACKAGE_SYMBOLS(gis->lisp_package));
-  PACKAGE_SYMBOLS(gis->lisp_package) = cons(gis->impl_byte_stream_has_sym, PACKAGE_SYMBOLS(gis->lisp_package));
 
   symbol_set_value(gis->impl_continue_sym, gis->impl_continue_sym);
   symbol_set_value(gis->type_t_sym, gis->type_t_sym); /* t has itself as its value */
@@ -1403,74 +1080,74 @@ void gis_init(char load_core) {
   GIS_UNINSTANTIATABLE_TYPE(gis->uint_type, gis->type_uint_sym);
   GIS_UNINSTANTIATABLE_TYPE(gis->object_type, gis->type_object_sym);
 
-#define GIS_BUILTIN(builtin, sym, nargs) \
-  builtin = function(NIL, NIL, nargs);   \
-  FUNCTION_IS_BUILTIN(builtin) = 1;      \
-  FUNCTION_NARGS(builtin) = nargs;       \
-  FUNCTION_NAME(builtin) = sym;          \
-  symbol_set_function(sym, builtin);
+#define GIS_BUILTIN(pname, sname, nargs)           \
+  builtin = function(NIL, NIL, nargs);             \
+  FUNCTION_IS_BUILTIN(builtin) = 1;                \
+  FUNCTION_NARGS(builtin) = nargs;                 \
+  FUNCTION_NAME(builtin) = c_intern(sname, pname); \
+  symbol_set_function(FUNCTION_NAME(builtin), builtin);
 
   /* all builtin functions go here */
-  GIS_BUILTIN(gis->alloc_struct_builtin, gis->impl_alloc_struct_sym, 1);
-  GIS_BUILTIN(gis->apply_builtin, gis->lisp_apply_sym, 2);
-  GIS_BUILTIN(gis->byte_stream_builtin, gis->impl_byte_stream_sym, 1);
-  GIS_BUILTIN(gis->byte_stream_peek_builtin, gis->impl_byte_stream_peek_sym, 2);
-  GIS_BUILTIN(gis->byte_stream_peek_byte_builtin, gis->impl_byte_stream_peek_byte_sym, 1);
-  GIS_BUILTIN(gis->byte_stream_read_builtin, gis->impl_byte_stream_read_sym, 2);
-  GIS_BUILTIN(gis->byte_stream_has_builtin, gis->impl_byte_stream_has_sym, 1);
-  GIS_BUILTIN(gis->debugger_builtin, gis->impl_debugger_sym, 0);
-  GIS_BUILTIN(gis->dynamic_byte_array_as_string_builtin, gis->impl_dynamic_byte_array_as_string_sym, 1);
-  GIS_BUILTIN(gis->dynamic_array_builtin, gis->type_dynamic_array_sym, 1);
-  GIS_BUILTIN(gis->dynamic_array_get_builtin, gis->impl_dynamic_array_get_sym, 2);
-  GIS_BUILTIN(gis->dynamic_array_set_builtin, gis->impl_dynamic_array_set_sym, 3);
-  GIS_BUILTIN(gis->dynamic_array_length_builtin, gis->impl_dynamic_array_length_sym, 1);
-  GIS_BUILTIN(gis->dynamic_array_push_builtin, gis->impl_dynamic_array_push_sym, 2);
-  GIS_BUILTIN(gis->dynamic_array_pop_builtin, gis->impl_dynamic_array_pop_sym, 1);
-  GIS_BUILTIN(gis->dynamic_array_concat_builtin, gis->impl_dynamic_array_concat_sym, 2);
-  GIS_BUILTIN(gis->dynamic_byte_array_builtin, gis->type_dynamic_byte_array_sym, 1);
-  GIS_BUILTIN(gis->dynamic_byte_array_concat_builtin, gis->impl_dynamic_byte_array_concat_sym, 2);
-  GIS_BUILTIN(gis->dynamic_byte_array_get_builtin, gis->impl_dynamic_byte_array_get_sym, 2);
-  GIS_BUILTIN(gis->dynamic_byte_array_insert_builtin, gis->impl_dynamic_byte_array_insert_sym, 3);
-  GIS_BUILTIN(gis->dynamic_byte_array_length_builtin, gis->impl_dynamic_byte_array_length_sym, 1);
-  GIS_BUILTIN(gis->dynamic_byte_array_set_builtin, gis->impl_dynamic_byte_array_set_sym, 3);
-  GIS_BUILTIN(gis->dynamic_byte_array_push_builtin, gis->impl_dynamic_byte_array_push_sym, 2);
-  GIS_BUILTIN(gis->dynamic_byte_array_pop_builtin, gis->impl_dynamic_byte_array_pop_sym, 1);
-  GIS_BUILTIN(gis->change_directory_builtin, gis->impl_change_directory_sym, 1) /* takes the new directory */
-  GIS_BUILTIN(gis->close_file_builtin, gis->impl_close_file_sym, 1);
-  GIS_BUILTIN(gis->dynamic_library_builtin, gis->type_dynamic_library_sym, 1)  /* takes the path */
-  GIS_BUILTIN(gis->get_current_working_directory_builtin, gis->impl_get_current_working_directory_sym, 0)
-  GIS_BUILTIN(gis->gensym_builtin, gis->lisp_gensym_sym, 0)
-  GIS_BUILTIN(gis->fbound_builtin, gis->lisp_fbound_sym, 1);
-  GIS_BUILTIN(gis->function_macro_builtin, gis->lisp_function_macro_sym, 1);
-  GIS_BUILTIN(gis->find_package_builtin, gis->lisp_find_package_sym, 1);
-  GIS_BUILTIN(gis->find_symbol_builtin, gis->lisp_find_symbol_sym, 2);
-  GIS_BUILTIN(gis->foreign_function_builtin, gis->type_foreign_function_sym, 4) /* takes the dlib, the name, and the parameter types */
-  GIS_BUILTIN(gis->function_code_builtin, gis->impl_function_code_sym, 1)
-  GIS_BUILTIN(gis->intern_builtin, gis->lisp_intern_sym, 2);
-  GIS_BUILTIN(gis->make_function_builtin, gis->impl_make_function_sym, 8);
-  GIS_BUILTIN(gis->make_symbol_builtin, gis->lisp_make_symbol_sym, 1);
-  GIS_BUILTIN(gis->make_package_builtin, gis->lisp_make_package_sym, 3);
-  GIS_BUILTIN(gis->marshal_builtin, gis->impl_marshal_sym, 2);
-  GIS_BUILTIN(gis->marshal_integer_builtin, gis->impl_marshal_integer_sym, 3);
-  GIS_BUILTIN(gis->open_file_builtin, gis->impl_open_file_sym, 2);
-  GIS_BUILTIN(gis->package_symbols_builtin, gis->lisp_package_symbols_sym, 1);
-  GIS_BUILTIN(gis->package_name_builtin, gis->lisp_package_name_sym, 1);
-  GIS_BUILTIN(gis->type_of_builtin, gis->impl_type_of_sym, 1)
-  GIS_BUILTIN(gis->read_bytecode_file_builtin, gis->impl_read_bytecode_file_sym, 1);
-  GIS_BUILTIN(gis->read_file_builtin, gis->impl_read_file_sym, 1);
-  GIS_BUILTIN(gis->define_struct_builtin, gis->impl_define_struct_sym, 2);
-  GIS_BUILTIN(gis->symbol_name_builtin, gis->lisp_symbol_name_sym, 1);
-  GIS_BUILTIN(gis->symbol_type_builtin, gis->impl_symbol_type_sym, 1);
-  GIS_BUILTIN(gis->symbol_value_set_builtin, gis->lisp_symbol_value_set_sym, 1);
-  GIS_BUILTIN(gis->string_concat_builtin, gis->impl_string_concat_sym, 2);
-  GIS_BUILTIN(gis->struct_field_builtin, gis->impl_struct_field_sym, 2);
-  GIS_BUILTIN(gis->set_struct_field_builtin, gis->impl_set_struct_field_sym, 3);
-  GIS_BUILTIN(gis->to_string_builtin, gis->lisp_to_string_sym, 1);
-  GIS_BUILTIN(gis->unmarshal_builtin, gis->impl_unmarshal_sym, 1);
-  GIS_BUILTIN(gis->use_package_builtin, gis->impl_use_package_sym, 1) /* takes name of package */
-  GIS_BUILTIN(gis->write_bytecode_file_builtin, gis->impl_write_bytecode_file_sym, 2);
-  GIS_BUILTIN(gis->write_file_builtin, gis->impl_write_file_sym, 2);
-  GIS_BUILTIN(gis->write_image_builtin, gis->impl_write_image_sym, 1);
+  GIS_BUILTIN("impl", "alloc-struct", 1);
+  GIS_BUILTIN("lisp", "apply", 2);
+  GIS_BUILTIN("impl", "byte-stream", 1);
+  GIS_BUILTIN("impl", "byte-stream-peek", 2);
+  GIS_BUILTIN("impl", "byte-stream-peek-byte", 1);
+  GIS_BUILTIN("impl", "byte-stream-read", 2);
+  GIS_BUILTIN("impl", "byte-stream-has", 1);
+  GIS_BUILTIN("impl", "debugger", 0);
+  GIS_BUILTIN("impl", "dynamic-byte-array-as-string", 1);
+  GIS_BUILTIN("impl", "dynamic-array", 1);
+  GIS_BUILTIN("impl", "dynamic-array-get", 2);
+  GIS_BUILTIN("impl", "dynamic-array-set", 3);
+  GIS_BUILTIN("impl", "dynamic-array-length", 1);
+  GIS_BUILTIN("impl", "dynamic-array-push", 2);
+  GIS_BUILTIN("impl", "dynamic-array-pop", 1);
+  GIS_BUILTIN("impl", "dynamic-array-concat", 2);
+  GIS_BUILTIN("impl", "dynamic-byte-array", 1);
+  GIS_BUILTIN("impl", "dynamic-byte-array-concat", 2);
+  GIS_BUILTIN("impl", "dynamic_byte_array_get", 2);
+  GIS_BUILTIN("impl", "dynamic_byte_array_insert", 3);
+  GIS_BUILTIN("impl", "dynamic_byte_array_length", 1);
+  GIS_BUILTIN("impl", "dynamic_byte_array_set", 3);
+  GIS_BUILTIN("impl", "dynamic_byte_array_push", 2);
+  GIS_BUILTIN("impl", "dynamic_byte_array_pop", 1);
+  GIS_BUILTIN("impl", "change_directory", 1) /* takes the new directory */
+  GIS_BUILTIN("impl", "close_file", 1);
+  GIS_BUILTIN("impl", "dynamic_library", 1)  /* takes the path */
+  GIS_BUILTIN("impl", "get_current_working_directory", 0)
+  GIS_BUILTIN("lisp", "gensym", 0)
+  GIS_BUILTIN("lisp", "fbound", 1);
+  GIS_BUILTIN("lisp", "function_macro", 1);
+  GIS_BUILTIN("lisp", "find_package", 1);
+  GIS_BUILTIN("lisp", "find_symbol", 2);
+  GIS_BUILTIN("impl", "foreign_function", 4) /* takes the dlib, the name, and the parameter types */
+  GIS_BUILTIN("impl", "function_code", 1)
+  GIS_BUILTIN("lisp", "intern", 2);
+  GIS_BUILTIN("impl", "make_function", 8);
+  GIS_BUILTIN("lisp", "make_symbol", 1);
+  GIS_BUILTIN("lisp", "make_package", 3);
+  GIS_BUILTIN("impl", "marshal", 2);
+  GIS_BUILTIN("impl", "marshal_integer", 3);
+  GIS_BUILTIN("impl", "open_file", 2);
+  GIS_BUILTIN("lisp", "package_symbols", 1);
+  GIS_BUILTIN("lisp", "package_name", 1);
+  GIS_BUILTIN("impl", "type_of", 1)
+  GIS_BUILTIN("impl", "read_bytecode_file", 1);
+  GIS_BUILTIN("impl", "read_file", 1);
+  GIS_BUILTIN("impl", "define_struct", 2);
+  GIS_BUILTIN("lisp", "symbol_name", 1);
+  GIS_BUILTIN("impl", "symbol_type", 1);
+  GIS_BUILTIN("lisp", "symbol_value_set", 1);
+  GIS_BUILTIN("impl", "string_concat", 2);
+  GIS_BUILTIN("impl", "struct_field", 2);
+  GIS_BUILTIN("impl", "set_struct_field", 3);
+  GIS_BUILTIN("lisp", "to_string", 1);
+  GIS_BUILTIN("impl", "unmarshal", 1);
+  GIS_BUILTIN("impl", "use_package", 1) /* takes name of package */
+  GIS_BUILTIN("impl", "write_bytecode_file", 2);
+  GIS_BUILTIN("impl", "write_file", 2);
+  GIS_BUILTIN("impl", "write_image", 1);
 
   /* initialize set interpreter state */
   gis->data_stack = dynamic_array(10);
@@ -1486,8 +1163,8 @@ void gis_init(char load_core) {
                         cons(gis->impl_package, 
                           cons(gis->type_package, NIL))))));
 
-  symbol_set_value(gis->impl_f_sym, NIL); /* the function being executed */
-  symbol_set_value(gis->impl_i_sym, ufixnum(0)); /* the instruction index */
+  symbol_set_value(gis->f, NIL); /* the function being executed */
+  symbol_set_value(gis->i, ufixnum(0)); /* the instruction index */
 
   /* i've found this to be an easy solution to solving an issue with looking up locals. I put the function at the top of the call-stack (makes it easy to pop off items) but it makes it harder to handle set_locals get_locals */
   dynamic_array_push(gis->call_stack, NIL);
@@ -1562,6 +1239,17 @@ void use_package(struct object *p0, struct object *p1) {
   PACKAGE_SYMBOLS(p0) = symbols;
 }
 
+struct object *find_package(char *name) {
+  struct object *package = CSYM_VAL("impl", "*packages*");
+  while (package != NIL) {
+    if (equals(PACKAGE_NAME(CONS_CAR(package)), name)) {
+      return CONS_CAR(package);
+    }
+    package = CONS_CDR(package);
+  }
+  return NIL;
+} 
+
 struct object *find_package(struct object *name) {
   struct object *package = symbol_get_value(gis->impl_packages_sym);
   while (package != NIL) {
@@ -1614,8 +1302,8 @@ struct object *read_file(struct object *file) {
 struct object *eval_at_instruction(struct object *f, ufixnum_t i, struct object *args) {
   ufixnum_t j;
   struct object *cursor;
-  symbol_set_value(gis->impl_f_sym, f);
-  UFIXNUM_VALUE(symbol_get_value(gis->impl_i_sym)) = i;
+  symbol_set_value(gis->f, f);
+  UFIXNUM_VALUE(symbol_get_value(gis->i)) = i;
   j = 0;
   cursor = args;
   while (j < FUNCTION_NARGS(f)) {
@@ -1665,14 +1353,14 @@ void dup() {
   dynamic_array_get_ufixnum_t(                \
       gis->call_stack,                        \
       DYNAMIC_ARRAY_LENGTH(gis->call_stack) - \
-          (FUNCTION_STACK_SIZE(symbol_get_value(gis->impl_f_sym)) + 2 - (n)))
+          (FUNCTION_STACK_SIZE(symbol_get_value(gis->f)) + 2 - (n)))
 
 /* minus two to skip the f and i */
 #define SET_LOCAL(n, x)                                                     \
   dynamic_array_set_ufixnum_t(                                              \
       gis->call_stack,                                                      \
       DYNAMIC_ARRAY_LENGTH(gis->call_stack) -                               \
-          (FUNCTION_STACK_SIZE(symbol_get_value(gis->impl_f_sym)) + 2 - (n)), \
+          (FUNCTION_STACK_SIZE(symbol_get_value(gis->f)) + 2 - (n)), \
       (x))
 
 /** evaluates a builtin function */
@@ -1769,10 +1457,10 @@ void eval_builtin(struct object *f) {
       PRINT_STACK_TRACE_AND_QUIT();
     }
     t1 = GET_LOCAL(1); /* we must store the local now -- as we will be setting f/i to NIL */
-    symbol_set_value(gis->impl_f_sym, NIL);
-    symbol_set_value(gis->impl_i_sym, NIL);
+    symbol_set_value(gis->f, NIL);
+    symbol_set_value(gis->i, NIL);
     push(call_function(t0, t1));
-    symbol_set_value(gis->impl_f_sym, gis->apply_builtin); /* we must restore this before returning so that op_return knows we are returning from apply */
+    symbol_set_value(gis->f, gis->apply_builtin); /* we must restore this before returning so that op_return knows we are returning from apply */
     /* (render-html `(div ((a 3) (b 1)) (span) (span "hello")))
       There is a big call-stack leak and a small data-stack leak. why?!
       it seems to only happen when  a string is passed 
@@ -1925,7 +1613,7 @@ void prepare_function_call(unsigned long nargs, struct object *old_f, struct obj
   unsigned long argi;
   struct object *args;
 
-  symbol_set_value(gis->impl_f_sym, new_f);
+  symbol_set_value(gis->f, new_f);
 
   /* transfer arguments from data stack to call stack */
   if (FUNCTION_ACCEPTS_ALL(new_f)) {
@@ -1963,7 +1651,7 @@ void prepare_function_call(unsigned long nargs, struct object *old_f, struct obj
   dynamic_array_push(gis->call_stack, old_i);
   dynamic_array_push(gis->call_stack, old_f);
 
-  symbol_set_value(gis->impl_i_sym,
+  symbol_set_value(gis->i,
                    ufixnum(0)); /* start the bytecode interpreter at the first instruction */
 }
 
@@ -1998,15 +1686,15 @@ struct object *call_function(struct object *f, struct object *args) {
   /* save the instruction index, and function */
   /* if there is anything to return to --
      if this is a macro that is being called from the top level, there would be nothing to return to. */
-  if (symbol_get_value(gis->impl_f_sym) != NIL) {
+  if (symbol_get_value(gis->f) != NIL) {
     /* resume at the next instruction */
-    if (symbol_get_value(gis->impl_i_sym) != NIL) { /* impl_i_sym's value can be null if a builtin was just called */
-      UFIXNUM_VALUE(symbol_get_value(gis->impl_i_sym)) += 1;
-      dynamic_array_push(gis->call_stack, symbol_get_value(gis->impl_i_sym));
+    if (symbol_get_value(gis->i) != NIL) { /* i's value can be null if a builtin was just called */
+      UFIXNUM_VALUE(symbol_get_value(gis->i)) += 1;
+      dynamic_array_push(gis->call_stack, symbol_get_value(gis->i));
     } else {
       dynamic_array_push(gis->call_stack, NIL);
     }
-    dynamic_array_push(gis->call_stack, symbol_get_value(gis->impl_f_sym));
+    dynamic_array_push(gis->call_stack, symbol_get_value(gis->f));
   } else {
     /* there is no where to return to, but because we put the function/instruction-index at the top
        of the stack, we need to fill it with something (because GET_LOCAL(...) depends on that) */
@@ -2015,8 +1703,8 @@ struct object *call_function(struct object *f, struct object *args) {
   }
 
   /* start the bytecode interpreter at the first instruction */
-  symbol_set_value(gis->impl_i_sym, ufixnum(0));
-  symbol_set_value(gis->impl_f_sym, f);
+  symbol_set_value(gis->i, ufixnum(0));
+  symbol_set_value(gis->f, f);
   run(gis);
   return pop(); /* discard the result so it doesn't leak into the data-stack */
 }
@@ -2049,12 +1737,12 @@ struct object *call_function(struct object *f, struct object *args) {
        (and pushing the old i and bc to the call-stack) */
 
   eval_restart:
-    f = symbol_get_value(gis->impl_f_sym);
+    f = symbol_get_value(gis->f);
     code = FUNCTION_CODE(f)->w1.value.dynamic_byte_array;
     constants = FUNCTION_CONSTANTS(f)->w1.value.dynamic_array;
     constants_length = constants->length;
     byte_count = code->length;
-    i = symbol_get_value(gis->impl_i_sym);
+    i = symbol_get_value(gis->i);
 
     while (UFIXNUM_VALUE(i) < byte_count) {
       op = code->bytes[UFIXNUM_VALUE(i)];
@@ -2419,7 +2107,7 @@ struct object *call_function(struct object *f, struct object *args) {
 
         if (FUNCTION_IS_BUILTIN(f)) {
           symbol_set_value(
-              gis->impl_i_sym,
+              gis->i,
               NIL); /* a NIL instruction index -- for consistency gis->i of NIL
                        should be set for all builtins */
           eval_builtin(f);
@@ -2440,8 +2128,8 @@ struct object *call_function(struct object *f, struct object *args) {
         /* this indicates that we returned to the top level -- used when calling functions during compile time (starts with macros) */
         if (DYNAMIC_ARRAY_VALUES(gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 1] == NIL) {
           DYNAMIC_ARRAY_LENGTH(gis->call_stack) -= ufix0;
-          symbol_set_value(gis->impl_f_sym, NIL);
-          symbol_set_value(gis->impl_i_sym, ufixnum(0)); /* TODO: reuse fixnums so one is not created between call_function calls */
+          symbol_set_value(gis->f, NIL);
+          symbol_set_value(gis->i, ufixnum(0)); /* TODO: reuse fixnums so one is not created between call_function calls */
           goto quit_run;
         } else {
 
@@ -2454,14 +2142,14 @@ struct object *call_function(struct object *f, struct object *args) {
 #endif
 
           symbol_set_value(
-              gis->impl_f_sym,
+              gis->f,
               DYNAMIC_ARRAY_VALUES(
                   gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) - 1]);
 
           /* if we are returning from a builtin (a builtin called some other function -- this
              happens with APPLY) return twice. */
             symbol_set_value(
-                gis->impl_i_sym,
+                gis->i,
                 DYNAMIC_ARRAY_VALUES(
                     gis->call_stack)[DYNAMIC_ARRAY_LENGTH(gis->call_stack) -
                                      2]);
@@ -2472,7 +2160,7 @@ struct object *call_function(struct object *f, struct object *args) {
 #if FUNCTION_TRACE
           if (gis->loaded_core) {
             printf("TO: ");
-            print(symbol_get_value(gis->impl_f_sym));
+            print(symbol_get_value(gis->f));
             print(gis->call_stack);
             printf("====================\n");
           }

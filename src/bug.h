@@ -22,8 +22,8 @@
   print_stack();                     \
   exit(1);
 
-#define NIL gis->type_nil_sym
-#define T gis->type_t_sym
+#define NIL gis->nil
+#define T gis->t
 
 #define NC(x, message) \
   if (x == NULL) {     \
@@ -37,6 +37,15 @@
            bstring_to_cstring(SYMBOL_NAME(CONS_CAR(cons))), n, (int)count(CONS_CDR(cons))); \
     exit(1);                                                                   \
   }
+
+#define CSYM(package_name, symbol_name) \
+  c_intern(symbol_name, package_name);
+
+#define CPACK(package_name) \
+  c_find_package(package_name);
+
+#define CSYM_VAL(package_name, symbol_name) \
+  symbol_get_value(c_intern(symbol_name, package_name))
 
 typedef int64_t fixnum_t;
 typedef uint64_t ufixnum_t;
@@ -130,7 +139,7 @@ typedef double flonum_t;
 /* don't allow more than 255 arguments (an arbitrary number). This is to avoid having to malloc when making the arg_types/arg_values arrays -- they can be made on the stack. */
 #define MAX_FFI_NARGS 255
 
-#define GIS_PACKAGE symbol_get_value(gis->lisp_package_sym)
+#define GIS_PACKAGE symbol_get_value(c_intern("*package*", "lisp"))
 
 #include "ops.h"
 
@@ -288,6 +297,17 @@ struct vec2 {
   flonum_t y;
 };
 
+struct image {
+  /*
+   Step 1 to getting images working:
+      - remove all hardcoded symbols/strings in GIS
+
+   Do uninterned symbols belong in the image? can just interned symbols be included?
+   What about constants like types, builtins, etc...?
+  */
+  struct object *symbols; /* */
+};
+
 /**
  * The global interpreter state.
  * 
@@ -303,310 +323,12 @@ struct gis {
   struct object *types;
   char loaded_core;
 
+  struct object *nil;
+  struct object *t;
+  struct object *i;
+  struct object *f;
+
   ufixnum_t gensym_counter;
-
-  struct object *standard_out;
-  struct object *standard_in;
-
-  /* Strings (in alphabetical order) */
-  struct object *a_str;
-  struct object *add_str;
-  struct object *alloc_struct_str;
-  struct object *ampersand_str;
-  struct object *and_str;
-  struct object *apply_str;
-  struct object *b_str;
-  struct object *byte_stream_str;
-  struct object *byte_stream_peek_str;
-  struct object *byte_stream_peek_byte_str;
-  struct object *byte_stream_read_str;
-  struct object *byte_stream_has_str;
-  struct object *call_stack_str;
-  struct object *call_str;
-  struct object *car_str;
-  struct object *cdr_str;
-  struct object *change_directory_str;
-  struct object *char_str;
-  struct object *close_file_str;
-  struct object *continue_str;
-  struct object *cons_str;
-  struct object *data_stack_str;
-  struct object *debugger_str;
-  struct object *define_function_str;
-  struct object *define_struct_str;
-  struct object *div_str;
-  struct object *double_left_arrow_str;
-  struct object *double_right_arrow_str;
-  struct object *drop_str;
-  struct object *dynamic_array_str;
-  struct object *dynamic_array_get_str;
-  struct object *dynamic_array_set_str;
-  struct object *dynamic_array_length_str;
-  struct object *dynamic_array_push_str;
-  struct object *dynamic_array_pop_str;
-  struct object *dynamic_array_concat_str;
-  struct object *dynamic_byte_array_as_string_str;
-  struct object *dynamic_byte_array_str;
-  struct object *dynamic_byte_array_concat_str;
-  struct object *dynamic_byte_array_get_str;
-  struct object *dynamic_byte_array_insert_str;
-  struct object *dynamic_byte_array_length_str;
-  struct object *dynamic_byte_array_set_str;
-  struct object *dynamic_byte_array_push_str;
-  struct object *dynamic_byte_array_pop_str;
-  struct object *dynamic_library_str;
-  struct object *enumerator_str;
-  struct object *equals_str;
-  struct object *eval_str;
-  struct object *external_str;
-  struct object *f_str;
-  struct object *fbound_str;
-  struct object *function_macro_str;
-  struct object *file_str;
-  struct object *find_package_str; 
-  struct object *find_symbol_str;
-  struct object *fixnum_str;
-  struct object *flonum_str;
-  struct object *foreign_function_str;
-  struct object *function_str;
-  struct object *function_code_str;
-  struct object *struct_field_str;
-  struct object *gensym_str;
-  struct object *gt_str;
-  struct object *gte_str;
-  struct object *get_current_working_directory_str;
-  struct object *i_str;
-  struct object *if_str;
-  struct object *impl_str;
-  struct object *inherited_str;
-  struct object *internal_str;
-  struct object *int_str;
-  struct object *intern_str;
-  struct object *keyword_str;
-  struct object *list_str;
-  struct object *let_str;
-  struct object *lisp_str;
-  struct object *lt_str;
-  struct object *lte_str;
-  struct object *macro_str;
-  struct object *make_function_str;
-  struct object *make_symbol_str;
-  struct object *make_package_str;
-  struct object *marshal_str;
-  struct object *marshal_integer_str;
-  struct object *mul_str;
-  struct object *nil_str;
-  struct object *object_str;
-  struct object *or_str;
-  struct object *open_file_str;
-  struct object *package_str; 
-  struct object *package_name_str;
-  struct object *package_symbols_str; 
-  struct object *packages_str; 
-  struct object *pointer_str;
-  struct object *pop_str;
-  struct object *progn_str;
-  struct object *print_str;
-  struct object *push_str;
-  struct object *quasiquote_str;
-  struct object *quote_str;
-  struct object *read_bytecode_file_str;
-  struct object *read_file_str;
-  struct object *record_str;
-  struct object *set_str;
-  struct object *set_local_str;
-  struct object *set_symbol_function_str;
-  struct object *set_struct_field_str;
-  struct object *stack_str;
-  struct object *standard_output_str;
-  struct object *standard_input_str;
-  struct object *star_package_star_str;
-  struct object *string_str;
-  struct object *strings_str;
-  struct object *string_concat_str;
-  struct object *struct_str;
-  struct object *sub_str;
-  struct object *symbol_function_str;
-  struct object *symbol_str;
-  struct object *symbol_name_str;
-  struct object *symbol_type_str;
-  struct object *symbol_value_str;
-  struct object *symbol_value_set_str;
-  struct object *t_str;
-  struct object *temp_str;
-  struct object *to_string_str;
-  struct object *type_of_str;
-  struct object *type_str;
-  struct object *ufixnum_str;
-  struct object *uint_str;
-  struct object *uint8_str;
-  struct object *uint16_str;
-  struct object *uint32_str;
-  struct object *unmarshal_str;
-  struct object *use_package_str; 
-  struct object *user_str;
-  struct object *unquote_str;
-  struct object *unquote_splicing_str;
-  struct object *value_str;
-  struct object *var_str;
-  struct object *void_str;
-  struct object *vec2_str;
-  struct object *vertical_bar_str;
-  struct object *while_str;
-  struct object *write_bytecode_file_str;
-  struct object *write_file_str;
-  struct object *write_image_str;
-  struct object *x_str;
-  struct object *y_str;
-
-  /* Symbols */
-  /* Symbols should be placed in alphabetical order,
-     and be named like this:
-      <package>_<symbol-name>_sym
-     */
-  struct object *impl_alloc_struct_sym;
-  struct object *impl_and_sym;
-  struct object *impl_byte_stream_sym;
-  struct object *impl_byte_stream_peek_sym;
-  struct object *impl_byte_stream_peek_byte_sym;
-  struct object *impl_byte_stream_read_sym;
-  struct object *impl_byte_stream_has_sym;
-  struct object *impl_call_sym;
-  struct object *impl_call_stack_sym; /** stack for saving stack pointers and values for function calls (a cons list) */
-  struct object *impl_change_directory_sym;
-  struct object *impl_close_file_sym;
-  struct object *impl_continue_sym;
-  struct object *impl_data_stack_sym; /** the data stack (a cons list) */
-  struct object *impl_debugger_sym;
-  struct object *impl_define_function_sym;
-  struct object *impl_define_struct_sym;
-  struct object *impl_drop_sym;
-  struct object *impl_dynamic_array_get_sym;
-  struct object *impl_dynamic_array_set_sym;
-  struct object *impl_dynamic_array_length_sym;
-  struct object *impl_dynamic_array_push_sym;
-  struct object *impl_dynamic_array_pop_sym;
-  struct object *impl_dynamic_array_concat_sym;
-  struct object *impl_dynamic_byte_array_concat_sym;
-  struct object *impl_dynamic_byte_array_as_string_sym;
-  struct object *impl_dynamic_byte_array_get_sym;
-  struct object *impl_dynamic_byte_array_insert_sym;
-  struct object *impl_dynamic_byte_array_length_sym;
-  struct object *impl_dynamic_byte_array_set_sym;
-  struct object *impl_dynamic_byte_array_push_sym;
-  struct object *impl_dynamic_byte_array_pop_sym;
-  struct object *impl_f_sym; /** the currently executing function */
-  struct object *impl_function_sym;
-  struct object *impl_function_code_sym;
-  struct object *impl_get_current_working_directory_sym;
-  struct object *impl_read_bytecode_file_sym;
-  struct object *impl_read_file_sym;
-  struct object *impl_struct_field_sym;
-  struct object *impl_i_sym; /** the index of the next instruction in bc to execute */
-  struct object *impl_interned_symbols_sym; /** list of all symbols that have been interned -- useful when writing/loading images */
-  struct object *impl_macro_sym;
-  struct object *impl_make_function_sym;
-  struct object *impl_marshal_sym;
-  struct object *impl_marshal_integer_sym;
-  struct object *impl_open_file_sym;
-  struct object *impl_packages_sym; /** all packages */
-  struct object *impl_pop_sym;
-  struct object *impl_push_sym;
-  struct object *impl_strings_sym;
-  struct object *impl_string_concat_sym;
-  struct object *impl_set_struct_field_sym;
-  struct object *impl_symbol_type_sym;
-  struct object *impl_type_of_sym;
-  struct object *impl_unmarshal_sym;
-  struct object *impl_use_package_sym;
-  struct object *impl_write_bytecode_file_sym;
-  struct object *impl_write_file_sym;
-  struct object *impl_write_image_sym;
-  struct object *keyword_external_sym;
-  struct object *keyword_function_sym;
-  struct object *keyword_inherited_sym;
-  struct object *keyword_internal_sym;
-  struct object *keyword_value_sym;
-
-  struct object *lisp_add_sym;
-  struct object *lisp_apply_sym; /* TODO adding this causes the program to crash when not in GDB */
-  struct object *lisp_bin_and_sym;
-  struct object *lisp_bin_or_sym;
-  struct object *lisp_car_sym;
-  struct object *lisp_cdr_sym;
-  struct object *lisp_cons_sym;
-  struct object *lisp_div_sym;
-  struct object *lisp_equals_sym;
-  struct object *lisp_fbound_sym;
-  struct object *lisp_function_sym;
-  struct object *lisp_function_macro_sym;
-  struct object *lisp_find_package_sym;
-  struct object *lisp_find_symbol_sym;
-  struct object *lisp_gensym_sym;
-  struct object *lisp_gt_sym;
-  struct object *lisp_gte_sym;
-  struct object *lisp_if_sym;
-  struct object *lisp_intern_sym;
-  struct object *lisp_let_sym;
-  struct object *lisp_list_sym;
-  struct object *lisp_lt_sym;
-  struct object *lisp_lte_sym;
-  struct object *lisp_make_package_sym;
-  struct object *lisp_make_symbol_sym;
-  struct object *lisp_mul_sym;
-  struct object *lisp_or_sym;
-  struct object *lisp_package_sym;
-  struct object *lisp_package_name_sym;
-  struct object *lisp_package_symbols_sym;
-  struct object *lisp_progn_sym;
-  struct object *lisp_print_sym;
-  struct object *lisp_quasiquote_sym;
-  struct object *lisp_quote_sym;
-  struct object *lisp_standard_output_sym;
-  struct object *lisp_standard_input_sym;
-  struct object *lisp_set_sym;
-  struct object *lisp_set_local_sym;
-  struct object *lisp_set_symbol_function_sym;
-  struct object *lisp_shift_left_sym;
-  struct object *lisp_shift_right_sym;
-  struct object *lisp_symbol_function_sym;
-  struct object *lisp_symbol_name_sym;
-  struct object *lisp_symbol_value_sym;
-  struct object *lisp_symbol_value_set_sym;
-  struct object *lisp_sub_sym;
-  struct object *lisp_to_string_sym;
-  struct object *lisp_unquote_splicing_sym;
-  struct object *lisp_unquote_sym;
-  struct object *lisp_while_sym;
-  struct object *type_char_sym;
-  struct object *type_dynamic_array_sym;
-  struct object *type_dynamic_byte_array_sym;
-  struct object *type_dynamic_library_sym;
-  struct object *type_enumerator_sym;
-  struct object *type_file_sym;
-  struct object *type_fixnum_sym;
-  struct object *type_flonum_sym;
-  struct object *type_foreign_function_sym;
-  struct object *type_function_sym;
-  struct object *type_cons_sym;
-  struct object *type_int_sym;
-  struct object *type_nil_sym;
-  struct object *type_object_sym;
-  struct object *type_package_sym; /** contains the type, and the current package */
-  struct object *type_pointer_sym;
-  struct object *type_record_sym;
-  struct object *type_string_sym;
-  struct object *type_struct_sym;
-  struct object *type_symbol_sym;
-  struct object *type_t_sym;
-  struct object *type_type_sym;
-  struct object *type_ufixnum_sym;
-  struct object *type_uint_sym;
-  struct object *type_uint16_sym;
-  struct object *type_uint32_sym;
-  struct object *type_uint8_sym;
-  struct object *type_vec2_sym;
-  struct object *type_void_sym;
 
   /* Types */
   /* Common Lisp types are just symbols and lists.
@@ -646,13 +368,6 @@ struct gis {
   struct object *uint32_type;
   struct object *vec2_type; 
   struct object *void_type;
-
-  /* Packages */
-  struct object *impl_package;
-  struct object *keyword_package;
-  struct object *lisp_package;
-  struct object *type_package;
-  struct object *user_package;
 
   /* Builtins */
   struct object *alloc_struct_builtin;
@@ -787,6 +502,7 @@ void close_file(struct object *file);
 void print_stack();
 
 struct object *intern(struct object *string, struct object *package);
+struct object *c_intern(char *symbol_name, char *package_name);
 struct object *find_package(struct object *name);
 void use_package(struct object *p0, struct object *p1);
 

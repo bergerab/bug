@@ -23,3 +23,27 @@ I already had Strawberry Perl installed, so I just took the libffi.a, ffi.h, and
 * Types
 Common Lisp has type specifiers which supports complex expressions, and has separate types for its FFI.
 Right now, Bug has one set of types that are used for both. How can I get type expressions and keep this?
+
+* Image
+How to put everything into a portable image?
+
+"Interned symbols" list is used to keep all symbols.
+What about 'builtins' and 'types'?
+
+Could replace GIS with new thing called "image". Then make functions for "make-initial-image" and "restore-image"
+
+Make image consist of all interned symbols (*packages*).
+Do not save any value for the value slots for symbols that are builtin functions, or builtin types.
+Add support for storing marshalling user defined types (required)
+There should be a routine for creating a default image. This initializes the *packages* symbol.
+Then there is a routine (which is always run for new images and loaded images), that sets the values for builtins?
+  - this isnt great because someone could save a builtin to another variable. need a way of marshalling builtin types and functions
+
+Add functions for marshalling builtin functions and all types. 
+
+How can pointers be resolved? 
+
+What if all objects were in a global cons list? How would references work though
+
+* Should types be marshalled? Or should they have to be created everytime?
+
