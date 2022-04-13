@@ -772,7 +772,7 @@ struct object *make_image_header() {
   cache = string_marshal_cache_get_default();
   user_cache_start_index = DYNAMIC_ARRAY_LENGTH(cache);
 
-  symbol_cache = symbol_get_value(gis->impl_interned_symbols_sym);
+  symbol_cache = NIL;
 
   /* write string cache */
   write_file(file, marshal_dynamic_string_array(cache, NULL, 0, NULL, user_cache_start_index));

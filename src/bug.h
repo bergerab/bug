@@ -356,7 +356,6 @@ struct gis {
   struct object *impl_read_file_sym;
   struct object *impl_struct_field_sym;
   struct object *impl_i_sym; /** the index of the next instruction in bc to execute */
-  struct object *impl_interned_symbols_sym; /** list of all symbols that have been interned -- useful when writing/loading images */
   struct object *impl_macro_sym;
   struct object *impl_make_function_sym;
   struct object *impl_marshal_sym;

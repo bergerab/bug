@@ -961,7 +961,6 @@ struct object *intern(struct object *string, struct object *package) {
   sym = symbol(string);
   SYMBOL_PACKAGE(sym) = package; /* set the home package */
   PACKAGE_SYMBOLS(package) = cons(sym, PACKAGE_SYMBOLS(package));
-  dynamic_array_push(symbol_get_value(gis->impl_interned_symbols_sym), sym);
   if (package == gis->keyword_package) { /* all symbols in keyword package have
                                           the value of themselves*/
     symbol_set_value(sym, sym);
@@ -1027,17 +1026,7 @@ void gis_init(char load_core) {
   sym = symbol(str);                                                         \
   SYMBOL_PACKAGE(sym) = pack;                                                \
   PACKAGE_SYMBOLS(pack) = cons(sym, PACKAGE_SYMBOLS(pack));                  \
-  dynamic_array_push(symbol_get_value(gis->impl_interned_symbols_sym), sym); \
   symbol_export(sym);
-
-  /* Setup interned symbols without using GIS_SYM */
-  gis->impl_interned_symbols_sym = symbol(string("interned-symbols")); 
-  SYMBOL_PACKAGE(gis->impl_interned_symbols_sym) = gis->impl_package;
-  PACKAGE_SYMBOLS(gis->impl_package) = cons(gis->impl_interned_symbols_sym, PACKAGE_SYMBOLS(gis->impl_package));
-  symbol_export(gis->impl_interned_symbols_sym);
-  symbol_set_value(gis->impl_interned_symbols_sym, dynamic_array(256));
-  dynamic_array_push(symbol_get_value(gis->impl_interned_symbols_sym), NIL);
-  dynamic_array_push(symbol_get_value(gis->impl_interned_symbols_sym), gis->impl_interned_symbols_sym);
 
 #define GIS_SYM_S(sym, cstr, pack) GIS_SYM(sym, string(cstr), pack)
 
