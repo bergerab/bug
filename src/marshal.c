@@ -11,14 +11,14 @@ struct object *string_marshal_cache_get_default() {
   /* call out a bunch of names that could be frequently used in the bytecode.
      if a symbol (used as a value or looked up directly) uses one of the names below
      for its symbol-name or the home package's name. */
-  dynamic_array_push(cache, gis->user_str);
-  dynamic_array_push(cache, gis->lisp_str);
-  dynamic_array_push(cache, gis->keyword_str);
-  dynamic_array_push(cache, gis->impl_str);
-  dynamic_array_push(cache, gis->t_str);
-  dynamic_array_push(cache, gis->var_str);
-  dynamic_array_push(cache, gis->list_str);
-  dynamic_array_push(cache, gis->cons_str);
+  dynamic_array_push(cache, string("user"));
+  dynamic_array_push(cache, string("lisp"));
+  dynamic_array_push(cache, string("keyword"));
+  dynamic_array_push(cache, string("impl"));
+  dynamic_array_push(cache, string("t"));
+  dynamic_array_push(cache, string("var"));
+  dynamic_array_push(cache, string("list"));
+  dynamic_array_push(cache, string("cons"));
   return cache;
 }
 
