@@ -1102,7 +1102,7 @@ void gis_init(char load_core) {
   GIS_SYM_S(gis->keyword_inherited_sym, "inherited", gis->keyword_package);
   GIS_SYM_S(gis->keyword_internal_sym, "internal", gis->keyword_package);
   GIS_SYM_S(gis->keyword_value_sym, "value", gis->keyword_package);
-  GIS_SYM_S(gis->lisp_add_sym, "add", gis->lisp_package);
+  GIS_SYM_S(gis->lisp_add_sym, "+", gis->lisp_package);
   GIS_SYM_S(gis->lisp_apply_sym, "apply", gis->lisp_package);
   GIS_SYM_S(gis->lisp_bin_and_sym, "&", gis->lisp_package);
   GIS_SYM_S(gis->lisp_bin_or_sym, "|", gis->lisp_package);
@@ -1120,6 +1120,8 @@ void gis_init(char load_core) {
   GIS_SYM_S(gis->lisp_if_sym, "if", gis->lisp_package);
   GIS_SYM_S(gis->lisp_intern_sym, "intern", gis->lisp_package);
   GIS_SYM_S(gis->lisp_lt_sym, "<", gis->lisp_package);
+  GIS_SYM_S(gis->lisp_list_sym, "list", gis->lisp_package);
+  GIS_SYM_S(gis->lisp_let_sym, "let", gis->lisp_package);
   GIS_SYM_S(gis->lisp_lte_sym, "<=", gis->lisp_package);
   GIS_SYM_S(gis->lisp_make_symbol_sym, "make-symbol", gis->lisp_package);
   GIS_SYM_S(gis->lisp_make_package_sym, "make-package", gis->lisp_package);
@@ -1133,7 +1135,7 @@ void gis_init(char load_core) {
   GIS_SYM_S(gis->lisp_quasiquote_sym, "quasiquote", gis->lisp_package);
   GIS_SYM_S(gis->lisp_quote_sym, "quote", gis->lisp_package);
   GIS_SYM_S(gis->lisp_standard_input_sym, "*standard-input*", gis->lisp_package);
-  GIS_SYM_S(gis->lisp_standard_output_sym, "standard-output*", gis->lisp_package);
+  GIS_SYM_S(gis->lisp_standard_output_sym, "*standard-output*", gis->lisp_package);
   GIS_SYM_S(gis->lisp_set_sym, "set", gis->lisp_package);
   GIS_SYM_S(gis->lisp_set_local_sym, "set-local", gis->lisp_package);
   GIS_SYM_S(gis->lisp_set_symbol_function_sym, "set-symbol-function", gis->lisp_package);
