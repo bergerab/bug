@@ -260,7 +260,7 @@
 						 	(,continue-sym t))
 					(let* ((,item-sym nil))
 						(while (and (< ,index-sym ,length-sym) ,continue-sym)
-							(set-local ,item-sym (dynamic-array-get ,list-sym ,index-sym))
+							(set-local ,item-sym (lisp:dynamic-array-get ,list-sym ,index-sym))
 							(let ((,result-sym (progn ,@body)))
 								(when ,result-sym
 									(set-local ,continue-sym nil))
@@ -371,7 +371,7 @@
 	(dynamic-byte-array-get s x))
 
 (function dynamic-array-last (da)
-	(dynamic-array-get da (- (dynamic-array-length da) 1)))
+	(lisp:dynamic-array-get da (- (dynamic-array-length da) 1)))
 
 (function do-times (f n)
 	(when (> n 0)
@@ -534,7 +534,7 @@
 				 (i 0)
 				 (j (- (dynamic-array-length parts) 1)))
 		(while (< i j)
-			(set-local s (string-concat s (dynamic-array-get parts i)))
+			(set-local s (string-concat s (lisp:dynamic-array-get parts i)))
 			(string-push-char s *directory-delimiter*)
 			(inc-local i))
 		s))

@@ -132,6 +132,12 @@ typedef double flonum_t;
 
 #define GIS_PACKAGE symbol_get_value(gis->lisp_package_sym)
 
+/* Gets a builtin symbol */
+#define BSYM(pac, sym) gis->pac##_##sym##_sym
+#define BSYM_VAL(pac, sym) symbol_get_value(BSYM(pac, sym))
+#define BSYM_SET_VAL(pac, sym, val) symbol_set_value(BSYM(pac, sym), val)
+#define BPAC(pac) gis->pac##_package
+
 #include "ops.h"
 
 /* The types defined below are not the same as the types that will
@@ -334,12 +340,12 @@ struct gis {
   struct object *impl_define_function_sym;
   struct object *impl_define_struct_sym;
   struct object *impl_drop_sym;
-  struct object *impl_dynamic_array_get_sym;
-  struct object *impl_dynamic_array_set_sym;
-  struct object *impl_dynamic_array_length_sym;
-  struct object *impl_dynamic_array_push_sym;
-  struct object *impl_dynamic_array_pop_sym;
-  struct object *impl_dynamic_array_concat_sym;
+  struct object *lisp_dynamic_array_get_sym;
+  struct object *lisp_dynamic_array_set_sym;
+  struct object *lisp_dynamic_array_length_sym;
+  struct object *lisp_dynamic_array_push_sym;
+  struct object *lisp_dynamic_array_pop_sym;
+  struct object *lisp_dynamic_array_concat_sym;
   struct object *impl_dynamic_byte_array_concat_sym;
   struct object *impl_dynamic_byte_array_as_string_sym;
   struct object *impl_dynamic_byte_array_get_sym;

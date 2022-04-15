@@ -23,3 +23,51 @@ I already had Strawberry Perl installed, so I just took the libffi.a, ffi.h, and
 * Types
 Common Lisp has type specifiers which supports complex expressions, and has separate types for its FFI.
 Right now, Bug has one set of types that are used for both. How can I get type expressions and keep this?
+
+* Image
+How to put everything into a portable image?
+
+"Interned symbols" list is used to keep all symbols.
+What about 'builtins' and 'types'?
+
+Could replace GIS with new thing called "image". Then make functions for "make-initial-image" and "restore-image"
+
+Make image consist of all interned symbols (*packages*).
+Do not save any value for the value slots for symbols that are builtin functions, or builtin types.
+Add support for storing marshalling user defined types (required)
+There should be a routine for creating a default image. Thkis initializes the *packages* symbol.
+Then there is a routine (which is always run for new images and loaded images), that sets the values for builtins?
+  - this isnt great because someone could save a builtin to another variable. need a way of marshalling builtin types and functions
+
+Add functions for marshalling builtin functions and all types. 
+
+How can pointers be resolved? 
+
+What if all objects were in a global cons list? How would references work though
+
+* Should types be marshalled? Or should they have to be created everytime?
+FFI types need to be recreated when the image starts again.
+
+* packages list and types list
+What to do on load image:
+  use existing
+
+What to do on new image:
+  initialize with defaults
+
+* Bytecode vs FASL
+A popular bytecode format is to have a constants vector with code array (e.g. used by CPython and CLISP).
+FASL doesn't know how to run anything. It is just a format for loading objects into the LISP environment.
+Bytecode is the actual runtime of the program. Whenever a program is actually run, it is running bytecode. 
+
+Should programs be compiled into FASL or Bytecode? Bytecode allows the programs to be run immediately with only
+the bytecode interpreter.
+
+How are FASL read? Same as regular compile but with different modified reader?
+
+* Must understand how to use bytecode vs FASL vs images
+
+* Saving images
+To make fully portable images:
+  Map all pointers to a master vector of all values.
+  Store the master vector.

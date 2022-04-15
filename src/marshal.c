@@ -506,7 +506,7 @@ struct object *unmarshal_symbol(struct object *s, struct object *cache) {
       print(package_name);
       exit(1);
     }
-    return intern(symbol_name, package == NIL ? GIS_PACKAGE : package);
+    return intern(symbol_name, package);
   } else {
     symbol_name = unmarshal_string(s, 0, cache, 0);
     return symbol(symbol_name);

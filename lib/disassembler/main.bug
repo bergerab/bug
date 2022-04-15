@@ -27,7 +27,7 @@
 
 (function get-op (code)
   (unless (out-of-bounds *ops* code)
-    (dynamic-array-get *ops* code)))
+    (lisp:dynamic-array-get *ops* code)))
 
 (struct disassembler
   ((index object)))
